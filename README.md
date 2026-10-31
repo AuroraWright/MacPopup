@@ -6,6 +6,9 @@ including fullscreen apps, and lets you hover words to get a Yomitan-style dicti
 Anki card creation. Lookups come from your installed Yomitan through the
 [Yomitan API](https://github.com/yomidevs/yomitan-api).
 
+In screen OCR mode, MacPopup instead reads another app's window (a game, say) with Apple's Live
+Text and lets you hover the window's own text, with no text box at all.
+
 ## Requirements
 
 - macOS 14 or later, Swift 5.9+ (Xcode or the command line tools), Node.js 18+
@@ -23,8 +26,8 @@ open build/MacPopup.app
 `scripts/build.sh debug` makes a debug build. The first build downloads Yomitan's kanji stroke
 order font into `build/cache`.
 
-The app has no Dock icon. Use the menu bar item (speech bubble) for Settings, hiding the overlay,
-moving it to another display, reloading, and quitting.
+The app has no Dock icon. Use the menu bar item (speech bubble) for Settings, screen OCR mode,
+hiding the overlay, moving it to another display, reloading, and quitting.
 
 ## Usage
 
@@ -50,6 +53,43 @@ The buttons at the top of Settings import existing settings:
   and the Anki field templates.
 - **Import texthooker-ui** reads a texthooker-ui settings export, so your theme, font size,
   replacements and so on carry over.
+
+## Screen OCR mode
+
+Turn it on with **Screen OCR Mode** in the menu bar. The text box disappears, and words in the
+chosen window open popups when hovered, the same way as in the box. MacPopup needs the Screen
+Recording permission (System Settings → Privacy & Security), which macOS asks for the first time.
+
+- **Select Window for OCR…** (also in Settings → Screen OCR) covers the screen: click the window to
+  read, then optionally drag over the parts that show text, such as the game's text box, and click
+  **Done** (or press Return). Without areas, the whole window is read. **Undo** (Delete) removes the
+  last area or goes back to choosing the window, and **Cancel** (Esc) keeps the previous choice.
+  The window is found again by its app and title the next time MacPopup starts.
+- Text is recognized with Live Text in the language set in Settings → Screen OCR (Japanese by
+  default), horizontal or vertical. Only the chosen areas are captured, and a window drawn at 1x
+  (e.g. a VM or a game that isn't Retina aware) is read at 1x, which is faster ("Read at" in
+  Settings overrides this).
+- Without a WebSocket, MacPopup watches the window (or the chosen areas) and reads it again when
+  more than the change threshold of it changes and then stays still. Small changes like a blinking
+  cursor stay under the threshold. Choosing areas helps with animated backgrounds. To save work,
+  with "Watch after mouse use" (on by default) this only happens for a while (2 seconds) after the
+  mouse moves or clicks (e.g. a click that advances the text), and the window is checked right away
+  when it starts being used. Words are looked up when the cursor moves (or a scan key is
+  pressed), not when new text appears under a resting cursor.
+- The window is only read while it's on screen in the current space; it's read again when it comes
+  back, and lines that arrive meanwhile are read then.
+- With a WebSocket connected, each new line is the cue to read the window instead, and the window
+  is only watched for changes for a moment after each reading. Hooks usually send the line as the
+  game starts drawing it, so MacPopup waits until the window stops changing before reading, and
+  hides the previous text meanwhile. Recognized text that matches the line is
+  corrected with it (the WebSocket text wins), and if it doesn't match yet, the window is read
+  again. Turn this off with **Use WebSocket lines**.
+- Words are only looked up while no other window covers the chosen one at the cursor.
+- **Outline recognized text** in Settings is for debugging: it shows what was recognized, red for
+  plain OCR text, green for lines corrected with the WebSocket line.
+
+Live Text is read through a private VisionKit interface (the same one owocr uses), so a future
+macOS version could change it.
 
 ## Yomitan popup
 
@@ -91,7 +131,7 @@ the duplicate settings in Settings → Anki.
 - Because WebKit only sends hover events to the focused window, CSS `:hover` effects (such as
   button highlights) only show while MacPopup is the active app. Lookups and nested lookups don't
   depend on this.
-- Scanning works on the overlay's own text, not on other apps.
+- Outside screen OCR mode, scanning works on the overlay's own text, not on other apps.
 
 ## License
 

@@ -13,6 +13,7 @@ enum WebViewFactory {
         configuration.userContentController.addScriptMessageHandler(bridge, contentWorld: .page, name: NativeBridge.handlerName)
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        enableMasonryLayout(configuration.preferences)
         // Development hook: MACPOPUP_TEST_SCRIPT=<file.js> is injected into every top-level page.
         if let path = ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"],
            let source = try? String(contentsOfFile: path, encoding: .utf8) {
@@ -21,6 +22,24 @@ enum WebViewFactory {
             )
         }
         return configuration
+    }
+
+    /// Turns on WebKit's masonry layout, which is still a preview feature (off outside Safari Technology
+    /// Preview), so popup CSS can lay out entries in columns of uneven height like in Chrome and Firefox.
+    /// Current WebKit only has the older `grid-template-rows: masonry` syntax; `display: grid-lanes` is
+    /// covered by the key match in case it gets a flag of its own.
+    @MainActor
+    private static func enableMasonryLayout(_ preferences: WKPreferences) {
+        let setEnabled = NSSelectorFromString("_setEnabled:forFeature:")
+        guard let features = WKPreferences.perform(NSSelectorFromString("_features"))?.takeUnretainedValue() as? [NSObject],
+              preferences.responds(to: setEnabled) else { return }
+        typealias SetEnabled = @convention(c) (AnyObject, Selector, Bool, AnyObject) -> Void
+        let function = unsafeBitCast(preferences.method(for: setEnabled), to: SetEnabled.self)
+        for feature in features {
+            guard let key = feature.value(forKey: "key") as? String,
+                  key.contains("Masonry") || key.contains("GridLanes") else { continue }
+            function(preferences, setEnabled, true, feature)
+        }
     }
 
     static func url(for page: String) -> URL {

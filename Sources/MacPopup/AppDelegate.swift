@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var settingsWindow: SettingsWindowController!
     private var statusItem: NSStatusItem!
     private var toggleItem: NSMenuItem!
+    private var ocrItem: NSMenuItem!
+    private var ocr: OCRController!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         schemeHandler = WebAssetsSchemeHandler(root: WebViewFactory.webRoot)
@@ -20,7 +22,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         settingsWindow = SettingsWindowController(configuration: configuration)
         overlay.onMouseButtonEvent = { [weak self] button, isDown in
             self?.settingsWindow.mouseButtonEvent(button: button, isDown: isDown)
+            if isDown { self?.ocr.mouseClicked() }
         }
+
+        ocr = OCRController(overlay: overlay)
 
         setUpStatusItem()
         overlay.show()
@@ -34,6 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         menu.delegate = self
         toggleItem = NSMenuItem(title: "Hide Overlay", action: #selector(toggleOverlay), keyEquivalent: "")
         menu.addItem(toggleItem)
+        ocrItem = NSMenuItem(title: "Screen OCR Mode", action: #selector(toggleOCR), keyEquivalent: "")
+        menu.addItem(ocrItem)
+        menu.addItem(NSMenuItem(title: "Select Window for OCR…", action: #selector(selectOCRWindow), keyEquivalent: ""))
+        menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "Move to Next Display", action: #selector(moveToNextDisplay), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Reload", action: #selector(reload), keyEquivalent: "r"))
@@ -47,10 +56,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
 
     func menuWillOpen(_ menu: NSMenu) {
         toggleItem.title = overlay.isVisible ? "Hide Overlay" : "Show Overlay"
+        ocrItem.state = ocr.isEnabled ? .on : .off
     }
 
     @objc private func toggleOverlay() {
         setOverlayVisible(!overlay.isVisible)
+    }
+
+    @objc private func toggleOCR() {
+        ocr.setEnabled(!ocr.isEnabled)
+    }
+
+    @objc private func selectOCRWindow() {
+        if !overlay.isVisible {
+            setOverlayVisible(true)
+        }
+        ocr.selectWindow()
     }
 
     @objc private func showSettings() {
@@ -73,6 +94,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
 
     func openSettings() {
         settingsWindow.show(above: overlay.panel.level)
+    }
+
+    func ocrMessage(_ body: [String: Any]) {
+        ocr.handle(body)
     }
 
     func overlayDisplayID() -> CGDirectDisplayID? {

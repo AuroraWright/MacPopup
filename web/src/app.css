@@ -112,6 +112,53 @@ body {
 	user-select: none;
 }
 
+/* Screen OCR mode: invisible text over another app's window (see lib/ocr-layer.js). The text must stay
+   selectable, or Yomitan's scanner treats transparent text as hidden. */
+#ocr-layer {
+	position: absolute;
+}
+
+#ocr-text {
+	position: absolute;
+	left: 0;
+	top: 0;
+	transform-origin: 0 0;
+	white-space: pre;
+	color: transparent;
+	font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+	font-weight: 400;
+}
+
+#ocr-text .ocr-line {
+	position: absolute;
+	white-space: pre;
+}
+
+#ocr-text .ocr-char {
+	display: inline-block;
+	position: relative;
+	vertical-align: top;
+}
+
+#ocr-layer.show-boxes .ocr-line {
+	outline: 1px solid rgb(255 80 80 / 0.8);
+	color: rgb(255 80 80 / 0.7);
+}
+
+#ocr-layer.show-boxes .ocr-line.ocr-matched {
+	outline-color: rgb(40 200 90 / 0.9);
+	color: rgb(40 200 90 / 0.8);
+}
+
+#ocr-toast {
+	position: absolute;
+	left: 50%;
+	bottom: 8px;
+	transform: translateX(-50%);
+	padding: 4px 10px;
+	white-space: nowrap;
+}
+
 ::highlight(macpopup-scan) {
 	background-color: hsl(var(--p) / 0.35);
 }

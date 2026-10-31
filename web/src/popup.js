@@ -19,6 +19,15 @@ import { ankiFields, kanjiEntries } from './lib/yomitan-api.js';
 
 const overlay = () => window.parent.macpopupOverlay;
 
+// The canvas element each OffscreenCanvas came from, since media requests only carry the latter.
+const canvasElements = new WeakMap();
+const transferControlToOffscreen = HTMLCanvasElement.prototype.transferControlToOffscreen;
+HTMLCanvasElement.prototype.transferControlToOffscreen = function () {
+	const offscreen = transferControlToOffscreen.call(this);
+	canvasElements.set(offscreen, this);
+	return offscreen;
+};
+
 /** Loads structured-content images through the Yomitan API instead of the extension backend. */
 class PopupContentManager extends DisplayContentManager {
 	constructor(popup) {
@@ -42,8 +51,14 @@ class PopupContentManager extends DisplayContentManager {
 		for (const { path, dictionary, canvas } of requests) {
 			const item = media.find((value) => value.path === path && value.dictionary === dictionary);
 			if (!item) continue;
+			// Yomitan colors monochrome images with a CSS filter whose drop-shadow WebKit leaves out
+			// when it draws the canvas on the GPU (they show black), so they're colored here instead.
+			const element = canvasElements.get(canvas);
+			const color = element?.closest('.gloss-image-link')?.dataset.appearance === 'monochrome'
+				? getComputedStyle(element).getPropertyValue('--text-color').trim() || getComputedStyle(element).color
+				: null;
 			try {
-				await drawMediaToCanvas(item, canvas);
+				await drawMediaToCanvas(item, canvas, color);
 			} catch (e) {
 				log('Failed to draw dictionary media', e);
 			}
@@ -63,7 +78,8 @@ class PopupContentManager extends DisplayContentManager {
 	}
 }
 
-async function drawMediaToCanvas(item, canvas) {
+/** @param {string | null} color Fills the image's shape with this color (for monochrome images). */
+async function drawMediaToCanvas(item, canvas, color = null) {
 	const blob = new Blob([base64ToArrayBuffer(item.content)], { type: item.mediaType });
 	let image;
 	try {
@@ -77,6 +93,12 @@ async function drawMediaToCanvas(item, canvas) {
 	const context = canvas.getContext('2d');
 	context.clearRect(0, 0, canvas.width, canvas.height);
 	context.drawImage(image, 0, 0, canvas.width, canvas.height);
+	if (color) {
+		context.globalCompositeOperation = 'source-in';
+		context.fillStyle = color;
+		context.fillRect(0, 0, canvas.width, canvas.height);
+		context.globalCompositeOperation = 'source-over';
+	}
 }
 
 // Custom popup CSS followed by each dictionary's styles, scoped to its entries like Yomitan's

@@ -38,11 +38,12 @@ function getTemplate({ fieldTemplates, dictionaries: importedDictionaries }, dic
 }
 
 function getEntryDictionaries(dictionaryEntry) {
-	const names = [];
+	// Kanji entries name their dictionary themselves, and their definitions are plain strings.
+	const names = [dictionaryEntry.dictionary];
 	for (const key of ['definitions', 'frequencies', 'pronunciations']) {
-		for (const { dictionary } of dictionaryEntry[key] ?? []) names.push(dictionary);
+		for (const item of dictionaryEntry[key] ?? []) names.push(item?.dictionary);
 	}
-	return names;
+	return names.filter((name) => typeof name === 'string');
 }
 
 function getDictionaryStylesMap() {

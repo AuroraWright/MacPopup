@@ -11,6 +11,12 @@
     background-color: rgba(64, 128, 255, 0.35);
 }
 
+/* Monochrome images are colored when they're drawn (see popup.js); Yomitan's filter for it doesn't
+   work in WebKit. */
+.gloss-image-link[data-appearance=monochrome] .gloss-image {
+    filter: none;
+}
+
 #error-api-message {
     white-space: pre-wrap;
     word-break: break-word;

@@ -6,6 +6,7 @@ import WebKit
 protocol BridgeHost: AnyObject {
     func setHitRects(_ rects: [CGRect])
     func openSettings()
+    func ocrMessage(_ body: [String: Any])
     func overlayDisplayID() -> CGDirectDisplayID?
     func overlayMenuBarHeight() -> Double
     func setOverlayVisible(_ visible: Bool)
@@ -90,6 +91,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             return NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
         case "menuBarHeight":
             return host?.overlayMenuBarHeight() ?? 0
+        case "ocr":
+            host?.ocrMessage(body)
+            return nil
         case "openSettings":
             host?.openSettings()
             return nil

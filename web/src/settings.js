@@ -1,5 +1,5 @@
 import { ankiInvoke } from './lib/anki-connect.js';
-import { log } from './lib/native.js';
+import { log, nativeCall } from './lib/native.js';
 import { onlineFonts, themes } from './lib/settings-defaults.js';
 import { getSettings, loadSettings, onSettingsChanged, resetSettings, saveSettings } from './lib/settings.js';
 import { yomitanVersion } from './lib/yomitan-api.js';
@@ -74,6 +74,92 @@ const sections = [
 					option('screenSaver', 'Screen saver'),
 					option('shielding', 'Shielding (above captured displays)'),
 				],
+			},
+		],
+	},
+	{
+		title: 'Screen OCR',
+		description:
+			'Instead of the text box, read another app’s window with Live Text and show popups when hovering its text. ' +
+			'Toggle it with Screen OCR Mode in the menu bar. Needs the Screen Recording permission.',
+		fields: [
+			{ key: 'ocrMode', label: 'Screen OCR mode', type: 'checkbox' },
+			{ key: 'ocrWindow', label: 'Window', type: 'ocrWindow' },
+			{
+				key: 'ocrLanguage',
+				label: 'Language',
+				type: 'select',
+				options: [option('ja', 'Japanese'), option('zh-Hans', 'Chinese (Simplified)'), option('zh-Hant', 'Chinese (Traditional)'), option('ko', 'Korean'), option('en', 'English')],
+			},
+			{
+				key: 'ocrResolution',
+				label: 'Read at',
+				type: 'select',
+				options: [option('auto', 'Automatic'), option('full', 'Full resolution'), option('1x', '1x')],
+				hint: 'Automatic reads windows drawn at 1x (e.g. a VM or a game that isn’t Retina aware, enlarged by macOS) at 1x, which is faster and loses nothing, and others at full Retina resolution. Choose one if text is misread: full resolution for small text, 1x if automatic picks full resolution for a window drawn at 1x.',
+			},
+			{
+				key: 'ocrUseWebsocket',
+				label: 'Use WebSocket lines',
+				type: 'checkbox',
+				hint: 'New lines from the WebSocket trigger reading the window, and recognized text that matches the line is replaced by it.',
+			},
+			{
+				key: 'ocrChangeThreshold',
+				label: 'Change threshold (%)',
+				type: 'number',
+				min: 0,
+				step: 0.1,
+				hint: 'The window is read again when this share of it (or of the chosen areas) changes (while a WebSocket is connected, only briefly after each line).',
+			},
+			{
+				key: 'ocrPollInterval',
+				label: 'Check for changes every (ms)',
+				type: 'number',
+				min: 50,
+				hint: 'How often the window is compared with the last reading to notice new text: all the time, or with “Watch after mouse use” only for a while after the mouse is used. Shorter notices changes sooner but uses more CPU. While a WebSocket is connected, its lines are the cue instead, and the window is only watched briefly after each one.',
+			},
+			{
+				key: 'ocrMouseWatch',
+				label: 'Watch after mouse use',
+				type: 'checkbox',
+				hint: 'Without a WebSocket: only check for changes for a while after the mouse moves or clicks (e.g. to advance the text), instead of all the time, to save work while you read. Text that starts appearing in that time is read once it’s finished, however long that takes.',
+			},
+			{
+				key: 'ocrMouseWatchTime',
+				label: 'Watch for (ms)',
+				type: 'number',
+				min: 0,
+				showIf: (settings) => settings.ocrMouseWatch,
+				hint: 'How long changes are checked for after the mouse moves or clicks. Raise it if a game shows its next line only after a longer transition (otherwise it’s only read once you move the mouse again); keep it well above “Check for changes every”, so it’s checked several times.',
+			},
+			{
+				key: 'ocrSettleTime',
+				label: 'Wait until unchanged for (ms)',
+				type: 'number',
+				min: 0,
+				hint: 'Text is read once the picture stops changing, so lines that are still being drawn aren’t read half-finished.',
+			},
+			{
+				key: 'ocrStillTolerance',
+				label: 'Ignore changes fainter than (0–255)',
+				type: 'number',
+				min: 0,
+				max: 255,
+				hint: 'How much a pixel’s brightness has to change to count as still changing while waiting. Higher reads sooner when text fades in slowly or the picture is grainy (e.g. a video background), but may read text before its last characters are fully drawn. Lower waits for every faint change.',
+			},
+			{
+				key: 'ocrMaxWait',
+				label: 'Read anyway after (ms)',
+				type: 'number',
+				min: 100,
+				hint: 'If the picture keeps changing (e.g. slow text, or an animated background or effect), the window is read after this long anyway, and again once it stops changing. Choosing areas around the text avoids most of these waits.',
+			},
+			{
+				key: 'ocrShowBoxes',
+				label: 'Outline recognized text',
+				type: 'checkbox',
+				hint: 'For debugging: shows the recognized text and outlines its lines over the window, red for plain OCR text and green for lines corrected with the WebSocket line.',
 			},
 		],
 	},
@@ -394,6 +480,31 @@ function createAnkiTemplatesControl(field) {
 	return { control, setValue };
 }
 
+// The window read in screen OCR mode, chosen on screen (see WindowPicker.swift).
+function createOcrWindowControl() {
+	const control = document.createElement('div');
+	control.className = 'flex items-center gap-2';
+	const description = document.createElement('span');
+	description.className = 'text-sm truncate flex-1';
+	const select = document.createElement('button');
+	select.className = 'btn btn-sm';
+	select.textContent = 'Select…';
+	select.addEventListener('click', () => nativeCall('ocr', { action: 'select' }));
+	control.append(description, select);
+
+	const setValue = (value) => {
+		const regions = getSettings().ocrRegions ?? [];
+		if (!value || Array.isArray(value)) {
+			description.textContent = 'None';
+		} else {
+			const name = value.title ? `${value.ownerName} — ${value.title}` : value.ownerName;
+			description.textContent = `${name} (${regions.length === 0 ? 'whole window' : `${regions.length} area${regions.length === 1 ? '' : 's'}`})`;
+		}
+		description.title = description.textContent;
+	};
+	return { control, setValue };
+}
+
 function createField(field) {
 	const label = document.createElement('span');
 	label.className = 'label-text';
@@ -405,7 +516,12 @@ function createField(field) {
 		label.append(hint);
 	}
 
-	const customControls = { scanInputs: createScanInputsControl, imported: createImportedControl, ankiTemplates: createAnkiTemplatesControl };
+	const customControls = {
+		scanInputs: createScanInputsControl,
+		imported: createImportedControl,
+		ankiTemplates: createAnkiTemplatesControl,
+		ocrWindow: createOcrWindowControl,
+	};
 	if (field.type in customControls) {
 		const { control, setValue } = customControls[field.type](field);
 		label.classList.add('self-start', 'pt-1');

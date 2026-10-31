@@ -35,6 +35,12 @@ final class OverlayController: NSObject {
     /// MACPOPUP_DEBUG_INPUT=1 logs mouse button events and state to stderr.
     private let debugInput = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_INPUT"] != nil
     private var simulatedMouseUntil = Date.distantPast
+    /// Called with the cursor position in global coordinates (origin at the top left of the main display).
+    var onCursorMoved: ((CGPoint) -> Void)?
+    /// Overrides the display chosen in the settings (screen OCR mode follows the window being read).
+    var preferredScreen: NSScreen? {
+        didSet { applySettings() }
+    }
 
     init(configuration: WKWebViewConfiguration) {
         panel = OverlayPanel(
@@ -113,6 +119,16 @@ final class OverlayController: NSObject {
         return max(0, screen.frame.maxY - screen.visibleFrame.maxY)
     }
 
+    /// The top left of the overlay in global coordinates (origin at the top left of the main display).
+    var globalOrigin: CGPoint {
+        let mainHeight = NSScreen.screens.first?.frame.height ?? panel.frame.height
+        return CGPoint(x: panel.frame.minX, y: mainHeight - panel.frame.maxY)
+    }
+
+    func evaluate(_ js: String) {
+        webView.evaluateJavaScript(js)
+    }
+
     func setHitRects(_ rects: [CGRect]) {
         hitRects = rects
         updateMouse(force: true)
@@ -124,7 +140,8 @@ final class OverlayController: NSObject {
         let store = SettingsStore.shared
         let screens = NSScreen.screens
         let index = store.int("displayIndex") ?? 0
-        let screen = screens.indices.contains(index) ? screens[index] : (NSScreen.main ?? screens.first)
+        let screen = preferredScreen.flatMap { preferred in screens.first { $0 == preferred } }
+            ?? (screens.indices.contains(index) ? screens[index] : (NSScreen.main ?? screens.first))
         if let screen, panel.frame != screen.frame {
             panel.setFrame(screen.frame, display: true)
         }
@@ -279,6 +296,8 @@ final class OverlayController: NSObject {
         lastMouseLocation = location
         lastModifiers = modifiers
         lastPressed = pressed
+        let mainHeight = NSScreen.screens.first?.frame.height ?? frame.height
+        onCursorMoved?(CGPoint(x: location.x, y: mainHeight - location.y))
         guard frame.contains(location) else { return }
 
         // Names are plain identifiers ("mouse3"), so they can be quoted directly.

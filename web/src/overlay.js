@@ -6,6 +6,7 @@ import { log, nativeCall } from './lib/native.js';
 import { getPopupPosition } from './lib/popup-position.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
 import { getTextSourceAtElementStart, getTextSourceFromPoint, searchTextSource, setHighlight } from './lib/scanner.js';
+import { correctWithText, decodeLines, renderLines } from './lib/ocr-layer.js';
 import { getSettings, loadSettings, onSettingsChanged, saveSettings } from './lib/settings.js';
 import { ankiCardFormats, kanjiEntries, termEntries, tokenize } from './lib/yomitan-api.js';
 
@@ -48,7 +49,7 @@ function reportHitRects() {
 let toastTimer = null;
 
 function showToast(message) {
-	const toast = $('#toast');
+	const toast = getSettings().ocrMode ? $('#ocr-toast') : $('#toast');
 	toast.textContent = message;
 	toast.hidden = false;
 	clearTimeout(toastTimer);
@@ -319,11 +320,13 @@ class SocketConnection {
 			// Plain text
 		}
 		addLine(line);
+		ocrWebsocketLine(line);
 	}
 
 	setState(value) {
 		this.state = value;
 		this.render();
+		updateOcrWebsocket();
 	}
 
 	render() {
@@ -551,8 +554,14 @@ class PopupManager {
 		popup.iframe.style.visibility = '';
 		popup.api?.stopAudio();
 		popup.api?.clearScan();
-		if (depth === 0) clearMainScan();
-		else this.popups[depth - 1]?.api?.clearScan();
+		if (depth === 0) {
+			// Hovering the word again opens it again. A scan that's scheduled or being looked up is
+			// for where the cursor is now (auto-hide fires after it left the old word), so it goes on.
+			if (!scan.pending) scan.source = null;
+			setHighlight(null);
+		} else {
+			this.popups[depth - 1]?.api?.clearScan();
+		}
 	}
 
 	closeAbove(depth) {
@@ -600,6 +609,9 @@ class PopupManager {
 const popupManager = new PopupManager();
 
 async function getDocumentTitle() {
+	// In screen OCR mode, the app being read.
+	const ocrWindow = getSettings().ocrMode && getSettings().ocrWindow;
+	if (ocrWindow?.ownerName) return ocrWindow.ownerName;
 	try {
 		return await nativeCall('frontmostApp');
 	} catch (_) {
@@ -679,7 +691,7 @@ function scanBox(x, y, mods) {
 	}
 }
 
-async function scanSource(source) {
+async function scanSource(source, vertical = getSettings().displayVertical) {
 	if (!source) {
 		onSearchEmpty();
 		return;
@@ -711,7 +723,7 @@ async function scanSource(source) {
 	stopHideDelayed();
 	setHighlight(source);
 	const rects = [...source.getRects()].map(({ left, top, right, bottom }) => ({ left, top, right, bottom }));
-	await popupManager.show(0, result, rects, getSettings().displayVertical);
+	await popupManager.show(0, result, rects, vertical);
 }
 
 // Popup hiding works like Yomitan's Frontend: "auto-hide results" hides the popup when a scan finds
@@ -768,11 +780,23 @@ function setPointerHover(x, y) {
 }
 
 // `pressed` lists the held mouse buttons (see lib/scan-inputs.js).
+// Words are looked up when the cursor moves, or when a scan key or button is pressed: not when only
+// something else changes under a resting cursor (e.g. a click advancing a game's text).
+let lastPointer = null;
+let scanKeyHeld = false;
+
 window.__macpopupPointer = (x, y, shift, ctrl, alt, meta, pressed = []) => {
+	const moved = lastPointer === null || x !== lastPointer.x || y !== lastPointer.y;
+	lastPointer = { x, y };
 	const settings = getSettings();
 	const mods = { shift, ctrl, alt, meta, pressed };
+	const input = matchScanInput(settings.scanModifier, settings.scanInputs, mods);
+	const wasHeld = scanKeyHeld;
+	scanKeyHeld = input !== null && !input.passive;
+	const mayScan = moved || (scanKeyHeld && !wasHeld);
 	const hit = popupManager.hitTest(x, y);
 	const overBox = !box.hidden && rectContains(box.getBoundingClientRect(), x, y);
+	const ocrLine = !hit && !overBox ? ocrLineAt(x, y) : null;
 	box.classList.toggle('hovered', overBox && !hit);
 	setPointerHover(overBox && !hit ? x : null, y);
 	if (hit) {
@@ -780,7 +804,9 @@ window.__macpopupPointer = (x, y, shift, ctrl, alt, meta, pressed = []) => {
 		setHoveredToken(null);
 		hit.popup.api.onPointer(hit.x, hit.y, mods);
 	} else if (overBox) {
-		scanBox(x, y, mods);
+		if (mayScan) scanBox(x, y, mods);
+	} else if (ocrLine) {
+		if (mayScan) scanOcr(x, y, mods, ocrLine);
 	} else {
 		clearTimeout(scan.timer);
 		setHoveredToken(null);
@@ -804,10 +830,163 @@ window.__macpopupPointer = (x, y, shift, ctrl, alt, meta, pressed = []) => {
 
 window.__macpopupOutsideClick = () => popupManager.closeAll();
 
+// Screen OCR mode: the host reads another app's window with Live Text (OCRController.swift) and
+// sends the text here, where it's laid over the window invisibly (lib/ocr-layer.js) for scanning.
+
+const ocr = {
+	window: null,
+	// Another window is in front of the target under the cursor.
+	covered: false,
+	// The latest WebSocket line, matched against what's read. Lines usually arrive as the game
+	// starts drawing them, so a reading is retried if the line isn't fully on screen yet.
+	line: null,
+	awaitingLine: false,
+	retries: 0,
+	// The window is being read again: the text may be outdated, so it isn't scanned until the result.
+	stale: false,
+	// Whether the host was told that WebSocket lines are the cue to read the window.
+	websocketConnected: null,
+	key: null,
+	size: null,
+};
+
+function setOcrWindow(message) {
+	const layer = $('#ocr-layer');
+	ocr.window = message.visible ? message : null;
+	layer.hidden = !ocr.window || !getSettings().ocrMode;
+	if (layer.hidden) {
+		clearMainScan();
+		return;
+	}
+	Object.assign(layer.style, { left: `${message.x}px`, top: `${message.y}px`, width: `${message.width}px`, height: `${message.height}px` });
+	applyOcrScale();
+}
+
+// The window was resized since it was read: scale the text with it until it's read again.
+function applyOcrScale() {
+	const text = $('#ocr-text');
+	if (!ocr.window || !ocr.size) {
+		text.style.transform = '';
+		return;
+	}
+	const scaleX = ocr.window.width / ocr.size.width;
+	const scaleY = ocr.window.height / ocr.size.height;
+	text.style.transform = Math.abs(scaleX - 1) < 0.001 && Math.abs(scaleY - 1) < 0.001 ? '' : `scale(${scaleX}, ${scaleY})`;
+}
+
+function clearOcrText() {
+	ocr.stale = false;
+	clearMainScan();
+	$('#ocr-text').textContent = '';
+}
+
+function showOcrResult(message) {
+	const settings = getSettings();
+	let lines = decodeLines(message.lines);
+	if (ocr.line !== null && settings.ocrUseWebsocket) {
+		const { lines: corrected, quality, missingEnd } = correctWithText(lines, ocr.line);
+		if (ocr.awaitingLine && (quality < 0.6 || missingEnd > 1) && ocr.retries < 2) {
+			// Probably still being drawn (it doesn't match, or its end isn't there yet): read again
+			// once the picture settles.
+			ocr.retries++;
+			nativeCall('ocr', { action: 'retry' }).catch(() => {});
+			return;
+		}
+		lines = corrected;
+	}
+	ocr.awaitingLine = false;
+	ocr.stale = false;
+	const size = { width: message.width, height: message.height };
+	const key = JSON.stringify([lines, size]);
+	// Unchanged (e.g. read again after coming back from another space): keep the hovered word and
+	// its highlight as they are.
+	if (key === ocr.key && $('#ocr-text').childElementCount > 0) return;
+	ocr.key = key;
+	ocr.size = size;
+	clearMainScan();
+	renderLines($('#ocr-text'), lines);
+	applyOcrScale();
+}
+
+window.__macpopupOcr = (message) => {
+	switch (message.type) {
+		case 'window':
+			setOcrWindow(message);
+			break;
+		case 'covered':
+			ocr.covered = message.value;
+			break;
+		case 'changing':
+			// Don't offer the old text while the window changes. It's replaced once the window is read,
+			// unless it's still the same.
+			ocr.stale = true;
+			break;
+		case 'result':
+			showOcrResult(message);
+			break;
+		case 'error':
+			log('OCR', message.message);
+			showToast(message.message);
+			break;
+	}
+};
+
+// While WebSocket lines are used, the host reads the window when they arrive instead of watching it
+// for changes all the time.
+function updateOcrWebsocket() {
+	const settings = getSettings();
+	const connected = !!settings.ocrMode && !!settings.ocrUseWebsocket && !state.paused && [...sockets.values()].some((socket) => socket.state === 1);
+	if (connected === ocr.websocketConnected) return;
+	ocr.websocketConnected = connected;
+	nativeCall('ocr', { action: 'websocket', connected }).catch(() => {});
+}
+
+function ocrLineText(rawText) {
+	if (typeof rawText !== 'string') return null;
+	let text = applyReplacements(rawText, getSettings().replacements);
+	if (getSettings().removeAllWhitespace) text = text.replace(/\s/gm, '');
+	return text.trim() || null;
+}
+
+function ocrWebsocketLine(rawText) {
+	const settings = getSettings();
+	if (!settings.ocrMode || !settings.ocrUseWebsocket || state.paused) return;
+	const text = ocrLineText(rawText);
+	if (text === null) return;
+	ocr.line = text;
+	ocr.awaitingLine = true;
+	ocr.retries = 0;
+	clearOcrText();
+	nativeCall('ocr', { action: 'cue' }).catch(() => {});
+}
+
+function ocrLineAt(x, y) {
+	if (!getSettings().ocrMode || ocr.covered || $('#ocr-layer').hidden) return null;
+	return document.elementFromPoint(x, y)?.closest('#ocr-text .ocr-line') ?? null;
+}
+
+function scanOcr(x, y, mods, lineElement) {
+	const settings = getSettings();
+	clearTimeout(scan.timer);
+	if (ocr.stale) return;
+	const input = matchScanInput(settings.scanModifier, settings.scanInputs, mods);
+	if (input === null) return;
+	const vertical = lineElement.style.writingMode === 'vertical-rl';
+	const scanAtPoint = () => void scanSource(getTextSourceFromPoint(x, y), vertical);
+	if (input.passive) {
+		scan.timer = setTimeout(scanAtPoint, settings.scanDelay);
+	} else {
+		scanAtPoint();
+	}
+}
+
 // Settings
 
 function applySettings(settings) {
 	document.documentElement.dataset.theme = settings.theme;
+	box.hidden = !!settings.ocrMode;
+	$('#ocr-layer').classList.toggle('show-boxes', !!settings.ocrShowBoxes);
+	if (!settings.ocrMode) setOcrWindow({ visible: false });
 	box.style.setProperty('--box-opacity', `${settings.boxOpacity}`);
 	linesElement.style.fontSize = `${settings.fontSize}px`;
 	linesElement.style.fontFamily = settings.onlineFont !== 'Off' ? `'${settings.onlineFont}'` : '';
@@ -829,6 +1008,7 @@ function applySettings(settings) {
 		rerenderLines();
 	}
 	syncSockets();
+	updateOcrWebsocket();
 	popupManager.applySettings();
 	reportHitRects();
 }
@@ -853,6 +1033,7 @@ async function main() {
 	$('#pause-button').addEventListener('click', () => {
 		state.paused = !state.paused;
 		renderPauseButton();
+		updateOcrWebsocket();
 	});
 	$('#clear-button').addEventListener('click', clearLines);
 	$('#settings-button').addEventListener('click', () => nativeCall('openSettings'));
@@ -864,8 +1045,8 @@ async function main() {
 	linesElement.addEventListener('wheel', () => popupManager.closeAll(), { passive: true });
 	window.addEventListener('resize', () => applyBoxRect(getSettings().boxRect ?? defaultBoxRect()));
 
-	box.hidden = false;
 	applySettings(settings);
+	nativeCall('ocr', { action: 'ready' }).catch(() => {});
 }
 
 main().catch((e) => log('Overlay failed to start', e));

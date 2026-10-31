@@ -54,6 +54,26 @@ export const defaultSettings = {
 	displayIndex: 0,
 	windowLevel: 'screenSaver',
 
+	// Screen OCR mode: popups for the text of another app's window, read with Live Text (see lib/ocr-layer.js).
+	ocrMode: false,
+	// The window to read, {ownerName, title}, found again by these when MacPopup starts.
+	ocrWindow: null,
+	// Areas of the window to read, normalized to it ({x, y, width, height} in 0-1). Empty: the whole window.
+	ocrRegions: [],
+	ocrLanguage: 'ja',
+	ocrResolution: 'auto',
+	// Percentage of the watched area that has to change before the window is read again.
+	ocrChangeThreshold: 0.3,
+	ocrPollInterval: 500,
+	ocrMouseWatch: true,
+	ocrMouseWatchTime: 2000,
+	// How long the picture has to stay the same before it's read (text is often drawn gradually).
+	ocrSettleTime: 400,
+	ocrStillTolerance: 40,
+	ocrMaxWait: 4000,
+	ocrUseWebsocket: true,
+	ocrShowBoxes: false,
+
 	// Scanning
 	// 'none', 'shift', 'ctrl', 'alt', 'meta', or 'custom' to use the inputs below (see lib/scan-inputs.js).
 	scanModifier: 'none',
