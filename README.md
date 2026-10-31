@@ -6,7 +6,7 @@ including fullscreen apps, and lets you hover words to get a Yomitan-style dicti
 Anki card creation. Lookups come from your installed Yomitan through the
 [Yomitan API](https://github.com/yomidevs/yomitan-api).
 
-In screen OCR mode, MacPopup instead reads another app's window (a game, say) with Apple's Live
+In OCR mode, MacPopup instead reads another app's window (a game, say) with Apple's Live
 Text and lets you hover the window's own text, with no text box at all.
 
 ## Requirements
@@ -26,7 +26,7 @@ open build/MacPopup.app
 `scripts/build.sh debug` makes a debug build. The first build downloads Yomitan's kanji stroke
 order font into `build/cache`.
 
-The app has no Dock icon. Use the menu bar item (speech bubble) for Settings, screen OCR mode,
+The app has no Dock icon. Use the menu bar item (speech bubble) for Settings, OCR mode,
 hiding the overlay, moving it to another display, reloading, and quitting.
 
 ## Usage
@@ -34,39 +34,88 @@ hiding the overlay, moving it to another display, reloading, and quitting.
 - Text arrives from each WebSocket URL in Settings → Connection (default `ws://localhost:6677`).
   Plain text and texthooker JSON (`{"sentence": "..."}`) messages are both accepted.
 - Drag the box by its header and resize it from the bottom right corner. Its position is saved.
-- Hover a word to look it up. Settings → Scanning sets the modifier key (none by default).
-- Inside a popup, hold Shift (configurable) and hover to open a nested popup.
-- For combinations or mouse buttons, choose **Custom…** as the scan modifier. You can then record
-  or type a list of inputs, like Yomitan's scan inputs, and any one of them triggers scanning. As
+- Hover a word to look it up. Settings → Scanning sets the modifier key (none by default), and
+  whether lookups start at the character under the cursor or at the start of its word (Yomitan's
+  scan resolution; as in Yomitan, the character is always used when the language is Japanese,
+  Chinese, Cantonese or Korean).
+  As in Yomitan, "Scan without mouse move" lets the scan key look up the word under a resting
+  pointer.
+- Inside a popup, hold Shift (configurable) and hover to open a nested popup. Settings → Scanning
+  limits how many nested popups can open, and can make a click on a word in the definitions look it up
+  in the same popup, as Yomitan's "Search terms when clicking text from the results list" does.
+  Headwords are only scanned with "Allow scanning popup source terms", as in Yomitan.
+- In a popup, as in Yomitan, the mouse wheel with Option moves between entries and with Shift goes
+  back and forward in the popup's history, and so do the mouse's back and forward buttons (unless
+  "Prevent mouse back and forward buttons in popups" is on).
+- Yomitan's popup keyboard shortcuts (Settings → Shortcuts) work while a popup shows, even with
+  another app such as a game in front: close the popup, move between entries and dictionaries,
+  go back and forward in history, add or view notes, play audio, copy the selection, or toggle a
+  setting. While a popup shows, those keys go to MacPopup instead of the app in front.
+- For combinations or mouse buttons, choose **Other (scanning inputs)** as the scan modifier key.
+  You can then record or type a list of inputs, like Yomitan's scan inputs, and any one of them
+  triggers scanning. As
   in Yomitan, an entry combines the modifier keys `meta`, `ctrl`, `alt` and `shift` with mouse
   buttons numbered like Yomitan's: `mouse0` left, `mouse1` right, `mouse2` middle, `mouse3` back,
-  `mouse4` forward, `mouse5`. Examples: `meta`, `mouse3`, `mouse1 mouse2`, `ctrl mouse0`.
+  `mouse4` forward, `mouse5`. Examples: `meta`, `mouse3`, `mouse1 mouse2`, `ctrl mouse0`. A name
+  with a leading `-` must not be held, like Yomitan's "exclude": `shift -mouse0` scans with Shift,
+  but not while the left button is held. Add `terms` or `kanji` to look up only terms or only kanji,
+  like Yomitan's per-input "Search terms" and "Search kanji": `alt kanji`.
 - Clicking anywhere outside the popups closes them.
+- Settings → Scanning → **Language** is your Yomitan profile's language (Import copies it). Lookups
+  use Yomitan's own setting; MacPopup uses this one for the audio sources, for marking text with the
+  language (so fonts use, say, Chinese rather than Japanese character forms), and for word scan resolution.
+- Audio comes from the sources in Settings → Popup → **Audio sources** (Yomitan's source types:
+  JapanesePod101, Jisho.org, text-to-speech, a custom URL or a local audio server's JSON list, and so
+  on), tried in order; Import → Yomitan Settings copies Yomitan's. As in Yomitan, "Enable default
+  audio sources" adds the language's defaults after them when they aren't among them (JapanesePod101,
+  LanguagePod101 and Jisho.org for Japanese; Lingua Libre, LanguagePod101 and Wiktionary otherwise), and "Enable audio playback for terms" turned off hides the play buttons. Without any sources,
+  the Yomitan API plays the audio from Yomitan's own sources. Right-click a play button to choose among the audio every
+  source has for the word (each voice of a local audio server, for example), as in Yomitan. The audio
+  played from that menu, or marked with its card button, is used when you add the word to Anki.
 - The header buttons pause new lines, clear lines, open Settings and hide the overlay.
+- Settings → Window mode → **Replacements** rewrites each new line with regular expressions, in order,
+  like texthooker-ui's replacements (which Import brings over). Type a line under the list to see
+  what the replacements make of it.
+- Settings → Window mode shows furigana from the Yomitan tokenizer, in hiragana, katakana, romaji or
+  as the dictionary has it (Yomitan's "Reading mode", which also sets the furigana of
+  `{sentence-furigana}` on cards; as in Yomitan, only hiragana and katakana change those), with or
+  without space between words. Punctuation gets no furigana.
+- Settings → Window mode → **Enable background clipboard text monitoring** adds text copied in any app to the box, like
+  Yomitan's background clipboard monitor (which opens its search page instead), up to the maximum
+  length set. MacPopup's own copies and text password managers mark as concealed are skipped.
 
-The buttons at the top of Settings import existing settings:
+**Import** at the bottom of the Settings sidebar imports existing settings:
 
-- **Import Yomitan** reads a Yomitan settings export (Yomitan Settings → Backup → Export
-  Settings). If the export has several profiles, you pick one. It copies the popup appearance and
-  position, custom popup CSS, each dictionary's own styles, scan length, delay and modifier,
-  sentence parsing, audio auto-play, the Anki connection, tags, duplicate and screenshot options,
-  and the Anki field templates.
-- **Import texthooker-ui** reads a texthooker-ui settings export, so your theme, font size,
+- **Yomitan Settings…** reads a Yomitan settings export (Yomitan Settings → Backup → Export
+  Settings). If the export has several profiles, you pick one. It copies the language, the popup appearance and
+  position, custom popup CSS, each dictionary's own styles and collapse mode, scan length, delay, resolution, modifier and other scanning options,
+  nested popup and click search options, back/forward options, sentence parsing, the
+  parser, furigana reading mode and term spacing, the clipboard monitor, audio playback, auto-play,
+  volume, fallback sound and sources, the popup keyboard shortcuts, the Anki connection, tags, duplicate, card tag and flag,
+  suspend, sync and screenshot options, and the Anki field templates.
+- **texthooker-ui Settings…** reads a texthooker-ui settings export, so your theme, font size,
   replacements and so on carry over.
 
-## Screen OCR mode
+## OCR mode
 
-Turn it on with **Screen OCR Mode** in the menu bar. The text box disappears, and words in the
-chosen window open popups when hovered, the same way as in the box. MacPopup needs the Screen
-Recording permission (System Settings → Privacy & Security), which macOS asks for the first time.
+Turn it on with **OCR Mode** in the menu bar. The text box disappears, and words in the
+captured window open popups when hovered, the same way as in the box. Without a captured window, the
+whole screen the overlay is on is read instead (MacPopup's own windows aside). MacPopup needs the
+Screen Recording permission (System Settings → Privacy & Security), which macOS asks for the first time.
 
-- **Select Window for OCR…** (also in Settings → Screen OCR) covers the screen: click the window to
-  read, then optionally drag over the parts that show text, such as the game's text box, and click
-  **Done** (or press Return). Without areas, the whole window is read. **Undo** (Delete) removes the
+- **Select Captured Window…** (or Select… at Settings → Overlay → **Captured window**, which doesn't
+  turn OCR mode on) covers the screen: click the window to
+  read, then optionally drag over the parts that show text and click **Done** (or press Return).
+  The first area is the dialogue (the game's text box): only it is matched with WebSocket lines and
+  waits until it stops changing. Other areas (e.g. menus or choices) are taken to appear at once:
+  they're read as soon as they change, which is checked like the window without a WebSocket (below),
+  WebSocket or not. Without areas, the whole window is read as the dialogue. **Undo** (Delete) removes the
   last area or goes back to choosing the window, and **Cancel** (Esc) keeps the previous choice.
-  The window is found again by its app and title the next time MacPopup starts.
-- Text is recognized with Live Text in the language set in Settings → Screen OCR (Japanese by
-  default), horizontal or vertical. Only the chosen areas are captured, and a window drawn at 1x
+  The window is found again by its app and title the next time MacPopup starts. **Clear** in
+  Settings goes back to the whole screen. The captured window is also what Anki screenshots show.
+- Text is recognized with Live Text in the language set in Settings → OCR Mode (Japanese by
+  default; the menu lists every language Live Text supports on your version of macOS),
+  horizontal or vertical. Only the chosen areas are captured, and a window drawn at 1x
   (e.g. a VM or a game that isn't Retina aware) is read at 1x, which is faster ("Read at" in
   Settings overrides this).
 - Without a WebSocket, MacPopup watches the window (or the chosen areas) and reads it again when
@@ -77,13 +126,17 @@ Recording permission (System Settings → Privacy & Security), which macOS asks 
   when it starts being used. Words are looked up when the cursor moves (or a scan key is
   pressed), not when new text appears under a resting cursor.
 - The window is only read while it's on screen in the current space; it's read again when it comes
-  back, and lines that arrive meanwhile are read then.
+  back, and lines that arrive meanwhile are read then. Coming back, that reading is matched against the
+  last WebSocket line like a new one, so it's read again if the window is still being redrawn.
 - With a WebSocket connected, each new line is the cue to read the window instead, and the window
   is only watched for changes for a moment after each reading. Hooks usually send the line as the
   game starts drawing it, so MacPopup waits until the window stops changing before reading, and
   hides the previous text meanwhile. Recognized text that matches the line is
   corrected with it (the WebSocket text wins), and if it doesn't match yet, the window is read
-  again. Turn this off with **Use WebSocket lines**.
+  again. Only letters and digits decide whether it matches, since punctuation is often misread, and
+  punctuation that looks alike is lined up (e.g. "……" read as "・・・・・"). The first reading
+  after switching to OCR mode is matched against the last line received in window mode the same
+  way. Turn this off with **Use WebSocket lines**.
 - Words are only looked up while no other window covers the chosen one at the cursor.
 - **Outline recognized text** in Settings is for debugging: it shows what was recognized, red for
   plain OCR text, green for lines corrected with the WebSocket line.
@@ -97,8 +150,8 @@ The popup uses Yomitan's own display code, templates and CSS, so it looks and be
 extension's popup: dictionary entries, tags, frequencies, pitch accents, inflection info, kanji
 entries, audio and history navigation.
 
-Popup options that live in Yomitan's settings, such as theme, scale, size, position, custom CSS
-and the styles that come with dictionaries, can't be read through the Yomitan API. MacPopup has its own copies of them in Settings → Popup.
+Popup options that live in Yomitan's settings, such as theme, scale, size, position, custom CSS,
+the styles that come with dictionaries and each dictionary's collapse mode, can't be read through the Yomitan API. MacPopup has its own copies of them in Settings → Popup.
 Use **Import Yomitan** to copy them over, or set them by hand.
 
 ## Anki
@@ -110,8 +163,9 @@ markers the API can't know about from the overlay itself:
 - `{sentence}`, `{cloze-prefix}`, `{cloze-body}`, `{cloze-suffix}`, `{sentence-furigana}`,
   `{sentence-furigana-plain}`: from the line you looked up
 - `{document-title}`: the name of the frontmost app
-- `{screenshot}`: the display the overlay is on, without the overlay. This needs Screen Recording
-  permission (System Settings → Privacy & Security).
+- `{screenshot}`: the captured window (Settings → Overlay), by itself (no other windows or overlay),
+  also outside OCR mode; without one, or while it isn't on screen, the display the overlay is
+  on, without the overlay. This needs Screen Recording permission (System Settings → Privacy & Security).
 - `{clipboard-text}`, `{clipboard-image}`, `{popup-selection-text}`
 
 Templates can also read text selected in the popup (`getMedia "popupSelectionText"`), for example
@@ -122,16 +176,20 @@ which **Import Yomitan** copies from your profile. Edit them there, or import ag
 them in Yomitan.
 
 Duplicate checks, "add duplicate", overwrite and "view note" work as they do in Yomitan, based on
-the duplicate settings in Settings → Anki.
+the duplicate settings in Settings → Anki. So do Yomitan's other Anki options there: suspending new
+cards, syncing after adding a card, showing the tags and flags of existing cards (and their state on
+the "view note" button), the quick duplicate check before notes are made, and the download timeout
+for audio added to cards.
 
 ## Limitations
 
-- The overlay never takes keyboard focus, so Yomitan's keyboard shortcuts aren't available. Use the
-  mouse for everything.
+- The overlay never takes keyboard focus. Keyboard shortcuts work through global hotkeys while a
+  popup shows (see Usage); Yomitan's profile switching shortcuts aren't supported.
+- Prefix matching isn't available: the Yomitan API only finds exact matches.
 - Because WebKit only sends hover events to the focused window, CSS `:hover` effects (such as
   button highlights) only show while MacPopup is the active app. Lookups and nested lookups don't
   depend on this.
-- Outside screen OCR mode, scanning works on the overlay's own text, not on other apps.
+- Outside OCR mode, scanning works on the overlay's own text, not on other apps.
 
 ## License
 

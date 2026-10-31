@@ -6,18 +6,45 @@ import { DisplayContentManager } from '../../vendor/yomitan/ext/js/display/displ
 import { DisplayGenerator } from '../../vendor/yomitan/ext/js/display/display-generator.js';
 import { DisplayNotification } from '../../vendor/yomitan/ext/js/display/display-notification.js';
 import { ElementOverflowController } from '../../vendor/yomitan/ext/js/display/element-overflow-controller.js';
+import { PopupMenu } from '../../vendor/yomitan/ext/js/dom/popup-menu.js';
 import { base64ToArrayBuffer } from '../../vendor/yomitan/ext/js/data/array-buffer-util.js';
 import { addScopeToCss } from '../../vendor/yomitan/ext/js/core/utilities.js';
-import { ankiInvoke, findNoteIds } from './lib/anki-connect.js';
+import { ankiInvoke, findNoteIds, getNoteInfos, suspendCardsForNote } from './lib/anki-connect.js';
 import { buildFirstFieldNotes, buildNote, overwriteNote, storeMedia } from './lib/anki-notes.js';
-import { log } from './lib/native.js';
+import { log, nativeCall } from './lib/native.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
 import { adaptCssForWebKit } from './lib/webkit-css.js';
-import { getTextSourceFromPoint, searchTextSource, setHighlight } from './lib/scanner.js';
+import { getTextSourceFromPoint, searchTextSource, setHighlight, wrapRubyBases } from './lib/scanner.js';
 import { getSettings, setLocalSettings } from './lib/settings.js';
 import { ankiFields, kanjiEntries } from './lib/yomitan-api.js';
+import { getAudio, getAudioSources, getLoadedInfoList, loadInfoList, startAudio } from './lib/audio-sources.js';
+import { cursorAt } from './lib/cursor.js';
 
 const overlay = () => window.parent.macpopupOverlay;
+
+const flagNames = { 1: 'Red', 2: 'Orange', 3: 'Green', 4: 'Blue', 5: 'Pink', 6: 'Turquoise', 7: 'Purple' };
+const flagColors = {
+	Red: 'rgb(248, 113, 113)',
+	Orange: 'rgb(253, 186, 116)',
+	Green: 'rgb(134, 239, 172)',
+	Blue: 'rgb(96, 165, 250)',
+	Pink: 'rgb(240, 171, 252)',
+	Turquoise: 'rgb(94, 234, 212)',
+	Purple: 'rgb(192, 132, 252)',
+};
+
+function splitTags(text) {
+	return `${text ?? ''}`.split(/[,\s]+/).filter((tag) => tag.length > 0);
+}
+
+/** The state shown for a note's cards, the most advanced first, as Yomitan's DisplayAnki._getHighestPriorityCardState. */
+function getCardState(cardStates) {
+	if (cardStates.includes(-3) || cardStates.includes(-2)) return 'buried';
+	if (cardStates.includes(-1)) return 'suspended';
+	if (cardStates.includes(2)) return 'review';
+	if (cardStates.includes(1) || cardStates.includes(3)) return 'learning';
+	return 'new';
+}
 
 // The canvas element each OffscreenCanvas came from, since media requests only carry the latter.
 const canvasElements = new WeakMap();
@@ -123,6 +150,37 @@ function resolveTheme(theme, siteTheme) {
 	}
 }
 
+// WebKit only delivers mouse moves to the key window, and the overlay never is, so :hover never
+// applies in popups. Selectors are rewritten to .pointer-hover, which follows the cursor position the
+// overlay forwards (see Popup.setPointerHover).
+function emulateHover(rules) {
+	for (const rule of rules) {
+		if (rule instanceof CSSStyleRule && rule.selectorText.includes(':hover')) {
+			rule.selectorText = rule.selectorText.replace(/:hover\b/g, '.pointer-hover');
+		}
+		if (rule.cssRules) emulateHover(rule.cssRules);
+	}
+}
+
+function emulateHoverInStyleSheets() {
+	for (const sheet of document.styleSheets) {
+		try {
+			emulateHover(sheet.cssRules);
+		} catch (_) {
+			// Not loaded.
+		}
+	}
+}
+
+// PopupMenu places menus at fractional positions. WebKit then draws their text half a pixel off while
+// a hover transition runs (the menu gets a layer of its own for it), so the text shook as the pointer
+// moved over the items. Whole points draw the same either way.
+function roundMenuPosition(menu) {
+	const { style } = menu.node;
+	style.left = `${Math.round(Number.parseFloat(style.left) || 0)}px`;
+	style.top = `${Math.round(Number.parseFloat(style.top) || 0)}px`;
+}
+
 class Popup {
 	constructor() {
 		this.depth = 0;
@@ -135,8 +193,11 @@ class Popup {
 		this.noteDetails = new Map();
 		this.audio = null;
 		this.audioCache = new Map();
+		// term + reading → the audio chosen in the play button menu for Anki cards: {sourceIndex, subIndex, audio}.
+		this.primaryCardAudio = new Map();
+		this.openAudioMenus = new Set();
 		this.dictionaryMediaPromise = null;
-		this.notifications = { tag: null, inflection: null, error: null };
+		this.notifications = { tag: null, inflection: null, error: null, tags: null, flags: null };
 		this.scanTimer = null;
 		this.scanSource = null;
 		this.scanToken = 0;
@@ -148,6 +209,7 @@ class Popup {
 		this.container = document.querySelector('#dictionary-entries');
 		this.footer = document.querySelector('#content-footer');
 		this.progressIndicator = document.querySelector('#progress-indicator');
+		this.pointerHovered = new Set();
 		this.ready = this.prepare();
 	}
 
@@ -157,6 +219,8 @@ class Popup {
 
 	async prepare() {
 		await this.generator.prepare();
+		if (document.readyState !== 'complete') await new Promise((resolve) => window.addEventListener('load', resolve, { once: true }));
+		emulateHoverInStyleSheets();
 		const data = document.documentElement.dataset;
 		data.browser = 'safari';
 		data.platform = 'mac';
@@ -166,10 +230,12 @@ class Popup {
 		document.querySelector('#navigate-next-button').addEventListener('click', () => this.navigate(1));
 		// Right-button scan inputs shouldn't open the context menu or select the word.
 		preventRightClickSelection(document, getSettings);
+		document.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
 		document.documentElement.addEventListener('click', (e) => {
 			if (e.button !== 0) return;
 			this.clearScan();
 			overlay().closePopupsAbove(this.depth);
+			void this.searchAtClick(e);
 		});
 		this.setUpResizer();
 	}
@@ -190,14 +256,17 @@ class Popup {
 		const root = document.documentElement;
 		const data = root.dataset;
 		data.ankiEnabled = `${settings.ankiEnabled}`;
-		data.language = 'ja';
-		data.resultOutputMode = 'group';
+		data.language = settings.language;
+		this.generator.updateLanguage(settings.language);
+		// The API returns entries grouped as the Yomitan profile says; Import Yomitan copies that mode.
+		data.resultOutputMode = settings.yomitanAnkiTemplates?.resultOutputMode ?? 'group';
 		data.glossaryLayoutMode = settings.glossaryLayoutMode;
 		data.compactTags = `${settings.compactTags}`;
 		data.averageFrequency = `${settings.averageFrequency}`;
 		data.frequencyDisplayMode = settings.frequencyDisplayMode;
 		data.termDisplayMode = settings.termDisplayMode;
-		data.enableSearchTags = 'false';
+		data.enableSearchTags = `${settings.showSearchTags}`;
+		data.audioEnabled = `${settings.audioEnabled !== false}`;
 		data.showPronunciationText = `${settings.showPitchAccentDownstepNotation}`;
 		data.showPronunciationDownstepPosition = `${settings.showPitchAccentPositionNotation}`;
 		data.showPronunciationGraph = `${settings.showPitchAccentGraph}`;
@@ -219,6 +288,7 @@ class Popup {
 		root.style.lineHeight = settings.lineHeight;
 		document.body.style.fontSize = `${settings.popupScalingFactor}em`;
 		document.querySelector('#custom-popup-css').textContent = getCustomCss(settings);
+		emulateHoverInStyleSheets();
 	}
 
 	// Content
@@ -256,6 +326,7 @@ class Popup {
 		const settings = getSettings();
 
 		this.stopAudio();
+		this.closeAudioMenus();
 		this.closeNotifications();
 		this.clearScan();
 		overlay()?.closePopupsAbove(this.depth);
@@ -279,8 +350,10 @@ class Popup {
 				dictionaries.add(entry.dictionary);
 			}
 		}
+		// Each dictionary's mode from Yomitan (see Import), or the one for all others.
+		const collapsible = new Map((settings.dictionaryCollapsible ?? []).map(({ name, mode }) => [name, mode]));
 		this.overflowController.setOptions({
-			dictionaries: [...dictionaries].map((name) => ({ name, definitionsCollapsible: settings.definitionsCollapsible })),
+			dictionaries: [...dictionaries].map((name) => ({ name, definitionsCollapsible: collapsible.get(name) ?? settings.definitionsCollapsible })),
 		});
 
 		for (let i = 0; i < dictionaryEntries.length; ++i) {
@@ -289,6 +362,7 @@ class Popup {
 				? this.generator.createTermEntry(dictionaryEntry, [])
 				: this.generator.createKanjiEntry(dictionaryEntry, []);
 			entry.dataset.index = `${i}`;
+			wrapRubyBases(entry);
 			this.addEntryEventListeners(entry);
 			this.container.appendChild(entry);
 			this.entryNodes.push(entry);
@@ -298,7 +372,7 @@ class Popup {
 		this.setCurrentEntry(0);
 		document.querySelector('#content-scroll').scrollTop = 0;
 
-		if (settings.audioAutoPlay && content.type === 'term' && dictionaryEntries.length > 0) {
+		if (settings.audioEnabled !== false && settings.audioAutoPlay && content.type === 'term' && dictionaryEntries.length > 0) {
 			void this.playAudio(0, 0);
 		}
 		await this.updateAnki(token);
@@ -342,12 +416,19 @@ class Popup {
 			node.addEventListener('click', () => this.showTagNotification(node));
 		}
 		for (const button of entry.querySelectorAll('.action-button[data-action=play-audio]')) {
+			const headword = button.closest('.headword');
+			const headwordIndex = headword ? Number.parseInt(headword.dataset.index, 10) || 0 : 0;
 			button.addEventListener('click', (e) => {
 				e.preventDefault();
-				const headword = button.closest('.headword');
-				const headwordIndex = headword ? Number.parseInt(headword.dataset.index, 10) || 0 : 0;
 				void this.playAudio(this.getEntryIndex(entry), headwordIndex);
 			});
+			// Right-click lists the audio sources, as in Yomitan.
+			button.addEventListener('contextmenu', (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				this.showAudioMenu(button, this.getEntryIndex(entry), headwordIndex);
+			});
+			button.addEventListener('menuClose', (e) => this.onAudioMenuClose(e, this.getEntryIndex(entry), headwordIndex));
 		}
 	}
 
@@ -423,6 +504,12 @@ class Popup {
 		this.notifications.inflection.open();
 	}
 
+	showMessageNotification(name, message) {
+		this.notifications[name] ??= this.createNotification(true);
+		this.notifications[name].setContent(message);
+		this.notifications[name].open();
+	}
+
 	showErrorNotification(errors) {
 		this.notifications.error ??= this.createNotification(false);
 		const content = this.generator.createAnkiNoteErrorsNotificationContent(errors);
@@ -434,6 +521,21 @@ class Popup {
 	}
 
 	// Audio
+
+	get volume() {
+		const { audioVolume } = getSettings();
+		return Number.isFinite(audioVolume) ? Math.max(0, Math.min(100, audioVolume)) / 100 : 1;
+	}
+
+	/** Yomitan's audio fallback sound, played when no audio is found. */
+	playFallbackSound() {
+		const sound = getSettings().audioFallbackSound;
+		if (sound !== 'click' && sound !== 'bloop') return;
+		this.stopAudio();
+		this.audio = new Audio(`/data/audio/fallback-${sound}.mp3`);
+		this.audio.volume = this.volume;
+		this.audio.play().catch((e) => log('Audio playback failed', e));
+	}
 
 	stopAudio() {
 		if (this.audio) {
@@ -457,6 +559,31 @@ class Popup {
 		const key = `${term}\u0000${reading}`;
 		this.stopAudio();
 
+		// With audio sources set in MacPopup, the first audio they have, as in Yomitan.
+		const sources = getAudioSources(getSettings());
+		if (sources.length > 0) {
+			let result = null;
+			this.setProgress(true);
+			try {
+				for (const source of sources) {
+					result = await getAudio(source, term, reading, null);
+					if (result !== null) break;
+				}
+			} finally {
+				this.setProgress(false);
+			}
+			this.updateAudioMenus(term, reading);
+			this.setAudioAvailable(entryIndex, result !== null);
+			if (content !== this.content) return;
+			if (result === null) {
+				this.playFallbackSound();
+				return;
+			}
+			this.stopAudio();
+			this.audio = startAudio(result.audio, this.volume, (e) => log('Audio playback failed', e));
+			return;
+		}
+
 		if (!this.audioCache.has(key)) {
 			this.setProgress(true);
 			try {
@@ -473,11 +600,23 @@ class Popup {
 		}
 
 		const media = this.audioCache.get(key);
-		const entryNode = this.entryNodes[entryIndex];
-		for (const button of entryNode?.querySelectorAll('.action-button[data-action=play-audio]') ?? []) {
+		this.setAudioAvailable(entryIndex, Boolean(media));
+		if (content !== this.content) return;
+		if (!media) {
+			this.playFallbackSound();
+			return;
+		}
+		this.audio = new Audio(`data:${media.mediaType || 'audio/mpeg'};base64,${media.content}`);
+		this.audio.volume = this.volume;
+		this.audio.play().catch((e) => log('Audio playback failed', e));
+	}
+
+	/** Marks the entry's play buttons with a cross when no audio was found. */
+	setAudioAvailable(entryIndex, available) {
+		for (const button of this.entryNodes[entryIndex]?.querySelectorAll('.action-button[data-action=play-audio]') ?? []) {
 			const badge = button.querySelector('.action-button-badge');
 			if (!badge) continue;
-			if (media) {
+			if (available) {
 				badge.hidden = true;
 				delete badge.dataset.icon;
 			} else {
@@ -486,9 +625,179 @@ class Popup {
 				button.title = 'Audio unavailable';
 			}
 		}
-		if (!media || content !== this.content) return;
-		this.audio = new Audio(`data:${media.mediaType || 'audio/mpeg'};base64,${media.content}`);
-		this.audio.play().catch((e) => log('Audio playback failed', e));
+	}
+
+	// Audio source menu (right-click on a play button), as in Yomitan's DisplayAudio.
+
+	getHeadword(entryIndex, headwordIndex) {
+		const dictionaryEntry = this.content?.dictionaryEntries[entryIndex];
+		if (!dictionaryEntry || dictionaryEntry.type !== 'term') return null;
+		return dictionaryEntry.headwords[headwordIndex] ?? dictionaryEntry.headwords[0] ?? null;
+	}
+
+	showAudioMenu(button, entryIndex, headwordIndex) {
+		const headword = this.getHeadword(entryIndex, headwordIndex);
+		if (headword === null) return;
+		const { term, reading } = headword;
+		const sources = getAudioSources(getSettings());
+		const container = this.generator.instantiateTemplate('audio-button-popup-menu');
+		container.dataset.term = term;
+		container.dataset.reading = reading;
+		document.querySelector('#popup-menus').append(container);
+		const menu = new PopupMenu(button, container);
+		this.renderAudioMenu(menu, sources, term, reading);
+		this.openAudioMenus.add(menu);
+		menu.on('close', () => this.openAudioMenus.delete(menu));
+		menu.prepare();
+		roundMenuPosition(menu);
+		// Asks every source which audio it has, so the menu lists each voice.
+		for (const source of sources) {
+			void loadInfoList(source, term, reading).then(() => this.updateAudioMenus(term, reading));
+		}
+	}
+
+	/** Closes the audio source menus, e.g. when the popup hides or shows other content. */
+	closeAudioMenus() {
+		for (const menu of [...this.openAudioMenus]) menu.close(false);
+		this.openAudioMenus.clear();
+	}
+
+	updateAudioMenus(term, reading) {
+		const sources = getAudioSources(getSettings());
+		for (const menu of this.openAudioMenus) {
+			const { dataset } = menu.containerNode;
+			if (menu.isClosed || dataset.term !== term || dataset.reading !== reading) continue;
+			this.renderAudioMenu(menu, sources, term, reading);
+			menu.updateMenuItems();
+			menu.updatePosition();
+			roundMenuPosition(menu);
+		}
+	}
+
+	renderAudioMenu(menu, sources, term, reading) {
+		const body = menu.bodyNode;
+		body.replaceChildren();
+		let showIcons = false;
+		const primary = this.primaryCardAudio.get(`${term}\u0000${reading}`) ?? null;
+		for (const source of sources) {
+			const items = getLoadedInfoList(source, term, reading);
+			const entries =
+				items === null
+					? [{ valid: null, subIndex: null, name: null }]
+					: items.length === 0
+						? [{ valid: false, subIndex: null, name: null }]
+						: items.map(({ info, valid }, i) => ({ valid, subIndex: i, name: typeof info.name === 'string' ? info.name : null }));
+			for (const [i, { valid, subIndex, name: subName }] of entries.entries()) {
+				const node = this.generator.instantiateTemplate('audio-button-popup-menu-item');
+				let label = source.name;
+				if (!source.nameUnique) {
+					label = `${label} ${source.nameIndex + 1}`;
+					if (entries.length > 1) label = `${label} -`;
+				}
+				if (entries.length > 1) label = `${label} ${i + 1}`;
+				if (subName) label += `: ${subName}`;
+				node.querySelector('.popup-menu-item-audio-button .popup-menu-item-label').textContent = label;
+				node.querySelector('.popup-menu-item-set-primary-audio-button').hidden = !source.downloadable;
+				if (valid !== null) {
+					node.querySelector('.popup-menu-item-audio-button .popup-menu-item-icon').dataset.icon = valid ? 'checkmark' : 'cross';
+					showIcons = true;
+				}
+				node.dataset.index = `${source.index}`;
+				if (subIndex !== null) node.dataset.subIndex = `${subIndex}`;
+				node.dataset.valid = `${valid}`;
+				node.dataset.sourceInOptions = 'true';
+				node.dataset.downloadable = `${source.downloadable}`;
+				node.dataset.isPrimaryCardAudio = `${primary !== null && primary.sourceIndex === source.index && primary.subIndex === subIndex}`;
+				body.append(node);
+			}
+		}
+		if (sources.length === 0) {
+			const node = this.generator.instantiateTemplate('audio-button-popup-menu-item');
+			const button = node.querySelector('.popup-menu-item-audio-button');
+			button.disabled = true;
+			button.querySelector('.popup-menu-item-label').textContent = 'No audio sources. Copy them with Settings → Import → Yomitan Settings.';
+			node.querySelector('.popup-menu-item-set-primary-audio-button').hidden = true;
+			body.append(node);
+		}
+		menu.containerNode.dataset.showIcons = `${showIcons}`;
+	}
+
+	onAudioMenuClose(e, entryIndex, headwordIndex) {
+		const { action, item, menu, shiftKey } = e.detail;
+		const group = item?.closest('.popup-menu-item-group');
+		if (!group) return;
+		const source = getAudioSources(getSettings())[Number.parseInt(group.dataset.index, 10)];
+		if (!source) return;
+		const subIndex = group.dataset.subIndex === undefined ? null : Number.parseInt(group.dataset.subIndex, 10);
+		switch (action) {
+			case 'playAudioFromSource':
+				// Shift-click keeps the menu open.
+				if (shiftKey) e.preventDefault();
+				void this.playAudioFromSource(entryIndex, headwordIndex, source, subIndex);
+				break;
+			case 'setPrimaryAudio':
+				e.preventDefault();
+				void this.setPrimaryAudio(entryIndex, headwordIndex, source, subIndex, true);
+				if (!menu.isClosed) this.updateAudioMenus(...this.getTermReading(entryIndex, headwordIndex));
+				break;
+		}
+	}
+
+	getTermReading(entryIndex, headwordIndex) {
+		const { term, reading } = this.getHeadword(entryIndex, headwordIndex) ?? {};
+		return [term, reading];
+	}
+
+	async playAudioFromSource(entryIndex, headwordIndex, source, subIndex) {
+		const headword = this.getHeadword(entryIndex, headwordIndex);
+		if (headword === null) return;
+		const { term, reading } = headword;
+		const content = this.content;
+		this.stopAudio();
+		this.setProgress(true);
+		let result;
+		try {
+			result = await getAudio(source, term, reading, subIndex);
+		} finally {
+			this.setProgress(false);
+		}
+		this.updateAudioMenus(term, reading);
+		if (content !== this.content) return;
+		if (result === null) {
+			this.playFallbackSound();
+			return;
+		}
+		this.stopAudio();
+		this.audio = startAudio(result.audio, this.volume, (e) => log('Audio playback failed', e));
+		// As in Yomitan, the audio played from the menu is used for Anki cards.
+		if (source.downloadable) await this.setPrimaryAudio(entryIndex, headwordIndex, source, result.subIndex, false);
+	}
+
+	async setPrimaryAudio(entryIndex, headwordIndex, source, subIndex, canToggleOff) {
+		if (!source.downloadable) return;
+		const headword = this.getHeadword(entryIndex, headwordIndex);
+		if (headword === null) return;
+		const key = `${headword.term}\u0000${headword.reading}`;
+		const current = this.primaryCardAudio.get(key);
+		if (canToggleOff && current && current.sourceIndex === source.index && current.subIndex === subIndex) {
+			this.primaryCardAudio.delete(key);
+			return;
+		}
+		this.primaryCardAudio.set(key, { sourceIndex: source.index, subIndex, source });
+	}
+
+	/** The audio chosen for Anki cards for an entry's first headword (the one whose audio the API adds). */
+	async getCardAudioOverride(entryIndex) {
+		const headword = this.getHeadword(entryIndex, 0);
+		if (headword === null) return null;
+		const chosen = this.primaryCardAudio.get(`${headword.term}\u0000${headword.reading}`);
+		if (!chosen) return null;
+		// Yomitan's "Idle download timeout" for audio added to cards.
+		const { ankiDownloadTimeout } = getSettings();
+		const timeout = Number.isFinite(ankiDownloadTimeout) && ankiDownloadTimeout > 0 ? ankiDownloadTimeout : null;
+		const result = await getAudio(chosen.source, headword.term, headword.reading, chosen.subIndex, timeout);
+		if (result === null || result.audio.type !== 'data') return null;
+		return { term: headword.term, reading: headword.reading, data: result.audio.data, contentType: result.audio.contentType };
 	}
 
 	// Anki
@@ -503,6 +812,9 @@ class Popup {
 			const cardFormats = await overlay().getCardFormats();
 			const cardFormatIndices = cardFormats.map((format, i) => (format.type === content.type ? i : -1)).filter((i) => i >= 0);
 			if (cardFormatIndices.length === 0 || token !== this.renderToken) return;
+			if (settings.checkForDuplicates && settings.ankiNoteDupeCheckFirst) {
+				await this.showDuplicateIndicators(token, content, cardFormats, cardFormatIndices);
+			}
 			const notes = await buildFirstFieldNotes(content, cardFormats, cardFormatIndices);
 			let noteIds;
 			if (settings.checkForDuplicates) {
@@ -515,15 +827,79 @@ class Popup {
 			details = notes.map((note, i) => ({
 				...note,
 				noteIds: noteIds[i],
+				noteInfos: [],
 				canAdd: (Object.values(note.note.fields)[0] ?? '').length > 0,
 			}));
+			if (this.isAdditionalInfoEnabled()) await this.addNoteInfos(details);
 		} catch (e) {
 			// Like Yomitan, the note buttons stay hidden when Anki can't be reached.
 			log('Anki unavailable:', e);
+			if (token === this.renderToken) this.removeDuplicateIndicators();
 			return;
 		}
 		if (token !== this.renderToken) return;
+		this.removeDuplicateIndicators();
 		for (const detail of details) this.createNoteButtons(detail);
+	}
+
+	/** Whether the tags, flags and card states of existing notes are shown, as Yomitan's DisplayAnki._isAdditionalInfoEnabled. */
+	isAdditionalInfoEnabled() {
+		const settings = getSettings();
+		return settings.ankiDisplayTagsAndFlags !== 'never' || settings.duplicateBehavior === 'overwrite';
+	}
+
+	async addNoteInfos(details) {
+		const noteIds = [...new Set(details.flatMap((detail) => detail.noteIds))];
+		try {
+			const infos = await getNoteInfos(noteIds);
+			const byId = new Map(noteIds.map((id, i) => [id, infos[i] ?? null]));
+			for (const detail of details) detail.noteInfos = detail.noteIds.map((id) => byId.get(id) ?? null);
+		} catch (e) {
+			log('Failed to get Anki note info:', e);
+		}
+	}
+
+	/**
+	 * "Prioritize Anki note duplicate checks before note creation": checks for duplicates by the term alone
+	 * and shows disabled buttons from that until the notes are rendered, as Yomitan's DisplayAnki._quickDupeCheck.
+	 */
+	async showDuplicateIndicators(token, content, cardFormats, cardFormatIndices) {
+		const notes = [];
+		const targets = [];
+		content.dictionaryEntries.forEach((dictionaryEntry, entryIndex) => {
+			const value = dictionaryEntry.type === 'kanji' ? dictionaryEntry.character : (dictionaryEntry.headwords?.[0]?.term ?? '');
+			for (const cardFormatIndex of cardFormatIndices) {
+				const cardFormat = cardFormats[cardFormatIndex];
+				const [name] = Object.keys(cardFormat.fields);
+				if (!name) continue;
+				notes.push({ deckName: cardFormat.deck, modelName: cardFormat.model, fields: { [name]: value }, options: { duplicateScope: getSettings().duplicateScope } });
+				targets.push({ entryIndex, cardFormat, cardFormatIndex });
+			}
+		});
+		const noteIds = await findNoteIds(notes);
+		if (token !== this.renderToken) return;
+		const behavior = getSettings().duplicateBehavior;
+		targets.forEach(({ entryIndex, cardFormat, cardFormatIndex }, i) => {
+			const container = this.entryNodes[entryIndex]?.querySelector('.note-actions-container');
+			if (!container) return;
+			const button = document.createElement('button');
+			button.type = 'button';
+			button.className = 'action-button duplicate-indicator';
+			button.dataset.cardFormatIndex = `${cardFormatIndex}`;
+			button.disabled = true;
+			button.style.opacity = '50%';
+			button.title = 'Creating Anki notes...';
+			const icon = document.createElement('span');
+			icon.className = 'action-icon icon color-icon';
+			const duplicate = behavior !== 'prevent' && noteIds[i].length > 0;
+			icon.dataset.icon = duplicate ? `${behavior === 'overwrite' ? 'overwrite' : 'add-duplicate'}-${cardFormat.icon}` : cardFormat.icon;
+			button.append(icon);
+			container.append(button);
+		});
+	}
+
+	removeDuplicateIndicators() {
+		for (const node of this.container.querySelectorAll('.duplicate-indicator')) node.remove();
 	}
 
 	createNoteButtons(detail) {
@@ -547,7 +923,53 @@ class Popup {
 			void this.saveNote(entryIndex, cardFormatIndex, button);
 		});
 		container.appendChild(group);
-		this.updateViewNoteButton(group, noteIds);
+		this.updateViewNoteButton(group, noteIds, detail.noteInfos);
+		if (getSettings().ankiDisplayTagsAndFlags !== 'never') {
+			this.addTagsIndicator(group, detail.noteInfos);
+			this.addFlagsIndicator(group, detail.noteInfos);
+		}
+	}
+
+	/** Yomitan's "Show card tags and flags": a button listing the tags of the existing notes. */
+	addTagsIndicator(group, noteInfos) {
+		const settings = getSettings();
+		const tags = new Set(noteInfos.flatMap((info) => info?.tags ?? []));
+		if (settings.ankiDisplayTagsAndFlags === 'non-standard') {
+			for (const tag of splitTags(settings.ankiTags)) tags.delete(tag);
+		} else if (settings.ankiDisplayTagsAndFlags === 'custom') {
+			const targetTags = new Set(splitTags(settings.ankiTargetTags));
+			for (const tag of [...tags]) if (!targetTags.has(tag)) tags.delete(tag);
+		}
+		if (tags.size === 0) return;
+		const button = this.generator.instantiateTemplate('note-action-button-view-tags');
+		button.disabled = false;
+		button.hidden = false;
+		button.title = `Card tags: ${[...tags].join(', ')}`;
+		button.addEventListener('click', (e) => {
+			e.preventDefault();
+			this.showMessageNotification('tags', button.title);
+		});
+		group.appendChild(button);
+	}
+
+	/** A button showing the flags of the existing notes' cards in their colors. */
+	addFlagsIndicator(group, noteInfos) {
+		const flags = new Set(
+			noteInfos.flatMap((info) => info?.cardsInfo ?? []).map(({ flags: flag }) => flagNames[flag]).filter((name) => name !== undefined),
+		);
+		if (flags.size === 0) return;
+		const button = this.generator.instantiateTemplate('note-action-button-view-flags');
+		button.disabled = false;
+		button.hidden = false;
+		button.title = `Card flags: ${[...flags].join(', ')}`;
+		const slice = 100 / flags.size;
+		const stops = [...flags].flatMap((flag, i) => [`${flagColors[flag]} ${i * slice}%`, `${flagColors[flag]} ${(i + 1) * slice}%`]);
+		button.querySelector('.action-icon').style.background = `linear-gradient(to right, ${stops.join(', ')})`;
+		button.addEventListener('click', (e) => {
+			e.preventDefault();
+			this.showMessageNotification('flags', button.title);
+		});
+		group.appendChild(button);
 	}
 
 	updateSaveButtonForDuplicateBehavior(button, cardFormat, noteIds) {
@@ -569,14 +991,23 @@ class Popup {
 		button.querySelector('.action-icon').dataset.icon = `${iconPrefix}-${cardFormat.icon}`;
 	}
 
-	updateViewNoteButton(group, noteIds) {
-		group.querySelector('.action-button[data-action=view-note]')?.remove();
-		if (noteIds.length === 0) return;
+	updateViewNoteButton(group, noteIds, noteInfos = []) {
+		const previous = group.querySelector('.action-button[data-action=view-note]');
+		if (noteIds.length === 0) {
+			previous?.remove();
+			return;
+		}
 		const button = this.generator.instantiateTemplate('note-action-button-view-note');
 		button.disabled = false;
 		button.hidden = false;
 		delete button.dataset.hotkey;
 		button.dataset.noteIds = noteIds.join(' ');
+		// With note info, the icon shows how far the cards are, as in Yomitan.
+		if (this.isAdditionalInfoEnabled() && noteInfos.length > 0) {
+			const state = getCardState(noteInfos.flatMap((info) => info?.cardsInfo.map(({ cardState }) => cardState) ?? []));
+			button.querySelector('.icon[data-icon^="view-note"]').dataset.icon = state === 'new' ? 'view-note' : `view-note-${state}`;
+			button.title = `View added note (${state})`;
+		}
 		const badge = button.querySelector('.action-button-badge');
 		if (noteIds.length > 1) {
 			badge.dataset.icon = 'plus-thick';
@@ -588,7 +1019,9 @@ class Popup {
 			e.preventDefault();
 			void this.viewNotes(noteIds);
 		});
-		group.appendChild(button);
+		// In place of the previous one, before the tags and flags.
+		if (previous) previous.replaceWith(button);
+		else group.appendChild(button);
 	}
 
 	async viewNotes(noteIds) {
@@ -603,9 +1036,12 @@ class Popup {
 		}
 	}
 
-	createNote(entryIndex, cardFormatIndex) {
+	async createNote(entryIndex, cardFormatIndex) {
 		const selectionText = window.getSelection()?.toString() ?? '';
-		return buildNote({ content: this.content, entryIndex, cardFormat: this.cardFormats[cardFormatIndex], selectionText });
+		const content = this.content;
+		const cardFormat = this.cardFormats[cardFormatIndex];
+		const audioOverride = await this.getCardAudioOverride(entryIndex);
+		return buildNote({ content, entryIndex, cardFormat, selectionText, audioOverride });
 	}
 
 	async saveNote(entryIndex, cardFormatIndex, button) {
@@ -613,7 +1049,8 @@ class Popup {
 		const content = this.content;
 		const cardFormat = this.cardFormats[cardFormatIndex];
 		const detail = this.noteDetails.get(`${entryIndex}:${cardFormatIndex}`);
-		const behavior = getSettings().duplicateBehavior;
+		const settings = getSettings();
+		const behavior = settings.duplicateBehavior;
 		const errors = [];
 		button.disabled = true;
 		setTimeout(() => {
@@ -629,9 +1066,17 @@ class Popup {
 			} else {
 				const noteId = await ankiInvoke('addNote', { note });
 				if (noteId === null) throw new Error('Note could not be added');
+				if (settings.ankiSuspendNewCards) {
+					await suspendCardsForNote(noteId).catch((e) => errors.push(e instanceof Error ? e : new Error(`${e}`)));
+				}
 				detail.noteIds = [...detail.noteIds, noteId];
+				// The new note's cards are new, or suspended.
+				detail.noteInfos = [...(detail.noteInfos ?? []), { noteId, tags: [], cardsInfo: [{ flags: 0, cardState: settings.ankiSuspendNewCards ? -1 : 0 }] }];
 				this.updateSaveButtonForDuplicateBehavior(button, cardFormat, detail.noteIds);
-				this.updateViewNoteButton(button.closest('.action-button-container'), detail.noteIds);
+				this.updateViewNoteButton(button.closest('.action-button-container'), detail.noteIds, detail.noteInfos);
+				if (settings.ankiForceSync) {
+					await ankiInvoke('sync').catch((e) => errors.push(e instanceof Error ? e : new Error(`${e}`)));
+				}
 			}
 		} catch (e) {
 			errors.push(e instanceof Error ? e : new Error(`${e}`));
@@ -641,23 +1086,49 @@ class Popup {
 		if (errors.length > 0) this.showErrorNotification(errors);
 	}
 
+	/**
+	 * Marks the element under the pointer and its ancestors, as :hover would. x is null when the pointer
+	 * is elsewhere. Returns the cursor to show there.
+	 */
+	setPointerHover(x, y) {
+		const hovered = new Set();
+		for (let element = x === null ? null : document.elementFromPoint(x, y); element; element = element.parentElement) {
+			hovered.add(element);
+		}
+		for (const element of this.pointerHovered) {
+			if (!hovered.has(element)) element.classList.remove('pointer-hover');
+		}
+		for (const element of hovered) {
+			if (!this.pointerHovered.has(element)) element.classList.add('pointer-hover');
+		}
+		this.pointerHovered = hovered;
+		return x === null ? null : cursorAt(document, x, y);
+	}
+
 	// Nested scanning; pointer coordinates come from the overlay, relative to this frame.
 
-	onPointer(x, y, mods) {
+	/** @param {boolean} mayScan False when the pointer rests and "Scan without mouse move" is off. */
+	onPointer(x, y, mods, mayScan) {
 		const settings = getSettings();
 		clearTimeout(this.scanTimer);
+		if (!mayScan) return;
+		// Yomitan's "Maximum number of child popups".
+		if (this.depth >= settings.popupNestingMaxDepth) return;
 		const input = matchScanInput(settings.popupScanModifier, settings.popupScanInputs, mods);
 		if (input === null) return;
 		const element = document.elementFromPoint(x, y);
 		if (!element || element.closest('.scan-disable, button, #content-sidebar, .frame-resizer-container, .footer-notification')) return;
+		// Headwords only with Yomitan's "Enable scanning of popup expressions".
+		if (!settings.popupScanExpressions && element.closest('.source-text')) return;
 		if (input.passive) {
-			this.scanTimer = setTimeout(() => void this.scanAt(x, y), settings.scanDelay);
+			this.scanTimer = setTimeout(() => void this.scanAt(x, y, input), settings.scanDelay);
 		} else {
-			void this.scanAt(x, y);
+			void this.scanAt(x, y, input);
 		}
 	}
 
-	async scanAt(x, y) {
+	/** @param {{searchTerms: boolean, searchKanji: boolean}} [lookup] What the scan input looks up. */
+	async scanAt(x, y, lookup = undefined) {
 		const source = getTextSourceFromPoint(x, y);
 		if (!source) return;
 		if (this.scanSource !== null && this.scanSource.hasSameStart(source)) return;
@@ -665,7 +1136,7 @@ class Popup {
 		const token = ++this.scanToken;
 		let result;
 		try {
-			result = await searchTextSource(source);
+			result = await searchTextSource(source, lookup);
 		} catch (e) {
 			log('Lookup failed', e);
 			return;
@@ -681,6 +1152,167 @@ class Popup {
 		this.scanSource = null;
 		this.scanToken++;
 		setHighlight(null);
+	}
+
+	// The mouse wheel, as in Yomitan's Display: with Option it goes through the entries, with Shift through
+	// the history.
+	onWheel(e) {
+		if (e.altKey) {
+			if (e.deltaY !== 0) {
+				this.focusEntry(this.index + (e.deltaY > 0 ? 1 : -1), 0, true);
+				e.preventDefault();
+			}
+		} else if (e.shiftKey) {
+			const delta = -e.deltaX || e.deltaY;
+			if (delta !== 0) {
+				this.navigate(delta > 0 ? -1 : 1);
+				e.preventDefault();
+				e.stopPropagation();
+			}
+		}
+	}
+
+	// Yomitan's "Search terms when clicking text from the results list": a click on a definition looks the
+	// word up in this popup, and the history buttons go back to the previous results.
+	async searchAtClick(e) {
+		if (!getSettings().popupSearchOnClick || !(e.target instanceof Element)) return;
+		if (!e.target.closest('.click-scannable') || e.target.closest('.scan-disable, a, button')) return;
+		if (window.getSelection()?.isCollapsed === false) return;
+		const source = getTextSourceFromPoint(e.clientX, e.clientY);
+		if (!source) return;
+		let result;
+		try {
+			result = await searchTextSource(source);
+		} catch (error) {
+			log('Lookup failed', error);
+			return;
+		}
+		if (result === null) return;
+		await this.setContent({ ...result, documentTitle: this.content?.documentTitle ?? '' }, 'new');
+	}
+
+	// Keyboard shortcuts (see overlay.js), as Yomitan's Display hotkey actions.
+
+	runHotkey(action, argument) {
+		const number = Number.parseInt(argument, 10);
+		const count = Number.isFinite(number) ? number : 1;
+		const cardFormatIndex = Number.isFinite(number) ? number : 0;
+		const entry = this.entryNodes[this.index];
+		switch (action) {
+			case 'close':
+				overlay().closePopup(this.depth);
+				break;
+			case 'nextEntry':
+				this.focusEntry(this.index + count, 0, true);
+				break;
+			case 'previousEntry':
+				this.focusEntry(this.index - count, 0, true);
+				break;
+			case 'firstEntry':
+				this.focusEntry(0, 0, true);
+				break;
+			case 'lastEntry':
+				this.focusEntry(this.entryNodes.length - 1, 0, true);
+				break;
+			case 'nextEntryDifferentDictionary':
+				this.focusEntryWithDifferentDictionary(1);
+				break;
+			case 'previousEntryDifferentDictionary':
+				this.focusEntryWithDifferentDictionary(-1);
+				break;
+			case 'historyBackward':
+				this.navigate(-1);
+				break;
+			case 'historyForward':
+				this.navigate(1);
+				break;
+			case 'addNote':
+				entry?.querySelector(`.action-button[data-action=save-note][data-card-format-index="${cardFormatIndex}"]`)?.click();
+				break;
+			case 'viewNotes':
+				entry?.querySelector(`.action-button-container[data-card-format-index="${cardFormatIndex}"] .action-button[data-action=view-note]`)?.click();
+				break;
+			case 'playAudio':
+				void this.playAudio(this.index, 0);
+				break;
+			case 'playAudioFromSource':
+				void this.playAudioFromSourceType(argument);
+				break;
+			case 'copyHostSelection':
+				void this.copySelection();
+				break;
+		}
+	}
+
+	/** Makes an entry the current one and scrolls to it, or to one of its definitions, as Yomitan's Display._focusEntry. */
+	focusEntry(index, definitionIndex, smooth) {
+		if (this.entryNodes.length === 0) return;
+		index = Math.max(Math.min(index, this.entryNodes.length - 1), 0);
+		this.setCurrentEntry(index);
+		let node = this.entryNodes[index];
+		if (definitionIndex > 0) {
+			const definitionNodes = node.querySelectorAll('.definition-item');
+			if (definitionIndex < definitionNodes.length) node = definitionNodes[definitionIndex];
+		}
+		const body = document.querySelector('#content-body');
+		const top = index === 0 && definitionIndex <= 0 ? 0 : node.getBoundingClientRect().top - body.getBoundingClientRect().top;
+		document.querySelector('#content-scroll').scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' });
+	}
+
+	/** Goes to the next (sign 1) or previous (-1) definition from another dictionary, as Yomitan's Display._focusEntryWithDifferentDictionary. */
+	focusEntryWithDifferentDictionary(sign) {
+		const entries = this.content?.dictionaryEntries ?? [];
+		const count = Math.min(entries.length, this.entryNodes.length);
+		const index = this.index;
+		if (index < 0 || index >= count || entries[index].type !== 'term') return;
+		const visibleDefinitionIndex = this.getVisibleDefinitionIndex(index, sign);
+		if (visibleDefinitionIndex === null) return;
+		const { dictionary } = entries[index].definitions[visibleDefinitionIndex];
+		for (let i = index; i >= 0 && i < count; i += sign) {
+			if (entries[i].type !== 'term') continue;
+			const { definitions } = entries[i];
+			for (let j = i === index ? visibleDefinitionIndex + sign : sign > 0 ? 0 : definitions.length - 1; j >= 0 && j < definitions.length; j += sign) {
+				if (definitions[j].dictionary !== dictionary) {
+					this.focusEntry(i, j, true);
+					return;
+				}
+			}
+		}
+	}
+
+	/** The definition of an entry most in view, as Yomitan's Display._getDictionaryEntryVisibleDefinitionIndex. */
+	getVisibleDefinitionIndex(index, sign) {
+		const { top: scrollTop, bottom: scrollBottom } = document.querySelector('#content-scroll').getBoundingClientRect();
+		const { definitions } = this.content.dictionaryEntries[index];
+		const nodes = this.entryNodes[index].querySelectorAll('.definition-item');
+		const count = Math.min(definitions.length, nodes.length);
+		if (count <= 0) return null;
+		let visibleIndex = null;
+		let visibleCoverage = 0;
+		for (let i = sign > 0 ? 0 : count - 1; i >= 0 && i < count; i += sign) {
+			const { top, bottom } = nodes[i].getBoundingClientRect();
+			if (bottom <= scrollTop || top >= scrollBottom) continue;
+			const top2 = Math.max(scrollTop, Math.min(scrollBottom, top));
+			const bottom2 = Math.max(scrollTop, Math.min(scrollBottom, bottom));
+			const coverage = (bottom2 - top2) / (bottom - top);
+			if (coverage >= visibleCoverage) {
+				visibleCoverage = coverage;
+				visibleIndex = i;
+			}
+		}
+		return visibleIndex ?? (sign > 0 ? count - 1 : 0);
+	}
+
+	/** Plays the current entry's audio from a source type, the first source of that type set in MacPopup if any. */
+	async playAudioFromSourceType(type) {
+		const source = getAudioSources(getSettings()).find((item) => item.type === type) ?? getAudioSources({ audioSources: [{ type }] })[0];
+		await this.playAudioFromSource(this.index, 0, source, null);
+	}
+
+	/** Copies the text selected in this popup, or else in the popup or text box it came from (Yomitan's copyHostSelection). */
+	async copySelection() {
+		const text = window.getSelection()?.toString() || overlay().getSelectionText(this.depth - 1);
+		if (text) await nativeCall('copyText', { text });
 	}
 
 	// Frame resizer (bottom-right corner), as in Yomitan.

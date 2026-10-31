@@ -1,8 +1,9 @@
 import AppKit
 import ScreenCaptureKit
 
-/// Captures the display behind the overlay (excluding this app's own windows) for the `{screenshot}` Anki marker.
+/// Screenshots for the `{screenshot}` Anki marker.
 enum ScreenCapture {
+    /// Captures the display behind the overlay, excluding this app's own windows.
     static func capture(displayID: CGDirectDisplayID, format: String, quality: Double) async throws -> Data {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
@@ -18,6 +19,11 @@ enum ScreenCapture {
         configuration.showsCursor = false
 
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        return try encode(image, format: format, quality: quality)
+    }
+
+    /// PNG, or JPEG at `quality` percent.
+    static func encode(_ image: CGImage, format: String, quality: Double) throws -> Data {
         let rep = NSBitmapImageRep(cgImage: image)
         let data: Data?
         if format == "png" {

@@ -1,6 +1,10 @@
 import AppKit
 import WebKit
 
+// Private window server calls (see OverlayController.allowCursorInBackground).
+@_silgen_name("_CGSDefaultConnection") private func _CGSDefaultConnection() -> Int32
+@_silgen_name("CGSSetConnectionProperty") private func CGSSetConnectionProperty(_ cid: Int32, _ target: Int32, _ key: CFString, _ value: CFTypeRef) -> Int32
+
 /// Borderless, transparent panel covering a whole display. It never becomes key, so the
 /// game (or whatever app is in front) keeps keyboard focus while the overlay is used with the mouse.
 final class OverlayPanel: NSPanel {
@@ -35,6 +39,9 @@ final class OverlayController: NSObject {
     /// MACPOPUP_DEBUG_INPUT=1 logs mouse button events and state to stderr.
     private let debugInput = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_INPUT"] != nil
     private var simulatedMouseUntil = Date.distantPast
+    /// The cursor the page asked for over the box or a popup (see web/src/lib/cursor.js), nil elsewhere.
+    private var cursor: NSCursor?
+    private let hotkeys = HotkeyController()
     /// Called with the cursor position in global coordinates (origin at the top left of the main display).
     var onCursorMoved: ((CGPoint) -> Void)?
     /// Overrides the display chosen in the settings (screen OCR mode follows the window being read).
@@ -69,6 +76,9 @@ final class OverlayController: NSObject {
         webView.uiDelegate = uiDelegate
         webView.navigationDelegate = uiDelegate
         panel.contentView = webView
+        hotkeys.onPress = { [weak self] index in
+            self?.webView.evaluateJavaScript("window.__macpopupHotkey?.(\(index))")
+        }
 
         applySettings()
         SettingsStore.shared.observe { [weak self] json in
@@ -88,17 +98,25 @@ final class OverlayController: NSObject {
     func show() {
         panel.orderFrontRegardless()
         startTracking()
+        webView.evaluateJavaScript("window.__macpopupUpdateHotkeys?.()")
     }
 
     func hide() {
         panel.orderOut(nil)
         stopTracking()
+        hotkeys.set([])
     }
 
     var isVisible: Bool { panel.isVisible }
 
     func reload() {
+        hotkeys.set([])
         webView.reload()
+    }
+
+    /// Popup keyboard shortcuts, set by the page while a popup shows. Returns whether each one could be registered.
+    func setHotkeys(_ combinations: [KeyCombination]) -> [Bool] {
+        hotkeys.set(isVisible ? combinations : [])
     }
 
     func moveToNextDisplay() {
@@ -242,6 +260,61 @@ final class OverlayController: NSObject {
         )
     }
 
+    /// Shows the cursor for a CSS cursor value. WebKit doesn't, because the overlay is never key, and the
+    /// active app sets its own for its window below, so it's also set again while polling (see
+    /// processMouse). nil gives the cursor back to the app below.
+    func setCursor(_ name: String?) {
+        Self.allowCursorInBackground
+        if debugInput { logInput("cursor \(name ?? "nil")") }
+        let previous = cursor
+        cursor = name.map(Self.cursor(forCSS:))
+        if let cursor {
+            cursor.set()
+        } else if previous != nil {
+            NSCursor.arrow.set()
+        }
+    }
+
+    /// Lets this app set the cursor while another app is active. Without it, the active app's cursor
+    /// for its window below the overlay wins (e.g. a text cursor), whatever the overlay sets. A private
+    /// window server property, as there's no public way; if it's ever refused, the cursor just doesn't change.
+    private static let allowCursorInBackground: Void = {
+        let connection = _CGSDefaultConnection()
+        _ = CGSSetConnectionProperty(connection, connection, "SetsCursorInBackground" as CFString, kCFBooleanTrue)
+    }()
+
+    /// Sets `cursor` again if the system shows another. NSCursor.set() does nothing for the cursor this app
+    /// last set, even if another app changed it since, so a different one is set first.
+    private static func restore(_ cursor: NSCursor) {
+        guard let shown = NSCursor.currentSystem, shown.hotSpot != cursor.hotSpot || shown.image.size != cursor.image.size else { return }
+        (cursor == NSCursor.arrow ? NSCursor.iBeam : NSCursor.arrow).set()
+        cursor.set()
+    }
+
+    private static func cursor(forCSS name: String) -> NSCursor {
+        switch name {
+        case "pointer": return .pointingHand
+        case "text": return .iBeam
+        case "vertical-text": return .iBeamCursorForVerticalLayout
+        case "crosshair": return .crosshair
+        case "grab": return .openHand
+        case "grabbing", "move": return .closedHand
+        case "not-allowed", "no-drop": return .operationNotAllowed
+        case "copy": return .dragCopy
+        case "alias": return .dragLink
+        case "context-menu": return .contextualMenu
+        case "ew-resize", "col-resize", "e-resize", "w-resize": return .resizeLeftRight
+        case "ns-resize", "row-resize", "n-resize", "s-resize": return .resizeUpDown
+        case "nwse-resize", "se-resize", "nw-resize":
+            if #available(macOS 15, *) { return .frameResize(position: .bottomRight, directions: .all) }
+            return .crosshair
+        case "nesw-resize", "sw-resize", "ne-resize":
+            if #available(macOS 15, *) { return .frameResize(position: .bottomLeft, directions: .all) }
+            return .crosshair
+        default: return .arrow
+        }
+    }
+
     /// Development hook (see NativeBridge "debugMouse"): runs the tracking logic for a point in page coordinates.
     func simulateMouse(x: Double, y: Double, modifiers: NSEvent.ModifierFlags) {
         let frame = panel.frame
@@ -292,6 +365,9 @@ final class OverlayController: NSObject {
         if debugInput, pressed != lastPressed {
             logInput("pressed \(lastPressed) -> \(pressed) | \(buttonStateDescription())")
         }
+        // The active app keeps setting the cursor for its window below the overlay, so it's set again
+        // while the pointer is over the box or a popup.
+        if inside, let cursor { Self.restore(cursor) }
         guard force || location != lastMouseLocation || modifiers != lastModifiers || pressed != lastPressed else { return }
         lastMouseLocation = location
         lastModifiers = modifiers

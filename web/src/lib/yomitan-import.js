@@ -1,6 +1,7 @@
 // Converts a Yomitan settings export (Settings → Backup → Export Settings) into MacPopup settings.
 
 import { formatScanInput, isValidInputName, parseScanInput } from './scan-inputs.js';
+import { languageSummaries } from './languages.js';
 
 const scanModifiers = new Set(['shift', 'ctrl', 'alt', 'meta']);
 
@@ -17,6 +18,7 @@ const directOptions = {
 		popupVerticalTextPosition: 'popupVerticalTextPosition',
 		popupScalingFactor: 'popupScalingFactor',
 		popupDisplayMode: 'popupDisplayMode',
+		popupFullWidthPosition: 'popupFullWidthPosition',
 		popupTheme: 'popupTheme',
 		popupOuterTheme: 'popupOuterTheme',
 		fontFamily: 'fontFamily',
@@ -44,14 +46,33 @@ const directOptions = {
 		hideDelay: 'hideDelay',
 		hidePopupOnCursorExit: 'hidePopupOnCursorExit',
 		hidePopupOnCursorExitDelay: 'hidePopupOnCursorExitDelay',
+		selectText: 'selectMatchedText',
+		scanResolution: 'scanResolution',
+		scanWithoutMousemove: 'scanWithoutMousemove',
+		enableOnPopupExpressions: 'popupScanExpressions',
+		enableSearchTags: 'showSearchTags',
+		popupNestingMaxDepth: 'popupNestingMaxDepth',
+		enablePopupSearch: 'popupSearchOnClick',
 	},
 	sentenceParsing: {
 		scanExtent: 'sentenceScanExtent',
 		terminationCharacterMode: 'sentenceTerminationCharacterMode',
 		terminationCharacters: 'sentenceTerminationCharacters',
 	},
+	parsing: {
+		readingMode: 'furiganaReadingMode',
+		termSpacing: 'termSpacing',
+	},
+	clipboard: {
+		enableBackgroundMonitor: 'clipboardMonitor',
+		maximumSearchLength: 'clipboardMaxLength',
+	},
 	audio: {
+		enabled: 'audioEnabled',
+		enableDefaultAudioSources: 'audioDefaultSources',
 		autoPlay: 'audioAutoPlay',
+		volume: 'audioVolume',
+		fallbackSoundType: 'audioFallbackSound',
 	},
 	anki: {
 		enable: 'ankiEnabled',
@@ -62,8 +83,44 @@ const directOptions = {
 		duplicateScopeCheckAllModels: 'duplicateScopeCheckAllModels',
 		duplicateBehavior: 'duplicateBehavior',
 		noteGuiMode: 'noteGuiMode',
+		suspendNewCards: 'ankiSuspendNewCards',
+		forceSync: 'ankiForceSync',
+		displayTagsAndFlags: 'ankiDisplayTagsAndFlags',
+		noteDupeCheckFirst: 'ankiNoteDupeCheckFirst',
+		downloadTimeout: 'ankiDownloadTimeout',
 	},
 };
+
+// Yomitan's popup keyboard shortcut actions that MacPopup has (all but switching profiles).
+const hotkeyActions = new Set([
+	'close', 'nextEntry', 'previousEntry', 'lastEntry', 'firstEntry', 'nextEntryDifferentDictionary',
+	'previousEntryDifferentDictionary', 'historyBackward', 'historyForward', 'addNote', 'viewNotes', 'playAudio',
+	'playAudioFromSource', 'copyHostSelection', 'toggleOption',
+]);
+
+/** The MacPopup setting for a Yomitan option path such as "general.compactTags", or null. */
+function settingForOptionPath(path) {
+	const [section, name, ...rest] = path.split('.');
+	return rest.length === 0 ? directOptions[section]?.[name] ?? null : null;
+}
+
+/** Yomitan's keyboard shortcuts for popups, as MacPopup hotkeys (see settings-defaults.js). */
+function convertHotkeys(hotkeys) {
+	return hotkeys
+		.filter(({ action, key, scopes }) => hotkeyActions.has(action) && typeof key === 'string' && Array.isArray(scopes) && scopes.includes('popup'))
+		.map(({ action, argument, key, modifiers, enabled }) => {
+			let value = typeof argument === 'string' ? argument : '';
+			// "Toggle option" names a Yomitan option; the same MacPopup setting is toggled instead.
+			if (action === 'toggleOption') value = settingForOptionPath(value) ?? value;
+			return {
+				action,
+				argument: value,
+				key,
+				modifiers: Array.isArray(modifiers) ? modifiers.filter((modifier) => scanModifiers.has(modifier)) : [],
+				enabled: enabled !== false,
+			};
+		});
+}
 
 /**
  * @param {string} json The contents of an exported Yomitan settings file.
@@ -88,8 +145,13 @@ export function parseYomitanExport(json) {
 function getScanInputs(inputs) {
 	if (!Array.isArray(inputs)) return undefined;
 	const usable = inputs
-		.filter(({ include, types }) => types?.mouse !== false && typeof include === 'string')
-		.map(({ include }) => parseScanInput(include))
+		// An input that searches neither terms nor kanji never looks anything up.
+		.filter(({ include, types, options }) => types?.mouse !== false && typeof include === 'string' && (options?.searchTerms !== false || options?.searchKanji !== false))
+		.map(({ include, exclude, options }) => [
+			...parseScanInput(include),
+			...parseScanInput(exclude).map((name) => `-${name}`),
+			...(options?.searchTerms === false ? ['kanji'] : options?.searchKanji === false ? ['terms'] : []),
+		])
 		.filter((names) => names.every(isValidInputName));
 	if (usable.length === 0) return undefined;
 	if (usable.length === 1 && usable[0].length === 0) return { mode: 'none' };
@@ -160,9 +222,29 @@ export function convertYomitanProfile(options, profileIndex, currentSettings) {
 	if (Array.isArray(anki.tags)) result.ankiTags = anki.tags.join(' ');
 	if (anki.screenshot?.format) result.screenshotFormat = anki.screenshot.format;
 	if (typeof anki.screenshot?.quality === 'number') result.screenshotQuality = anki.screenshot.quality;
+	if (Array.isArray(anki.targetTags)) result.ankiTargetTags = anki.targetTags.join(' ');
+	if (Array.isArray(profileOptions.inputs?.hotkeys)) result.hotkeys = convertHotkeys(profileOptions.inputs.hotkeys);
+	const preventBackForward = profileOptions.scanning?.preventBackForward?.onPopupPages;
+	if (typeof preventBackForward === 'boolean') result.preventBackForwardInPopups = preventBackForward;
+	const language = profileOptions.general?.language;
+	if (languageSummaries.some(({ iso }) => iso === language)) result.language = language;
+	// The id of a parse result on Yomitan's search page: 'scan' for its own parser, 'mecab-<dictionary>'.
+	const parser = profileOptions.parsing?.selectedParser;
+	if (parser === 'scan') result.parser = 'scanning-parser';
+	else if (typeof parser === 'string' && parser.startsWith('mecab-')) result.parser = 'mecab';
 
-	// Dictionary styles are only stored in Yomitan's settings; the API doesn't provide them.
+	// The API plays the first audio Yomitan's sources have; the play button menu lists them all.
+	if (Array.isArray(profileOptions.audio?.sources)) {
+		result.audioSources = profileOptions.audio.sources
+			.filter((source) => typeof source?.type === 'string')
+			.map(({ type, url, voice }) => ({ type, url: typeof url === 'string' ? url : '', voice: typeof voice === 'string' ? voice : '' }));
+	}
+
+	// Dictionary styles and collapse modes are only stored in Yomitan's settings; the API doesn't provide them.
 	if (Array.isArray(profileOptions.dictionaries)) {
+		result.dictionaryCollapsible = profileOptions.dictionaries
+			.filter(({ name, enabled, definitionsCollapsible }) => enabled && typeof name === 'string' && typeof definitionsCollapsible === 'string')
+			.map(({ name, definitionsCollapsible }) => ({ name, mode: definitionsCollapsible }));
 		result.dictionaryStyles = profileOptions.dictionaries
 			.filter(({ name, enabled, styles }) => enabled && typeof name === 'string' && typeof styles === 'string' && styles.trim() !== '')
 			.map(({ name, styles }) => ({ name, styles }));
@@ -174,7 +256,6 @@ export function convertYomitanProfile(options, profileIndex, currentSettings) {
 			fieldTemplates: typeof fieldTemplates === 'string' ? fieldTemplates : null,
 			dictionaries: (profileOptions.dictionaries ?? []).filter(({ enabled, name }) => enabled && typeof name === 'string').map(({ name }) => name),
 			resultOutputMode: profileOptions.general?.resultOutputMode ?? 'group',
-			readingMode: profileOptions.parsing?.readingMode ?? null,
 		};
 	}
 

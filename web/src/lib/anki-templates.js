@@ -10,6 +10,12 @@ import defaultFieldTemplates from '../../../vendor/yomitan/ext/data/templates/de
 import { log } from './native.js';
 import { getSettings } from './settings.js';
 
+/** The reading mode for furigana on cards: as in Yomitan's API, only hiragana and katakana change it. */
+export function ankiReadingMode(settings) {
+	const mode = settings.furiganaReadingMode;
+	return mode === 'hiragana' || mode === 'katakana' ? mode : null;
+}
+
 let rendererPromise = null;
 const sanitizedStyles = new Map();
 
@@ -77,7 +83,7 @@ function createCommonData({ dictionaryEntry, query, apiResult, selectionText, im
 		audioFilename = (apiResult?.audioMedia ?? []).find((item) => item.term === term && item.reading === reading)?.ankiFilename ?? '';
 		furiganaData = [[{ text: term, reading }]];
 	}
-	const readingMode = imported.readingMode === 'hiragana' || imported.readingMode === 'katakana' ? imported.readingMode : null;
+	const readingMode = ankiReadingMode(settings);
 	return {
 		dictionaryEntry,
 		resultOutputMode: imported.resultOutputMode,
@@ -111,7 +117,7 @@ function createCommonData({ dictionaryEntry, query, apiResult, selectionText, im
  */
 export async function renderFields({ markers, dictionaryEntry, query, apiResult, selectionText }) {
 	// Yomitan's defaults until Import Yomitan or Settings sets the templates.
-	const imported = getSettings().yomitanAnkiTemplates ?? { fieldTemplates: null, dictionaries: [], resultOutputMode: 'group', readingMode: null };
+	const imported = getSettings().yomitanAnkiTemplates ?? { fieldTemplates: null, dictionaries: [], resultOutputMode: 'group' };
 	const renderer = await getRenderer();
 	const template = getTemplate(imported, dictionaryEntry);
 	const commonData = createCommonData({ dictionaryEntry, query, apiResult, selectionText, imported });

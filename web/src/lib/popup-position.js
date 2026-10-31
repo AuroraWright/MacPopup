@@ -131,13 +131,26 @@ export function getPopupPosition(sourceRects, verticalText, viewport, { frameWid
 		}
 	}
 
+	// As Yomitan's Popup._show, by its "Popup position" for full-width popups.
 	if (settings.popupDisplayMode === 'full-width') {
 		const sourceRect = getBoundingSourceRect(sourceRects);
 		best.left = viewport.left;
 		best.width = viewport.right - viewport.left;
+		const overflowAbove = sourceRect.top - best.height < viewport.top;
 		const overflowBelow = sourceRect.bottom + best.height > viewport.bottom;
-		best.top = overflowBelow ? viewport.top : viewport.bottom - best.height;
-		best.below = !overflowBelow;
+		switch (settings.popupFullWidthPosition) {
+			case 'top':
+				best.top = overflowAbove ? viewport.bottom - best.height : viewport.top;
+				best.below = overflowAbove;
+				break;
+			case 'above-cursor':
+				// Where a normal popup would go.
+				break;
+			default:
+				best.top = overflowBelow ? viewport.top : viewport.bottom - best.height;
+				best.below = !overflowBelow;
+				break;
+		}
 	}
 	return best;
 }

@@ -54,3 +54,26 @@ export async function findNoteIds(notes) {
 	});
 	return notes.map((note) => byQuery.get(getNoteQuery(note)) ?? []);
 }
+
+/**
+ * The notes with their tags and cards, as Yomitan's getAnkiNoteInfo with additional info:
+ * [{noteId, tags, cardsInfo: [{flags, cardState}]}] (cardState is the card's queue), null for missing notes.
+ */
+export async function getNoteInfos(noteIds) {
+	if (noteIds.length === 0) return [];
+	const notes = await ankiInvoke('notesInfo', { notes: noteIds });
+	const cardIds = notes.flatMap((note) => (Array.isArray(note?.cards) ? note.cards : []));
+	const cards = cardIds.length > 0 ? await ankiInvoke('cardsInfo', { cards: cardIds }) : [];
+	return notes.map((note) => {
+		if (!note || typeof note.noteId !== 'number') return null;
+		const cardsInfo = cards
+			.filter((card) => card?.note === note.noteId)
+			.map(({ flags, queue }) => ({ flags: typeof flags === 'number' ? flags : 0, cardState: typeof queue === 'number' ? queue : 0 }));
+		return { noteId: note.noteId, tags: Array.isArray(note.tags) ? note.tags : [], cardsInfo };
+	});
+}
+
+export async function suspendCardsForNote(noteId) {
+	const cards = await ankiInvoke('findCards', { query: `nid:${noteId}` });
+	if (Array.isArray(cards) && cards.length > 0) await ankiInvoke('suspend', { cards });
+}

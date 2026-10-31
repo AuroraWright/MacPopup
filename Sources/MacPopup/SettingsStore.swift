@@ -6,17 +6,19 @@ final class SettingsStore {
     static let shared = SettingsStore()
 
     private let defaultsKey = "settings"
+    /// MACPOPUP_SETTINGS_SUITE keeps the settings in another defaults domain (for test runs).
+    private let defaults = ProcessInfo.processInfo.environment["MACPOPUP_SETTINGS_SUITE"].flatMap { UserDefaults(suiteName: $0) } ?? .standard
     private var observers: [(String) -> Void] = []
 
     private(set) var json: String
 
     private init() {
-        json = UserDefaults.standard.string(forKey: defaultsKey) ?? "{}"
+        json = defaults.string(forKey: defaultsKey) ?? "{}"
     }
 
     func update(json newJSON: String) {
         json = newJSON
-        UserDefaults.standard.set(newJSON, forKey: defaultsKey)
+        defaults.set(newJSON, forKey: defaultsKey)
         for observer in observers {
             observer(newJSON)
         }

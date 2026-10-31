@@ -20,6 +20,28 @@ function defaultTerminationCharacters() {
 	];
 }
 
+// Yomitan's default keyboard shortcuts for popups (its `inputs.hotkeys` with the 'popup' scope).
+function defaultHotkeys() {
+	const hotkey = (action, argument, key, modifiers) => ({ action, argument, key, modifiers, enabled: true });
+	return [
+		hotkey('close', '', 'Escape', []),
+		hotkey('previousEntry', '3', 'PageUp', ['alt']),
+		hotkey('nextEntry', '3', 'PageDown', ['alt']),
+		hotkey('lastEntry', '', 'End', ['alt']),
+		hotkey('firstEntry', '', 'Home', ['alt']),
+		hotkey('previousEntry', '1', 'ArrowUp', ['alt']),
+		hotkey('nextEntry', '1', 'ArrowDown', ['alt']),
+		hotkey('historyBackward', '', 'KeyB', ['alt']),
+		hotkey('historyForward', '', 'KeyF', ['alt']),
+		hotkey('addNote', '2', 'KeyK', ['alt']),
+		hotkey('addNote', '0', 'KeyE', ['alt']),
+		hotkey('addNote', '1', 'KeyR', ['alt']),
+		hotkey('playAudio', '', 'KeyP', ['alt']),
+		hotkey('viewNotes', '0', 'KeyV', ['alt']),
+		hotkey('copyHostSelection', '', 'KeyC', ['ctrl']),
+	];
+}
+
 export const defaultSettings = {
 	// Connection
 	websocketUrls: ['ws://localhost:6677'],
@@ -43,6 +65,10 @@ export const defaultSettings = {
 	displayVertical: false,
 	showLinePoints: false,
 	enableLineAnimation: false,
+	// Copied text is added as a line, up to this many characters (Yomitan's background clipboard
+	// monitor, which opens its search page instead).
+	clipboardMonitor: false,
+	clipboardMaxLength: 1000,
 	replacements: [],
 	customCSS: '',
 
@@ -50,7 +76,12 @@ export const defaultSettings = {
 	boxRect: null,
 	boxOpacity: 0.85,
 	showFurigana: false,
-	showTokenUnderline: true,
+	// Furigana in hiragana, katakana, romaji, as the dictionary has it, or none (Yomitan's
+	// parsing.readingMode): in the text box, and on cards ({sentence-furigana}; only hiragana and
+	// katakana change those, as in Yomitan).
+	furiganaReadingMode: 'hiragana',
+	// Space between the words of tokenized lines (Yomitan's parsing.termSpacing).
+	termSpacing: true,
 	displayIndex: 0,
 	windowLevel: 'screenSaver',
 
@@ -60,7 +91,8 @@ export const defaultSettings = {
 	ocrWindow: null,
 	// Areas of the window to read, normalized to it ({x, y, width, height} in 0-1). Empty: the whole window.
 	ocrRegions: [],
-	ocrLanguage: 'ja',
+	// A language Live Text supports (ImageAnalyzer.supportedTextRecognitionLanguages).
+	ocrLanguage: 'ja-JP',
 	ocrResolution: 'auto',
 	// Percentage of the watched area that has to change before the window is read again.
 	ocrChangeThreshold: 0.3,
@@ -90,9 +122,34 @@ export const defaultSettings = {
 	sentenceScanExtent: 200,
 	sentenceTerminationCharacterMode: 'custom',
 	sentenceTerminationCharacters: defaultTerminationCharacters(),
+	// Highlights the text that was looked up (Yomitan's "Select matched text").
+	selectMatchedText: true,
+	// A scan key pressed while the pointer rests looks up the word under it (Yomitan's "Scan without
+	// mouse move"); otherwise the pointer has to move.
+	scanWithoutMousemove: true,
+	// Yomitan's "Scan resolution": 'character' looks up from the character under the cursor, 'word' from
+	// the start of the word it's in.
+	scanResolution: 'character',
+	// Headwords in popups can be scanned (Yomitan's scanning.enableOnPopupExpressions).
+	popupScanExpressions: false,
+	// Show dictionary tags of the "search" category (Yomitan's scanning.enableSearchTags).
+	showSearchTags: false,
+	// The mouse's back and forward buttons go through a popup's history unless this is on (Yomitan's
+	// scanning.preventBackForward.onPopupPages).
+	preventBackForwardInPopups: false,
+	// How many popups can open from popups (Yomitan's "Maximum number of child popups").
+	popupNestingMaxDepth: 10,
+	// Clicking text in a popup's results looks it up in that popup (Yomitan's scanning.enablePopupSearch).
+	popupSearchOnClick: false,
+	// Keyboard shortcuts while a popup shows, [{action, argument, key, modifiers, enabled}] as in Yomitan's
+	// inputs.hotkeys: `key` is a KeyboardEvent.code and `modifiers` lists 'alt', 'ctrl', 'shift' and 'meta'.
+	hotkeys: defaultHotkeys(),
 
 	// Yomitan API
 	yomitanApiUrl: 'http://127.0.0.1:19633',
+	// The ISO code of the Yomitan profile's language (general.language; see lib/languages.js). Lookups
+	// use Yomitan's own; this one is for what MacPopup does itself: audio, text display, scan resolution.
+	language: 'ja',
 
 	// Popup appearance (Yomitan general options)
 	popupWidth: 400,
@@ -105,6 +162,8 @@ export const defaultSettings = {
 	popupVerticalTextPosition: 'before',
 	popupScalingFactor: 1,
 	popupDisplayMode: 'default',
+	// Where full-width popups go: 'top', 'bottom' or 'above-cursor'.
+	popupFullWidthPosition: 'bottom',
 	popupTheme: 'site',
 	popupOuterTheme: 'site',
 	fontFamily: '',
@@ -122,16 +181,29 @@ export const defaultSettings = {
 	popupActionBarVisibility: 'auto',
 	popupActionBarLocation: 'top',
 	definitionsCollapsible: 'not-collapsible',
+	// Each dictionary's collapse mode from Import Yomitan, [{name, mode}]; others use definitionsCollapsible.
+	dictionaryCollapsible: [],
 	customPopupCss: '',
 	customPopupOuterCss: '',
 	// Each dictionary's own CSS from Yomitan, [{name, styles}], applied to that dictionary's entries.
 	dictionaryStyles: [],
 	// Anki field templates from Import Yomitan:
-	// {fieldTemplates: ?string (null for Yomitan's defaults), dictionaries, resultOutputMode, readingMode}.
+	// {fieldTemplates: ?string (null for Yomitan's defaults), dictionaries, resultOutputMode}.
 	yomitanAnkiTemplates: null,
 	// Render Anki fields with yomitanAnkiTemplates instead of the Yomitan API, which can't see the popup selection.
 	ankiRenderTemplatesLocally: false,
+	// Play buttons are shown (Yomitan's audio.enabled).
+	audioEnabled: true,
 	audioAutoPlay: false,
+	// With audio sources set, Yomitan's default ones for Japanese follow them (Yomitan's
+	// audio.enableDefaultAudioSources).
+	audioDefaultSources: true,
+	// Percent.
+	audioVolume: 100,
+	// Played when no audio is found: 'none', 'click' or 'bloop'.
+	audioFallbackSound: 'click',
+	// Yomitan's audio sources from Import Yomitan, [{type, url, voice}], listed by right-clicking a play button.
+	audioSources: [],
 
 	// Anki
 	ankiEnabled: true,
@@ -145,4 +217,14 @@ export const defaultSettings = {
 	noteGuiMode: 'browse',
 	screenshotFormat: 'jpeg',
 	screenshotQuality: 92,
+	ankiSuspendNewCards: false,
+	ankiForceSync: false,
+	// Tags and flags of existing notes, shown next to their buttons: 'never', 'always', 'non-standard'
+	// (tags other than ankiTags) or 'custom' (only ankiTargetTags).
+	ankiDisplayTagsAndFlags: 'never',
+	ankiTargetTags: '',
+	// Shows the note buttons from a quick duplicate check on the term before the notes are rendered.
+	ankiNoteDupeCheckFirst: false,
+	// For audio downloaded by MacPopup for cards (the audio chosen in the play button menu), in ms; 0 = no limit.
+	ankiDownloadTimeout: 0,
 };

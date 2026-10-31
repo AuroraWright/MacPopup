@@ -11,6 +11,12 @@
     background-color: rgba(64, 128, 255, 0.35);
 }
 
+/* The overlay is never the active window, so WebKit would draw selections in the inactive (grey)
+   colour; this is the active one, which follows the macOS accent colour, as in Chromium. */
+::selection {
+    background-color: -apple-system-selected-text-background;
+}
+
 /* Monochrome images are colored when they're drawn (see popup.js); Yomitan's filter for it doesn't
    work in WebKit. */
 .gloss-image-link[data-appearance=monochrome] .gloss-image {

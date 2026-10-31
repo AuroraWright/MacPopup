@@ -32,32 +32,32 @@ const textSourceGenerator = new TextSourceGenerator();
 export const HIGHLIGHT_NAME = 'macpopup-scan';
 
 export function getTextSourceFromPoint(x, y) {
-	return textSourceGenerator.getRangeFromPoint(x, y, {
+	const source = textSourceGenerator.getRangeFromPoint(x, y, {
 		deepContentScan: false,
 		normalizeCssZoom: true,
-		language: 'ja',
+		language: getSettings().language,
 		browser: 'safari',
 	});
+	if (source instanceof TextSourceRange && getSettings().scanResolution === 'word') expandToWordStart(source);
+	return source;
 }
 
-/** A collapsed text source at the start of `node`, skipping ruby annotations. */
-export function getTextSourceAtElementStart(element) {
-	const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
-		acceptNode: (node) => (node.parentElement?.closest('rt, rp') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
-	});
-	const node = walker.nextNode();
-	if (!node) return null;
-	const range = document.createRange();
-	range.setStart(node, 0);
-	range.setEnd(node, 0);
-	return TextSourceRange.create(range);
+// The languages Yomitan doesn't use word scan resolution for (TextScanner's
+// SCAN_RESOLUTION_EXCLUDED_LANGUAGES). Most don't separate words with spaces, so the word would reach
+// back to the start of the sentence.
+const wordResolutionExcludedLanguages = new Set(['ja', 'zh', 'yue', 'ko']);
+
+/** Yomitan's word scan resolution: the scan starts at the beginning of the word under the cursor. */
+function expandToWordStart(source) {
+	if (wordResolutionExcludedLanguages.has(getSettings().language)) return;
+	source.setStartOffset(getSettings().scanLength, false, true);
 }
 
 /**
  * Looks up the text at `textSource` (terms first, then kanji, like Yomitan's TextScanner).
  * On success `textSource` is narrowed to the matched text.
  */
-export async function searchTextSource(textSource) {
+export async function searchTextSource(textSource, { searchTerms = true, searchKanji = true } = {}) {
 	const { scanLength, sentenceScanExtent, sentenceTerminationCharacterMode, sentenceTerminationCharacters } = getSettings();
 	const scanSource = textSource.clone();
 	scanSource.setEndOffset(scanLength, false, false);
@@ -67,11 +67,13 @@ export async function searchTextSource(textSource) {
 	let type = 'term';
 	let dictionaryEntries;
 	let matchLength;
-	const termResult = await termEntries(fullQuery);
+	// Scan inputs can look up only terms or only kanji (see lib/scan-inputs.js).
+	const termResult = searchTerms ? await termEntries(fullQuery) : { dictionaryEntries: [] };
 	if (termResult.dictionaryEntries.length > 0) {
 		dictionaryEntries = termResult.dictionaryEntries;
 		matchLength = termResult.originalTextLength;
 	} else {
+		if (!searchKanji) return null;
 		const character = String.fromCodePoint(fullQuery.codePointAt(0));
 		dictionaryEntries = await kanjiEntries(character);
 		if (!Array.isArray(dictionaryEntries) || dictionaryEntries.length === 0) return null;
@@ -105,5 +107,41 @@ export function setHighlight(textSource) {
 		CSS.highlights.set(HIGHLIGHT_NAME, highlight);
 	}
 	highlight.clear();
-	if (textSource?.range) highlight.add(textSource.range.cloneRange());
+	// Yomitan's "Select matched text".
+	if (textSource?.range && getSettings().selectMatchedText) {
+		for (const range of textRanges(textSource.range)) highlight.add(range);
+	}
+}
+
+/**
+ * Puts the base text of ruby elements under `root` in <rb> elements: WebKit doesn't paint highlights
+ * on text directly in a <ruby>.
+ */
+export function wrapRubyBases(root) {
+	for (const ruby of root.querySelectorAll('ruby')) {
+		for (const node of [...ruby.childNodes]) {
+			if (node.nodeType !== Node.TEXT_NODE || node.data.trim().length === 0) continue;
+			const rb = document.createElement('rb');
+			ruby.replaceChild(rb, node);
+			rb.append(node);
+		}
+	}
+}
+
+/** The text of `range` as one range per text node, without the furigana, which wasn't matched. */
+function textRanges(range) {
+	const root = range.commonAncestorContainer;
+	if (root.nodeType === Node.TEXT_NODE) return [range.cloneRange()];
+	const ranges = [];
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+		acceptNode: (node) => (node.parentElement?.closest('rt, rp') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+	});
+	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+		if (!range.intersectsNode(node)) continue;
+		const part = document.createRange();
+		part.setStart(node, node === range.startContainer ? range.startOffset : 0);
+		part.setEnd(node, node === range.endContainer ? range.endOffset : node.length);
+		if (!part.collapsed) ranges.push(part);
+	}
+	return ranges;
 }

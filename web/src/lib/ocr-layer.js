@@ -8,17 +8,22 @@
 // sentences and lookups.
 
 const SPACE = /\s/u;
+const LETTER = /[\p{L}\p{N}]/u;
 
 /**
  * @typedef {{text: string, x: number, y: number, width: number, height: number}} OcrChar
- * @typedef {{chars: OcrChar[], vertical: boolean, matched?: boolean}} OcrLine
+ * @typedef {{chars: OcrChar[], vertical: boolean, area: number, matched?: boolean}} OcrLine
  */
 
-/** Lines from the native side: chars are [text, x, y, width, height] in window points. */
+/**
+ * Lines from the native side: chars are [text, x, y, width, height] in window points, and `area` is
+ * the chosen area they're in (0, the first, is the dialogue).
+ */
 export function decodeLines(lines) {
 	return lines
 		.map((line) => ({
 			vertical: !!line.vertical,
+			area: line.area ?? 0,
 			chars: line.chars.map(([text, x, y, width, height]) => ({ text, x, y, width, height })),
 		}))
 		.filter((line) => line.chars.some((char) => !SPACE.test(char.text)));
@@ -30,29 +35,57 @@ export function lineText(line) {
 
 // Matching the WebSocket line
 
-const normalize = (character) => character.normalize('NFKC').toLowerCase();
+// Punctuation Live Text reads as something that looks alike, e.g. "……" as "・・・・・": these match
+// each other, and a run of them is one unit on either side, however many characters it has.
+const LOOKALIKES = [
+	[/^[.・·⋯]+$/u, '.'],
+	[/^[-‐‑‒–—―─━ー]+$/u, '-'],
+	[/^[~〜]+$/u, '~'],
+];
+
+function normalize(character) {
+	const key = character.normalize('NFKC').toLowerCase();
+	return LOOKALIKES.find(([pattern]) => pattern.test(key))?.[1] ?? key;
+}
+
+const isLookalike = (key) => LOOKALIKES.some(([, value]) => value === key);
 
 /**
  * Aligns `text` (a line from the WebSocket, which is what the game is drawing) with the recognized
  * lines and replaces what was misread. The whole of `text` is aligned against any stretch of the
- * OCR text (Needleman–Wunsch with free ends on the OCR side). Matching characters score 2,
- * substitutions -1, and characters missing on either side -1 (whitespace in `text` is free).
+ * OCR text (Needleman–Wunsch with free ends on the OCR side). Matching characters (or lookalike
+ * punctuation) score 2, substitutions -1, and characters missing on either side -1 (whitespace in
+ * `text` is free).
  *
  * @param {OcrLine[]} lines
  * @param {string} text
- * @returns {{lines: OcrLine[], quality: number}} `quality` is the share of `text` that matched exactly;
- *   below `minQuality` the lines are returned unchanged.
+ * @returns {{lines: OcrLine[], quality: number}} `quality` is the share of the letters and digits of
+ *   `text` that matched exactly; below `minQuality` the lines are returned unchanged.
  */
 export function correctWithText(lines, text, minQuality = 0.6) {
-	const target = [...text];
-	// OCR characters without whitespace, which Live Text adds and removes freely.
+	// The text's units: characters, or runs of lookalike punctuation.
+	const target = [];
+	const targetKeys = [];
+	for (const character of text) {
+		const key = normalize(character);
+		if (isLookalike(key) && targetKeys.at(-1) === key) target[target.length - 1] += character;
+		else {
+			target.push(character);
+			targetKeys.push(key);
+		}
+	}
+	// OCR characters without whitespace, which Live Text adds and removes freely. The rest of a run of
+	// lookalike punctuation is in `group` (their indexes in the line).
 	const ocr = [];
 	lines.forEach((line, lineIndex) => {
 		line.chars.forEach((char, charIndex) => {
-			if (!SPACE.test(char.text)) ocr.push({ lineIndex, charIndex, char, key: normalize(char.text) });
+			if (SPACE.test(char.text)) return;
+			const key = normalize(char.text);
+			const previous = ocr.at(-1);
+			if (isLookalike(key) && previous?.key === key && previous.lineIndex === lineIndex) previous.group.push(charIndex);
+			else ocr.push({ lineIndex, charIndex, char, key, group: [] });
 		});
 	});
-	const targetKeys = target.map(normalize);
 	const n = target.length;
 	const m = ocr.length;
 	const significant = target.filter((character) => !SPACE.test(character)).length;
@@ -129,8 +162,22 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 	// Only a short prefix like a name, though: a few matching characters shouldn't make a whole line match.
 	const leadingCount = firstOcr > 1 ? target.slice(0, operations[firstOcr - 1].target + 1).filter((character) => !SPACE.test(character)).length : 0;
 	const leadingMissing = leadingCount <= 12 ? leadingCount : 0;
-	const exact = operations.filter((op) => op.type === 'match' && targetKeys[op.target] === ocr[op.ocr].key && !SPACE.test(target[op.target])).length;
-	const quality = exact / Math.max(1, significant - leadingMissing);
+	const exactOps = operations.filter((op) => op.type === 'match' && targetKeys[op.target] === ocr[op.ocr].key && !SPACE.test(target[op.target]));
+	// Only letters and digits count, since Live Text often misreads punctuation (and "「……え？」"
+	// isn't "「……ん……」"); a line of only punctuation counts all of it.
+	let quality;
+	if (target.some((unit) => LETTER.test(unit))) {
+		const leadingEnd = leadingMissing > 0 ? operations[firstOcr - 1].target + 1 : 0;
+		const exactLetters = exactOps.filter((op) => LETTER.test(target[op.target])).length;
+		const leadingLetters = target.slice(0, leadingEnd).filter((unit) => LETTER.test(unit)).length;
+		const allLetters = target.filter((unit) => LETTER.test(unit)).length;
+		// A missing start only passes for a name when more of the line matched after it (otherwise
+		// "「……はい」" would match "いいえ" on its last letter).
+		const letters = exactLetters >= Math.max(3, leadingLetters) ? allLetters - leadingLetters : allLetters;
+		quality = exactLetters / Math.max(1, letters);
+	} else {
+		quality = exactOps.length / Math.max(1, significant - leadingMissing);
+	}
 	if (quality < minQuality) return { lines, quality, missingEnd };
 
 	const trimmed = operations.filter((op, index) => {
@@ -149,8 +196,8 @@ function applyOperations(lines, ocr, target, operations) {
 	const pendingBefore = [];
 	for (const op of operations) {
 		if (op.type === 'insert') {
-			if (previous < 0) pendingBefore.push(target[op.target]);
-			else edits[previous].after.push(target[op.target]);
+			if (previous < 0) pendingBefore.push(...target[op.target]);
+			else edits[previous].after.push(...target[op.target]);
 			continue;
 		}
 		if (op.type === 'match') edits[op.ocr].text = target[op.target];
@@ -162,10 +209,13 @@ function applyOperations(lines, ocr, target, operations) {
 	if (touched.length === 0) return lines;
 	const first = ocr[Math.min(...touched)];
 	const last = ocr[Math.max(...touched)];
+	const lastIndexOf = (entry) => entry.group.at(-1) ?? entry.charIndex;
 	const inRegion = (lineIndex, charIndex) =>
 		(lineIndex > first.lineIndex || (lineIndex === first.lineIndex && charIndex >= first.charIndex)) &&
-		(lineIndex < last.lineIndex || (lineIndex === last.lineIndex && charIndex <= last.charIndex));
+		(lineIndex < last.lineIndex || (lineIndex === last.lineIndex && charIndex <= lastIndexOf(last)));
 	const ocrIndexAt = new Map(ocr.map((entry, index) => [`${entry.lineIndex}:${entry.charIndex}`, index]));
+	// The rest of each run of lookalike punctuation, which goes with its first character.
+	const grouped = new Set(ocr.flatMap((entry) => entry.group.map((charIndex) => `${entry.lineIndex}:${charIndex}`)));
 
 	return lines.map((line, lineIndex) => {
 		if (lineIndex < first.lineIndex || lineIndex > last.lineIndex) return line;
@@ -184,26 +234,30 @@ function applyOperations(lines, ocr, target, operations) {
 				return;
 			}
 			// Recognized whitespace is replaced by the text's own.
-			if (SPACE.test(char.text)) return;
+			if (SPACE.test(char.text) || grouped.has(`${lineIndex}:${charIndex}`)) return;
+			const entry = ocr[ocrIndexAt.get(`${lineIndex}:${charIndex}`)];
 			const edit = edits[ocrIndexAt.get(`${lineIndex}:${charIndex}`)];
-			const own = edit.deleted ? [] : [edit.text ?? char.text];
+			// A run of lookalike punctuation takes the place of the whole run.
+			const box = entry.group.reduce((box, index) => union(box, line.chars[index]), char);
+			const lastIndex = lastIndexOf(entry);
+			const own = edit.deleted ? [] : edit.text !== null ? [...edit.text] : [char.text, ...entry.group.map((index) => line.chars[index].text)];
 			const after = [...edit.after];
 			const trailingSpaces = [];
-			if (spaceAfter.has(charIndex)) {
+			if (spaceAfter.has(lastIndex)) {
 				while (after.length > 0 && SPACE.test(after[after.length - 1])) trailingSpaces.unshift(after.pop());
 			}
 			// Characters that weren't recognized often left an empty space before the next one: put
 			// inserted text there instead of squeezing it into this character's box.
-			const gap = after.length > 0 && own.length > 0 ? gapAfter(line, charIndex) : null;
+			const gap = after.length > 0 && own.length > 0 ? gapAfter(line, lastIndex) : null;
 			const parts = gap ? [...edit.before, ...own] : [...edit.before, ...own, ...after];
-			if (gap) chars.push(...divide(char, parts, line.vertical), ...divide(gap, after, line.vertical));
+			if (gap) chars.push(...divide(box, parts, line.vertical), ...divide(gap, after, line.vertical));
 			else if (parts.length > 0) {
-				chars.push(...divide(char, parts, line.vertical));
+				chars.push(...divide(box, parts, line.vertical));
 			} else if (chars.length > 0) {
 				// Deleted: the character before it takes its place, so the line has no hole.
-				chars[chars.length - 1] = union(chars[chars.length - 1], char);
+				chars[chars.length - 1] = union(chars[chars.length - 1], box);
 			}
-			if (trailingSpaces.length > 0) chars.push(...divide(spaceAfter.get(charIndex), trailingSpaces, line.vertical));
+			if (trailingSpaces.length > 0) chars.push(...divide(spaceAfter.get(lastIndex), trailingSpaces, line.vertical));
 		});
 		return { ...line, chars, matched: true };
 	});

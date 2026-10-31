@@ -11,7 +11,11 @@ protocol BridgeHost: AnyObject {
     func overlayMenuBarHeight() -> Double
     func setOverlayVisible(_ visible: Bool)
     func snapshotOverlay() async throws -> Data
+    /// The window being read in screen OCR mode, or nil when there isn't one.
+    func ocrWindowScreenshot() async throws -> CGImage?
     func simulateMouse(x: Double, y: Double, shift: Bool)
+    func setOverlayCursor(_ cursor: String?)
+    func setHotkeys(_ combinations: [KeyCombination]) -> [Bool]
     var overlayIgnoresMouseEvents: Bool { get }
 }
 
@@ -62,9 +66,13 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             host?.setHitRects(rects)
             return nil
         case "screenshot":
-            guard let displayID = host?.overlayDisplayID() else { throw BridgeError("No display") }
             let format = body["format"] as? String ?? "jpeg"
             let quality = (body["quality"] as? NSNumber)?.doubleValue ?? 92
+            // In screen OCR mode, only the window being read; otherwise the display the overlay is on.
+            if let image = try await host?.ocrWindowScreenshot() {
+                return try ScreenCapture.encode(image, format: format, quality: quality).base64EncodedString()
+            }
+            guard let displayID = host?.overlayDisplayID() else { throw BridgeError("No display") }
             let data = try await ScreenCapture.capture(displayID: displayID, format: format, quality: quality)
             return data.base64EncodedString()
         case "clipboard":
@@ -80,6 +88,17 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
                 result["image"] = png.base64EncodedString()
             }
             return result
+        case "copyText":
+            let pasteboard = ClipboardMonitor.pasteboard
+            pasteboard.clearContents()
+            pasteboard.setString(body["text"] as? String ?? "", forType: .string)
+            pasteboard.setString("", forType: ClipboardMonitor.ownType)
+            return nil
+        case "setHotkeys":
+            let combinations = (body["hotkeys"] as? [[String: Any]] ?? []).map {
+                KeyCombination(key: $0["key"] as? String ?? "", modifiers: $0["modifiers"] as? [String] ?? [])
+            }
+            return host?.setHotkeys(combinations) ?? []
         case "openURL":
             guard let string = body["url"] as? String, let url = URL(string: string) else {
                 throw BridgeError("Invalid URL")
@@ -116,6 +135,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
                 shift: body["shift"] as? Bool ?? false
             )
             return ["ignoresMouseEvents": host.overlayIgnoresMouseEvents]
+        case "setCursor":
+            host?.setOverlayCursor(body["cursor"] as? String)
+            return nil
         case "log":
             FileHandle.standardError.write("[web] \(body["message"] ?? "")\n".data(using: .utf8)!)
             return nil
@@ -135,7 +157,16 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         let (data, response) = try await session.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let httpResponse = response as? HTTPURLResponse
+        let status = httpResponse?.statusCode ?? 0
+        // Binary responses (e.g. audio) come back as base64, with their content type.
+        if body["binary"] as? Bool == true {
+            return [
+                "status": status,
+                "body": data.base64EncodedString(),
+                "contentType": httpResponse?.value(forHTTPHeaderField: "Content-Type") ?? "",
+            ]
+        }
         return ["status": status, "body": String(decoding: data, as: UTF8.self)]
     }
 }

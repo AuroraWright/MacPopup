@@ -4,12 +4,18 @@ import ScreenCaptureKit
 
 /// Screen OCR mode: instead of showing the text box, MacPopup reads the text of another app's window
 /// with Live Text and lays an invisible copy of it over the window (see web/src/lib/ocr-layer.js), so
-/// hovering the window's own text opens popups.
+/// hovering the window's own text opens popups. Without a captured window (Settings → Overlay), it reads
+/// the whole screen the overlay is on instead, apart from MacPopup's own windows; "window" below then
+/// means that screen.
 ///
 /// The window is captured with ScreenCaptureKit. With a WebSocket connected, each new line is the cue
 /// to read the window again; otherwise the window (or the chosen regions) is watched for changes. In
 /// both cases recognition waits until the picture has stopped changing, since games often draw text
 /// gradually after the hooked line arrives.
+///
+/// With several regions, only the first is the dialogue that works that way. The others (e.g. menus or
+/// names) are assumed to appear at once: they're read as soon as they change, which is checked while
+/// the mouse is used (or all the time, without "Watch after mouse use"), WebSocket or not.
 @MainActor
 final class OCRController {
     struct Target {
@@ -29,6 +35,8 @@ final class OCRController {
     private let overlay: OverlayController
     private(set) var isEnabled = false
     private var target: Target?
+    /// No window is set: the whole screen is read.
+    private var readsScreen = false
     /// Areas to read, normalized to the window (0–1, origin top left). Empty means the whole window.
     private var regions: [CGRect] = []
     /// Window bounds in global screen coordinates (points, origin top left of the main display).
@@ -56,6 +64,11 @@ final class OCRController {
     private var lastStillReadingAt = Date.distantPast
     /// Per area, thumbnail blocks that were seen animating while the rest was still.
     private var animatedBlocks: [Set<Int>] = []
+    /// Per area, the lines last read there: an area is read on its own, and sent with the others.
+    private var areaLines: [[[String: Any]]] = []
+    /// The areas after the first may have changed unseen (e.g. while the window was away): read them
+    /// with the next reading.
+    private var otherAreasOutdated = false
 
     private var isCursorActive: Bool {
         Date() < mouseActiveUntil
@@ -92,8 +105,10 @@ final class OCRController {
     private let debug = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_OCR"] != nil
 
     private var scWindow: SCWindow?
-    /// The display the window lies within, if it does.
+    /// The display the window lies within, if it does (the screen that's read without a window).
     private var scDisplay: SCDisplay?
+    /// MacPopup itself, left out when the whole screen is read.
+    private var scOwnApps: [SCRunningApplication] = []
     private var captureFailures = 0
     /// The window bounds `scWindow` and `scDisplay` were looked up for.
     private var scBounds: CGRect = .null
@@ -145,9 +160,16 @@ final class OCRController {
             return
         }
         guard isEnabled, !isPicking else { return }
-        // The window or areas were changed elsewhere (e.g. the settings were reset or imported).
+        // The window or areas were changed elsewhere (e.g. the settings were reset or imported, or the
+        // window was cleared).
         let saved = settings["ocrWindow"] as? [String: Any]
-        if let target, saved?["ownerName"] as? String != target.ownerName || saved?["title"] as? String ?? "" != target.title {
+        if (saved == nil) != readsScreen {
+            target = nil
+            restoreSavedTarget()
+            readAgain()
+        } else if readsScreen {
+            return
+        } else if let target, saved?["ownerName"] as? String != target.ownerName || saved?["title"] as? String ?? "" != target.title {
             self.target = nil
             restoreSavedTarget()
             readAgain()
@@ -163,16 +185,23 @@ final class OCRController {
         }
     }
 
+    /// There's something to read: the window, or the screen.
+    private var hasSource: Bool {
+        target != nil || readsScreen
+    }
+
     private func readAgain() {
         scWindow = nil
+        scDisplay = nil
         readingScale = nil
         animatedBlocks = []
+        areaLines = []
         lastRecognizedFrame = nil
         lastResult = nil
         lastSentWindowState = ""
         send(["type": "changing"])
         trackWindow()
-        if target != nil {
+        if hasSource {
             pendingCue = .immediate
         }
     }
@@ -189,9 +218,6 @@ final class OCRController {
 
     func setEnabled(_ enabled: Bool) {
         updateSettings(["ocrMode": enabled])
-        if enabled && target == nil && !isPicking {
-            selectWindow()
-        }
     }
 
     // MARK: Lifecycle
@@ -200,7 +226,15 @@ final class OCRController {
         if CGPreflightScreenCaptureAccess() == false {
             CGRequestScreenCaptureAccess()
         }
+        // Another window may have been saved while OCR mode was off.
+        let saved = settings["ocrWindow"] as? [String: Any]
+        if let target, saved?["ownerName"] as? String != target.ownerName || saved?["title"] as? String ?? "" != target.title {
+            self.target = nil
+        }
         restoreSavedTarget()
+        if target != nil {
+            regions = Self.decodeRegions(settings["ocrRegions"])
+        }
         trackTimer?.invalidate()
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.trackWindow() }
@@ -212,7 +246,7 @@ final class OCRController {
             await self?.warmUpLiveText()
             await self?.runLoop()
         }
-        if target != nil {
+        if hasSource {
             pendingCue = .immediate
         }
     }
@@ -225,15 +259,22 @@ final class OCRController {
         overlay.preferredScreen = nil
         lastRecognizedFrame = nil
         lastResult = nil
+        areaLines = []
         lastSentWindowState = ""
         send(["type": "window", "visible": false])
         send(["type": "changing"])
     }
 
-    /// Picks the saved window again by its app and title (window numbers change when apps restart).
+    /// Picks the saved window again by its app and title (window numbers change when apps restart), or
+    /// the screen when there's none.
     private func restoreSavedTarget() {
-        guard target == nil, let saved = settings["ocrWindow"] as? [String: Any],
-              let ownerName = saved["ownerName"] as? String else { return }
+        guard target == nil else { return }
+        guard let saved = settings["ocrWindow"] as? [String: Any], let ownerName = saved["ownerName"] as? String else {
+            readsScreen = true
+            regions = []
+            return
+        }
+        readsScreen = false
         let title = saved["title"] as? String ?? ""
         // Also windows that aren't on screen now, e.g. a game in its own full screen space.
         let windows = Self.windows(onScreenOnly: false).filter { $0.ownerName == ownerName }
@@ -254,7 +295,8 @@ final class OCRController {
 
     // MARK: Choosing the window
 
-    func selectWindow() {
+    /// Lets the user pick the captured window and its areas. `enableOCR` also turns screen OCR mode on.
+    func selectWindow(enableOCR: Bool = true) {
         guard !isPicking else { return }
         isPicking = true
         send(["type": "window", "visible": false])
@@ -262,22 +304,20 @@ final class OCRController {
             guard let self else { return }
             self.isPicking = false
             guard let result else {
-                if self.target == nil {
-                    // Nothing to read: back to the text box.
-                    self.updateSettings(["ocrMode": false])
-                }
                 self.lastSentWindowState = ""
                 self.trackWindow()
                 return
             }
             self.target = Target(windowID: result.windowID, ownerName: result.ownerName, title: result.title)
+            self.readsScreen = false
             self.regions = result.regions
             self.readAgain()
-            self.updateSettings([
-                "ocrMode": true,
+            var changes: [String: Any] = [
                 "ocrWindow": ["ownerName": result.ownerName, "title": result.title],
                 "ocrRegions": result.regions.map { ["x": $0.minX, "y": $0.minY, "width": $0.width, "height": $0.height] },
-            ])
+            ]
+            if enableOCR { changes["ocrMode"] = true }
+            self.updateSettings(changes)
         }
     }
 
@@ -368,6 +408,10 @@ final class OCRController {
 
     private func trackWindow() {
         guard isEnabled, !isPicking else { return }
+        if readsScreen {
+            trackScreen()
+            return
+        }
         guard let target else {
             sendWindowState(visible: false)
             // The saved window may not exist yet (e.g. the game isn't running): keep looking.
@@ -395,6 +439,7 @@ final class OCRController {
                     scWindow = nil
                     readingScale = nil
                     animatedBlocks = []
+                    areaLines = []
                     lastRecognizedFrame = nil
                     pendingCue = .immediate
                 } else {
@@ -407,6 +452,7 @@ final class OCRController {
             log("resized \(old.size) -> \(info.bounds.size)")
             // Resized: the text moved, so read it again (a new line waiting to be read will be).
             if pendingCue != .newLine { pendingCue = .retry }
+            otherAreasOutdated = true
         }
         if bounds != info.bounds {
             boundsChangedAt = Date()
@@ -417,12 +463,31 @@ final class OCRController {
             // Back (e.g. from another space): it may have changed or been drawn again differently.
             log("available again")
             if pendingCue != .newLine { pendingCue = .retry }
+            otherAreasOutdated = true
+            // The page checks the next reading against the last WebSocket line again.
+            send(["type": "returned"])
         }
         bounds = info.bounds
         isWindowAvailable = available
         cursorMoved(to: WindowPicker.globalPoint(NSEvent.mouseLocation))
         followWindowScreen(info.bounds)
         sendWindowState(visible: info.isOnScreen)
+    }
+
+    /// Without a window: the screen the overlay is on (Settings → Overlay → Display).
+    private func trackScreen() {
+        overlay.preferredScreen = nil
+        guard let screen = overlay.panel.screen ?? NSScreen.main else { return }
+        let frame = Self.globalFrame(of: screen)
+        if bounds != frame {
+            boundsChangedAt = Date()
+            if bounds != nil, lastResult != nil, pendingCue != .newLine { pendingCue = .retry }
+            if bounds != nil { otherAreasOutdated = true }
+        }
+        bounds = frame
+        isWindowAvailable = Date().timeIntervalSince(boundsChangedAt) >= 0.3
+        cursorMoved(to: WindowPicker.globalPoint(NSEvent.mouseLocation))
+        sendWindowState(visible: true)
     }
 
     /// Keeps the overlay on the display that shows the window.
@@ -488,13 +553,14 @@ final class OCRController {
 
     private func runLoop() async {
         while !Task.isCancelled {
-            guard isEnabled, !isPicking, target != nil, bounds != nil, isWindowAvailable else {
+            guard isEnabled, !isPicking, hasSource, bounds != nil, isWindowAvailable else {
                 try? await Task.sleep(for: .milliseconds(200))
                 continue
             }
-            if !websocketConnected, !isWatching {
-                // Without WebSocket lines, wait until the mouse is used.
-                // Readings that were asked for (e.g. after coming back from another space) wait too.
+            if !websocketConnected, !isWatching, pendingCue != .immediate {
+                // Without WebSocket lines, wait until the mouse is used. Readings that were asked for
+                // (e.g. after coming back from another space) wait too, but not the first one of a newly
+                // chosen window or screen.
                 if !waitingForMouse {
                     waitingForMouse = true
                     log("waiting for the mouse\(pendingCue.map { " (\($0) pending)" } ?? "")")
@@ -514,8 +580,11 @@ final class OCRController {
                 await settleAndRecognize(cue: cue)
                 continue
             }
-            if websocketConnected, Date() >= watchUntil {
-                // New lines are the cue; there's nothing to watch in between.
+            // With WebSocket lines, they're the cue for the dialogue, which is only watched briefly after
+            // each reading; the other areas are watched as without them.
+            let watchesDialogue = websocketConnected ? Date() < watchUntil : isWatching
+            let watchesOthers = areas.count > 1 && isWatching
+            if !watchesDialogue && !watchesOthers {
                 try? await Task.sleep(for: .milliseconds(50))
                 continue
             }
@@ -525,10 +594,18 @@ final class OCRController {
                 try? await Task.sleep(for: .milliseconds(50))
             }
             guard pendingCue == nil, isWindowAvailable, websocketConnected || isWatching, let (_, frame) = await capture(scale: Self.comparisonScale) else { continue }
-            if let last = lastRecognizedFrame, !differs(frame, last) { continue }
-            log("window changed")
-            send(["type": "changing"])
-            await settleAndRecognize(cue: nil)
+            if watchesDialogue, lastRecognizedFrame.map({ differs(frame, $0, only: [0]) }) ?? true {
+                log("window changed")
+                send(["type": "changing"])
+                await settleAndRecognize(cue: nil)
+                continue
+            }
+            guard watchesOthers, let last = lastRecognizedFrame else { continue }
+            let changed = otherAreas.filter { differs(frame, last, only: [$0]) }
+            if !changed.isEmpty {
+                log("areas \(changed) changed")
+                await readNow(changed, frame: frame)
+            }
         }
     }
 
@@ -563,7 +640,7 @@ final class OCRController {
                 }
                 guard let (_, frame) = await capture(scale: Self.comparisonScale) else { return }
                 stableFrame = frame
-                if let last = lastRecognizedFrame, differs(frame, last) {
+                if let last = lastRecognizedFrame, differs(frame, last, only: [0]) {
                     sawChange = true
                 }
                 if !sawChange && Date().timeIntervalSince(start) > 1.5 {
@@ -577,7 +654,7 @@ final class OCRController {
                 let references = history.filter { frame.time.timeIntervalSince($0.time) >= settleTime }
                 if references.isEmpty {
                     isStill = cue == .immediate && round == 0
-                } else if let same = references.first(where: { isSame(frame, $0) }) {
+                } else if let same = references.first(where: { isSame(frame, $0, only: [0]) }) {
                     isStill = true
                     learnAnimatedBlocks(from: history.filter { $0.time >= same.time })
                 } else {
@@ -601,24 +678,11 @@ final class OCRController {
                 return
             }
             if isStill { lastStillReadingAt = Date() }
-            let scale: CGFloat
-            var checkScale = false
-            switch settings["ocrResolution"] as? String {
-            case "full":
-                scale = Self.captureScale
-            case "1x":
-                scale = 1
-            default:
-                checkScale = Self.captureScale > 1 && (readingScale == nil || Date().timeIntervalSince(readingScaleCheckedAt) > 120)
-                scale = checkScale ? Self.captureScale : readingScale ?? Self.captureScale
-            }
-            guard let (image, _) = await capture(scale: scale) else { return }
-            if checkScale, let detail = GrayImage(image)?.hasFineDetail {
-                readingScale = detail ? Self.captureScale : 1
-                readingScaleCheckedAt = Date()
-                log("drawn at \(detail ? "full" : "1x") resolution: reading at \(readingScale!)x")
-            }
-            await recognize(image, frame: stableFrame)
+            // The other areas too when they haven't been read yet, or may have changed unseen.
+            let read = cue == .immediate || otherAreasOutdated || areaLines.count != areas.count ? Array(areas.indices) : [0]
+            otherAreasOutdated = false
+            guard let image = await captureForReading() else { return }
+            await recognize(image, frame: stableFrame, areas: read)
             guard !isStill, round < 3 else { return }
             log("still changing: reading again once it settles")
             settleTime = number("ocrSettleTime", 400) / 1000
@@ -628,6 +692,34 @@ final class OCRController {
         }
     }
 
+    /// Reads areas after the first right away, without waiting for them to be still.
+    private func readNow(_ indices: [Int], frame: Frame) async {
+        guard let image = await captureForReading() else { return }
+        await recognize(image, frame: frame, areas: indices)
+    }
+
+    /// Captures the window at the scale it's read at.
+    private func captureForReading() async -> CGImage? {
+        let scale: CGFloat
+        var checkScale = false
+        switch settings["ocrResolution"] as? String {
+        case "full":
+            scale = Self.captureScale
+        case "1x":
+            scale = 1
+        default:
+            checkScale = Self.captureScale > 1 && (readingScale == nil || Date().timeIntervalSince(readingScaleCheckedAt) > 120)
+            scale = checkScale ? Self.captureScale : readingScale ?? Self.captureScale
+        }
+        guard let (image, _) = await capture(scale: scale) else { return nil }
+        if checkScale, let detail = GrayImage(image)?.hasFineDetail {
+            readingScale = detail ? Self.captureScale : 1
+            readingScaleCheckedAt = Date()
+            log("drawn at \(detail ? "full" : "1x") resolution: reading at \(readingScale!)x")
+        }
+        return image
+    }
+
     /// Frames are compared at a low resolution, always the same one (scaling changes edges).
     private static let comparisonScale: CGFloat = 0.5
 
@@ -635,9 +727,14 @@ final class OCRController {
         NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
     }
 
-    /// The watched areas, as fractions of the window.
+    /// The watched areas, as fractions of the window. The first is the dialogue.
     private var areas: [CGRect] {
         regions.isEmpty ? [CGRect(x: 0, y: 0, width: 1, height: 1)] : regions
+    }
+
+    /// The indexes of the areas after the first.
+    private var otherAreas: [Int] {
+        Array(areas.indices.dropFirst())
     }
 
     /// The part of the window that's captured: just what covers the areas.
@@ -655,12 +752,15 @@ final class OCRController {
         ).integral
     }
 
-    /// - Parameter frame: The low resolution frame `image` was taken after, the reference for changes.
-    private func recognize(_ image: CGImage, frame: Frame?) async {
+    /// - Parameters:
+    ///   - frame: The low resolution frame `image` was taken after, the reference for changes in `areas`.
+    ///   - areas: The indexes of the areas to read; the others keep their last lines.
+    private func recognize(_ image: CGImage, frame: Frame?, areas indices: [Int]) async {
         guard let bounds else { return }
-        var lines: [[String: Any]] = []
         let started = Date()
-        for area in areas {
+        if areaLines.count != areas.count { areaLines = areas.map { _ in [] } }
+        for index in indices {
+            let area = areas[index]
             guard let crop = image.cropping(to: pixelRect(of: area, in: image)) else { continue }
             let items: [MPLiveTextItem]
             let recognizeStarted = Date()
@@ -683,19 +783,26 @@ final class OCRController {
             let layoutStarted = Date()
             let gray = GrayImage(crop)
             let size = CGSize(width: crop.width, height: crop.height)
-            lines += items.map { Self.encodeLine($0, image: gray, size: size, toWindow: toWindow) }
+            areaLines[index] = items.map {
+                var line = Self.encodeLine($0, image: gray, size: size, toWindow: toWindow)
+                line["area"] = index
+                return line
+            }
             log("layout: \(String(format: "%.2f", Date().timeIntervalSince(layoutStarted)))s")
         }
-        lastRecognizedFrame = frame
+        updateReference(frame, areas: indices)
+        let lines = areaLines.flatMap { $0 }
         let result: [String: Any] = [
             "type": "result",
             "lines": lines,
+            // Whether the dialogue was read (the page checks it against the WebSocket line), or only others.
+            "dialogue": indices.contains(0),
             "elapsed": Date().timeIntervalSince(started),
             "width": bounds.width,
             "height": bounds.height,
         ]
         lastResult = result
-        watchUntil = Date().addingTimeInterval(1.5)
+        if indices.contains(0) { watchUntil = Date().addingTimeInterval(1.5) }
         log("read \(lines.count) lines in \(String(format: "%.2f", Date().timeIntervalSince(started)))s")
         send(result)
     }
@@ -813,37 +920,9 @@ final class OCRController {
     /// positions in the image wouldn't match the screen. A window that isn't entirely within a display
     /// (moved partly off screen) is captured by itself, since there's no part of a display to capture.
     private func capture(scale: CGFloat) async -> (CGImage, Frame)? {
-        guard let target, let bounds else { return nil }
         do {
-            if scWindow == nil || scBounds != bounds {
-                if scBounds != bounds { readingScale = nil }
-                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-                scWindow = content.windows.first { $0.windowID == target.windowID }
-                scDisplay = content.displays.first { $0.frame.contains(bounds) }
-                scBounds = bounds
-            }
-            guard let scWindow else { return nil }
-            let filter: SCContentFilter
-            let configuration = SCStreamConfiguration()
-            let part = capturedPart
-            // In window points.
-            let partRect = CGRect(
-                x: part.minX * bounds.width, y: part.minY * bounds.height,
-                width: part.width * bounds.width, height: part.height * bounds.height
-            )
-            if let scDisplay {
-                filter = SCContentFilter(display: scDisplay, including: [scWindow])
-                configuration.sourceRect = partRect.offsetBy(dx: bounds.minX - scDisplay.frame.minX, dy: bounds.minY - scDisplay.frame.minY)
-            } else {
-                filter = SCContentFilter(desktopIndependentWindow: scWindow)
-                configuration.ignoreGlobalClipSingleWindow = true
-                configuration.sourceRect = partRect
-            }
-            configuration.width = max(1, Int(partRect.width * scale))
-            configuration.height = max(1, Int(partRect.height * scale))
-            configuration.showsCursor = false
-            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
-            guard let (thumbnails, widths) = thumbnails(of: image) else { return nil }
+            guard let image = try await captureImage(part: capturedPart, scale: scale),
+                  let (thumbnails, widths) = thumbnails(of: image) else { return nil }
             captureFailures = 0
             return (image, Frame(time: Date(), thumbnails: thumbnails, widths: widths))
         } catch {
@@ -858,6 +937,87 @@ final class OCRController {
             try? await Task.sleep(for: .seconds(1))
             return nil
         }
+    }
+
+    /// Captures `part` of the window (normalized to its bounds) at `scale` pixels per point, as described
+    /// for `capture(scale:)`. Nil when the window isn't known.
+    private func captureImage(part: CGRect, scale: CGFloat) async throws -> CGImage? {
+        guard let bounds else { return nil }
+        if readsScreen {
+            if scDisplay == nil || scBounds != bounds {
+                if scBounds != bounds { readingScale = nil }
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                let displayID = (overlay.panel.screen ?? NSScreen.main)?.displayID
+                scDisplay = content.displays.first { $0.displayID == displayID }
+                scOwnApps = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+                scBounds = bounds
+            }
+            guard let scDisplay else { return nil }
+            let filter = SCContentFilter(display: scDisplay, excludingApplications: scOwnApps, exceptingWindows: [])
+            let partRect = Self.partRect(part, of: bounds)
+            let configuration = SCStreamConfiguration()
+            configuration.sourceRect = partRect
+            configuration.width = max(1, Int(partRect.width * scale))
+            configuration.height = max(1, Int(partRect.height * scale))
+            configuration.showsCursor = false
+            return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        }
+        guard let target else { return nil }
+        if scWindow == nil || scBounds != bounds {
+            if scBounds != bounds { readingScale = nil }
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+            scWindow = content.windows.first { $0.windowID == target.windowID }
+            scDisplay = content.displays.first { $0.frame.contains(bounds) }
+            scBounds = bounds
+        }
+        guard let scWindow else { return nil }
+        return try await Self.captureWindow(scWindow, display: scDisplay, bounds: bounds, part: part, scale: scale)
+    }
+
+    /// `part` (normalized) of a rectangle, relative to it.
+    private static func partRect(_ part: CGRect, of bounds: CGRect) -> CGRect {
+        CGRect(
+            x: part.minX * bounds.width, y: part.minY * bounds.height,
+            width: part.width * bounds.width, height: part.height * bounds.height
+        )
+    }
+
+    /// Captures `part` of a window as described for `capture(scale:)`; `display` is the one it lies within, if any.
+    private static func captureWindow(
+        _ scWindow: SCWindow, display scDisplay: SCDisplay?, bounds: CGRect, part: CGRect, scale: CGFloat
+    ) async throws -> CGImage {
+        let filter: SCContentFilter
+        let configuration = SCStreamConfiguration()
+        // In window points.
+        let partRect = Self.partRect(part, of: bounds)
+        if let scDisplay {
+            filter = SCContentFilter(display: scDisplay, including: [scWindow])
+            configuration.sourceRect = partRect.offsetBy(dx: bounds.minX - scDisplay.frame.minX, dy: bounds.minY - scDisplay.frame.minY)
+        } else {
+            filter = SCContentFilter(desktopIndependentWindow: scWindow)
+            configuration.ignoreGlobalClipSingleWindow = true
+            configuration.sourceRect = partRect
+        }
+        configuration.width = max(1, Int(partRect.width * scale))
+        configuration.height = max(1, Int(partRect.height * scale))
+        configuration.showsCursor = false
+        return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+    }
+
+    /// The captured window (Settings → Overlay), whole and at its display's resolution, for the
+    /// `{screenshot}` Anki marker: only that window, without other windows in front of it or the overlay.
+    /// Also when screen OCR mode is off. Nil when no window is set or it isn't on screen.
+    func windowScreenshot() async throws -> CGImage? {
+        guard let saved = settings["ocrWindow"] as? [String: Any], let ownerName = saved["ownerName"] as? String else { return nil }
+        let title = saved["title"] as? String ?? ""
+        let windows = Self.windows(onScreenOnly: true).filter { $0.ownerName == ownerName }
+        let match = windows.first { $0.id == target?.windowID } ?? windows.first { $0.title == title } ?? windows.first
+        guard let match else { return nil }
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        guard let window = content.windows.first(where: { $0.windowID == match.id }) else { return nil }
+        let display = content.displays.first { $0.frame.contains(match.bounds) }
+        let scale = NSScreen.screens.first { $0.displayID == (display?.displayID ?? overlay.displayID) }?.backingScaleFactor ?? 2
+        return try await Self.captureWindow(window, display: display, bounds: match.bounds, part: CGRect(x: 0, y: 0, width: 1, height: 1), scale: scale)
     }
 
     /// Small grayscale copies of the watched areas, the same size whatever the capture scale.
@@ -887,6 +1047,21 @@ final class OCRController {
         return (result, widths)
     }
 
+    /// Makes `frame` the reference for changes in the areas that were read from it.
+    private func updateReference(_ frame: Frame?, areas indices: [Int]) {
+        guard let frame else { return }
+        guard var reference = lastRecognizedFrame, reference.widths.count == frame.widths.count else {
+            lastRecognizedFrame = frame
+            return
+        }
+        for index in indices {
+            reference.thumbnails[index] = frame.thumbnails[index]
+            reference.widths[index] = frame.widths[index]
+        }
+        reference.time = frame.time
+        lastRecognizedFrame = reference
+    }
+
     private static let block = 8
 
     /// The blocks of each thumbnail (`block` pixels square) in which `a` and `b` differ in detail (one
@@ -894,13 +1069,18 @@ final class OCRController {
     /// faint changes, like the end of a character's fade-in (a game's text can take half a second to
     /// reach full brightness).
     /// - Parameter firstOnly: Stop at the first changed block that isn't in `ignoring`.
-    private func changedBlocks(_ a: Frame, _ b: Frame, ignoring: [Set<Int>] = [], firstOnly: Bool = false) -> [Set<Int>]? {
+    /// - Parameter only: The areas to compare (the others count as unchanged), or all.
+    private func changedBlocks(_ a: Frame, _ b: Frame, ignoring: [Set<Int>] = [], firstOnly: Bool = false, only: [Int]? = nil) -> [Set<Int>]? {
         guard a.thumbnails.count == b.thumbnails.count, a.widths == b.widths else { return nil }
         let block = Self.block
         let tolerance = Int(number("ocrStillTolerance", 40))
         var result: [Set<Int>] = []
         for (area, ((x, y), width)) in zip(zip(a.thumbnails, b.thumbnails), a.widths).enumerated() {
             guard x.count == y.count, width > 0 else { return nil }
+            if let only, !only.contains(area) {
+                result.append([])
+                continue
+            }
             let ignored = area < ignoring.count ? ignoring[area] : []
             let height = x.count / width
             let columns = (width + block - 1) / block
@@ -924,8 +1104,8 @@ final class OCRController {
     }
 
     /// Whether two frames look the same in detail, apart from spots known to be animated.
-    private func isSame(_ a: Frame, _ b: Frame) -> Bool {
-        guard let changed = changedBlocks(a, b, ignoring: animatedBlocks, firstOnly: true) else { return false }
+    private func isSame(_ a: Frame, _ b: Frame, only: [Int]? = nil) -> Bool {
+        guard let changed = changedBlocks(a, b, ignoring: animatedBlocks, firstOnly: true, only: only) else { return false }
         return changed.allSatisfy(\.isEmpty)
     }
 
@@ -936,7 +1116,8 @@ final class OCRController {
         guard frames.count > 1, let first = frames.first else { return }
         var found = first.thumbnails.map { _ in Set<Int>() }
         for (a, b) in zip(frames, frames.dropFirst()) {
-            guard let changed = changedBlocks(a, b) else { return }
+            // Only the dialogue waits until still; the other areas are read whenever they change.
+            guard let changed = changedBlocks(a, b, only: [0]) else { return }
             for (area, blocks) in changed.enumerated() { found[area].formUnion(blocks) }
         }
         if animatedBlocks.count != found.count { animatedBlocks = found.map { _ in [] } }
@@ -953,11 +1134,13 @@ final class OCRController {
     /// Whether two frames differ by more than the threshold: the share of pixels that changed clearly,
     /// in any watched area. Small changes (a blinking cursor, slight animation) stay under it, and
     /// spots known to be animated are left out.
-    private func differs(_ a: Frame, _ b: Frame) -> Bool {
+    /// - Parameter only: The areas to compare, or all.
+    private func differs(_ a: Frame, _ b: Frame, only: [Int]? = nil) -> Bool {
         guard a.thumbnails.count == b.thumbnails.count, a.widths == b.widths else { return true }
         let threshold = number("ocrChangeThreshold", 0.3) / 100
         let block = Self.block
         for (area, ((x, y), width)) in zip(zip(a.thumbnails, b.thumbnails), a.widths).enumerated() {
+            if let only, !only.contains(area) { continue }
             guard x.count == y.count, !x.isEmpty, width > 0 else { return true }
             let animated = area < animatedBlocks.count ? animatedBlocks[area] : []
             let columns = (width + block - 1) / block

@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var toggleItem: NSMenuItem!
     private var ocrItem: NSMenuItem!
     private var ocr: OCRController!
+    private var clipboardMonitor: ClipboardMonitor!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         schemeHandler = WebAssetsSchemeHandler(root: WebViewFactory.webRoot)
@@ -19,16 +20,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         // Both web views share one configuration, so they share the bridge and the asset scheme.
         let configuration = WebViewFactory.makeConfiguration(bridge: bridge, schemeHandler: schemeHandler)
         overlay = OverlayController(configuration: configuration)
-        settingsWindow = SettingsWindowController(configuration: configuration)
+        // From Settings → Overlay: only the window is chosen, screen OCR mode stays as it is.
+        settingsWindow = SettingsWindowController { [weak self] in self?.ocr.selectWindow(enableOCR: false) }
         overlay.onMouseButtonEvent = { [weak self] button, isDown in
             self?.settingsWindow.mouseButtonEvent(button: button, isDown: isDown)
             if isDown { self?.ocr.mouseClicked() }
         }
 
         ocr = OCRController(overlay: overlay)
+        clipboardMonitor = ClipboardMonitor(overlay: overlay)
 
         setUpStatusItem()
+        setUpEditMenu()
         overlay.show()
+    }
+
+    /// The app has no menu bar of its own, but text fields in Settings need the Edit menu's key
+    /// equivalents (copy, paste, select all, undo).
+    private func setUpEditMenu() {
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        editItem.submenu = edit
+        let mainMenu = NSMenu()
+        mainMenu.addItem(NSMenuItem(title: "MacPopup", action: nil, keyEquivalent: ""))
+        mainMenu.addItem(editItem)
+        NSApp.mainMenu = mainMenu
     }
 
     private func setUpStatusItem() {
@@ -39,9 +62,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         menu.delegate = self
         toggleItem = NSMenuItem(title: "Hide Overlay", action: #selector(toggleOverlay), keyEquivalent: "")
         menu.addItem(toggleItem)
-        ocrItem = NSMenuItem(title: "Screen OCR Mode", action: #selector(toggleOCR), keyEquivalent: "")
+        ocrItem = NSMenuItem(title: "OCR Mode", action: #selector(toggleOCR), keyEquivalent: "")
         menu.addItem(ocrItem)
-        menu.addItem(NSMenuItem(title: "Select Window for OCR…", action: #selector(selectOCRWindow), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Select Captured Window…", action: #selector(selectOCRWindow), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "Move to Next Display", action: #selector(moveToNextDisplay), keyEquivalent: ""))
@@ -108,6 +131,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         overlay.menuBarHeight
     }
 
+    func ocrWindowScreenshot() async throws -> CGImage? {
+        try await ocr.windowScreenshot()
+    }
+
     func snapshotOverlay() async throws -> Data {
         let image = try await overlay.webView.takeSnapshot(configuration: nil)
         guard let tiff = image.tiffRepresentation,
@@ -119,6 +146,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
 
     func simulateMouse(x: Double, y: Double, shift: Bool) {
         overlay.simulateMouse(x: x, y: y, modifiers: shift ? .shift : [])
+    }
+
+    func setOverlayCursor(_ cursor: String?) {
+        overlay.setCursor(cursor)
+    }
+
+    func setHotkeys(_ combinations: [KeyCombination]) -> [Bool] {
+        overlay.setHotkeys(combinations)
     }
 
     var overlayIgnoresMouseEvents: Bool {

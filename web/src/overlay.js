@@ -5,10 +5,14 @@ import { mdiCog, mdiConnection, mdiDeleteSweep, mdiEyeOff, mdiPause, mdiPlay } f
 import { log, nativeCall } from './lib/native.js';
 import { getPopupPosition } from './lib/popup-position.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
-import { getTextSourceAtElementStart, getTextSourceFromPoint, searchTextSource, setHighlight } from './lib/scanner.js';
+import { getTextSourceFromPoint, searchTextSource, setHighlight } from './lib/scanner.js';
 import { correctWithText, decodeLines, renderLines } from './lib/ocr-layer.js';
+import { applyReplacements } from './lib/replacements.js';
+import { cursorAt } from './lib/cursor.js';
 import { getSettings, loadSettings, onSettingsChanged, saveSettings } from './lib/settings.js';
 import { ankiCardFormats, kanjiEntries, termEntries, tokenize } from './lib/yomitan-api.js';
+import { convertHiraganaToKatakana, convertKatakanaToHiragana } from '../../vendor/yomitan/ext/js/language/ja/japanese.js';
+import { convertToRomaji } from '../../vendor/yomitan/ext/js/language/ja/japanese-wanakana.js';
 
 const $ = (selector) => document.querySelector(selector);
 const box = $('#box');
@@ -65,27 +69,6 @@ const state = {
 	nextId: 1,
 	renderKey: '',
 };
-
-const regexCache = new Map();
-
-function applyReplacements(text, replacements) {
-	let result = text;
-	for (const replacement of replacements) {
-		if (replacement.enabled === false) continue;
-		const key = `${replacement.pattern}||${(replacement.flags ?? []).join('')}`;
-		let regex = regexCache.get(key);
-		if (!regex) {
-			try {
-				regex = new RegExp(replacement.pattern, (replacement.flags ?? []).join(''));
-			} catch (_) {
-				continue;
-			}
-			regexCache.set(key, regex);
-		}
-		result = result.replace(regex, (replacement.replaces ?? '').replace(/\\t/gm, '\t').replace(/\\n/gm, '\n'));
-	}
-	return result;
-}
 
 function formatLineText(text, preserveWhitespace) {
 	return preserveWhitespace ? text : text.replace(/\s+/g, ' ');
@@ -188,6 +171,28 @@ async function tokenizeLine(line) {
 	}
 }
 
+/** Furigana in the reading mode set (Yomitan's parsing.readingMode, as its QueryParser._convertReading). */
+function convertReading(reading, mode) {
+	switch (mode) {
+		case 'hiragana':
+			return convertKatakanaToHiragana(reading);
+		case 'katakana':
+			return convertHiraganaToKatakana(reading);
+		case 'romaji':
+			return convertToRomaji(reading);
+		case 'none':
+			return '';
+		default:
+			// 'dictionary-reading': as the tokenizer has it.
+			return reading;
+	}
+}
+
+/** Whether `text` is only punctuation, symbols and spaces. */
+function isPunctuation(text) {
+	return /^[\p{P}\p{S}\s]+$/u.test(text);
+}
+
 function createLineElement(line, animate) {
 	const settings = getSettings();
 	const p = document.createElement('p');
@@ -212,13 +217,19 @@ function createLineElement(line, animate) {
 			const span = document.createElement('span');
 			span.className = 'token';
 			span.dataset.start = `${offset}`;
-			if (segments[0]?.headwords) span.classList.add('token-word');
+			// Yomitan's "Term spacing".
+			if (settings.termSpacing) span.style.marginInlineEnd = '0.2em';
 			for (const { text, reading } of segments) {
-				if (settings.showFurigana && reading) {
+				// Not on punctuation: the tokenizer gives "。" the reading "まる", for example.
+				const furigana = settings.showFurigana && reading && !isPunctuation(text) ? convertReading(reading, settings.furiganaReadingMode) : '';
+				if (furigana) {
 					const ruby = document.createElement('ruby');
-					ruby.append(text);
+					// In an <rb>, so the scan highlight shows on it (see wrapRubyBases).
+					const rb = document.createElement('rb');
+					rb.append(text);
+					ruby.append(rb);
 					const rt = document.createElement('rt');
-					rt.textContent = reading;
+					rt.textContent = furigana;
 					ruby.append(rt);
 					span.append(ruby);
 				} else {
@@ -533,6 +544,7 @@ class PopupManager {
 		iframe.style.visibility = 'visible';
 		popup.visible = true;
 		reportHitRects();
+		updateHotkeys();
 		await contentPromise;
 	}
 
@@ -553,7 +565,10 @@ class PopupManager {
 		popup.visible = false;
 		popup.iframe.style.visibility = '';
 		popup.api?.stopAudio();
+		popup.api?.closeAudioMenus();
 		popup.api?.clearScan();
+		popup.api?.setPointerHover(null, null);
+		updateHotkeys();
 		if (depth === 0) {
 			// Hovering the word again opens it again. A scan that's scheduled or being looked up is
 			// for where the cursor is now (auto-hide fires after it left the old word), so it goes on.
@@ -608,6 +623,45 @@ class PopupManager {
 
 const popupManager = new PopupManager();
 
+// Keyboard shortcuts (Yomitan's popup hotkeys). The host registers them as global hotkeys only while a
+// popup shows, since the overlay never has keyboard focus; otherwise their keys go to the app as usual.
+let activeHotkeys = [];
+let registeredHotkeys = null;
+
+function updateHotkeys() {
+	const visible = popupManager.visiblePopups().length > 0;
+	const hotkeys = visible ? (getSettings().hotkeys ?? []).filter(({ enabled, key }) => enabled && typeof key === 'string' && key !== '') : [];
+	activeHotkeys = hotkeys;
+	const combinations = hotkeys.map(({ key, modifiers }) => ({ key, modifiers: Array.isArray(modifiers) ? modifiers : [] }));
+	const json = JSON.stringify(combinations);
+	if (json === registeredHotkeys) return;
+	registeredHotkeys = json;
+	nativeCall('setHotkeys', { hotkeys: combinations })
+		.then((results) => {
+			const failed = hotkeys.filter((_, i) => results?.[i] === false);
+			if (failed.length > 0) log('Keyboard shortcuts in use elsewhere:', failed.map(({ key, modifiers }) => [...modifiers, key].join('+')).join(', '));
+		})
+		.catch(() => {});
+}
+
+window.__macpopupUpdateHotkeys = () => {
+	registeredHotkeys = null;
+	updateHotkeys();
+};
+
+window.__macpopupHotkey = (index) => {
+	const hotkey = activeHotkeys[index];
+	if (!hotkey) return;
+	const argument = typeof hotkey.argument === 'string' ? hotkey.argument : '';
+	if (hotkey.action === 'toggleOption') {
+		const value = getSettings()[argument];
+		if (typeof value === 'boolean') void saveSettings({ [argument]: !value });
+		return;
+	}
+	// The popup on top gets it, as the focused popup would in Yomitan.
+	popupManager.visiblePopups().at(-1)?.api?.runHotkey(hotkey.action, argument);
+};
+
 async function getDocumentTitle() {
 	// In screen OCR mode, the app being read.
 	const ocrWindow = getSettings().ocrMode && getSettings().ocrWindow;
@@ -627,9 +681,15 @@ window.macpopupOverlay = {
 	showPopup: (depth, content, rects, parentDepth) => popupManager.showFromPopup(depth, content, rects, parentDepth),
 	getPopupSize: (depth) => popupManager.getSize(depth),
 	resizePopup: (depth, width, height) => popupManager.resize(depth, width, height),
+	/** The text selected in the popup at `depth`, or in the text box for -1. */
+	getSelectionText(depth) {
+		const target = depth < 0 ? window : popupManager.popups[depth]?.iframe.contentWindow;
+		return target?.getSelection()?.toString() ?? '';
+	},
 	async lookupText(text) {
 		const { scanLength } = getSettings();
 		const fullQuery = text.slice(0, scanLength);
+		if (fullQuery.trim().length === 0) return null;
 		const result = await termEntries(fullQuery);
 		if (result.dictionaryEntries.length > 0) {
 			return { type: 'term', dictionaryEntries: result.dictionaryEntries, query: fullQuery.slice(0, result.originalTextLength), fullQuery };
@@ -646,7 +706,6 @@ const scan = {
 	timer: null,
 	source: null,
 	token: 0,
-	hoveredToken: null,
 	hideTimer: null,
 	childHideTimer: null,
 	overPopup: false,
@@ -654,13 +713,6 @@ const scan = {
 	overDepth: -1,
 	pending: false,
 };
-
-function setHoveredToken(token) {
-	if (scan.hoveredToken === token) return;
-	scan.hoveredToken?.classList.remove('token-hover');
-	scan.hoveredToken = token;
-	if (token && getSettings().showTokenUnderline) token.classList.add('token-hover');
-}
 
 function clearMainScan() {
 	clearTimeout(scan.timer);
@@ -674,24 +726,24 @@ function scanBox(x, y, mods) {
 	clearTimeout(scan.timer);
 	const element = document.elementFromPoint(x, y);
 	const line = element?.closest('#lines p[data-line-id]');
-	const token = line ? element.closest('.token') : null;
-	setHoveredToken(token);
 	const input = matchScanInput(settings.scanModifier, settings.scanInputs, mods);
 	if (input === null) return;
 	if (!line) {
 		onSearchEmpty();
 		return;
 	}
-	// Tokenized lines are looked up from the start of the hovered token, others from the character under the cursor.
-	const getSource = token ? () => getTextSourceAtElementStart(token) : () => getTextSourceFromPoint(x, y);
+	// From the character under the cursor, as Yomitan does, also in tokenized lines: the tokenizer can join
+	// words (e.g. "それでも、好き"), so the token's start isn't always where a lookup should begin.
+	const getSource = () => getTextSourceFromPoint(x, y);
 	if (input.passive) {
-		scan.timer = setTimeout(() => void scanSource(getSource()), settings.scanDelay);
+		scan.timer = setTimeout(() => void scanSource(getSource(), settings.displayVertical, input), settings.scanDelay);
 	} else {
-		void scanSource(getSource());
+		void scanSource(getSource(), settings.displayVertical, input);
 	}
 }
 
-async function scanSource(source, vertical = getSettings().displayVertical) {
+/** @param {{searchTerms: boolean, searchKanji: boolean}} [lookup] What the scan input looks up. */
+async function scanSource(source, vertical = getSettings().displayVertical, lookup = undefined) {
 	if (!source) {
 		onSearchEmpty();
 		return;
@@ -706,7 +758,7 @@ async function scanSource(source, vertical = getSettings().displayVertical) {
 	let result;
 	scan.pending = true;
 	try {
-		const [searchResult, documentTitle] = await Promise.all([searchTextSource(source), getDocumentTitle()]);
+		const [searchResult, documentTitle] = await Promise.all([searchTextSource(source, lookup), getDocumentTitle()]);
 		result = searchResult && { ...searchResult, documentTitle };
 	} catch (e) {
 		log('Lookup failed', e);
@@ -779,37 +831,61 @@ function setPointerHover(x, y) {
 	pointerHovered = hovered;
 }
 
+// The cursor the app shows over the box and popups (null: whatever the app below shows).
+let shownCursor = null;
+
+function setCursor(cursor) {
+	if (cursor === shownCursor) return;
+	shownCursor = cursor;
+	nativeCall('setCursor', { cursor }).catch(() => {});
+}
+
 // `pressed` lists the held mouse buttons (see lib/scan-inputs.js).
 // Words are looked up when the cursor moves, or when a scan key or button is pressed: not when only
-// something else changes under a resting cursor (e.g. a click advancing a game's text).
+// something else changes under a resting cursor (e.g. a click advancing a game's text). Without
+// "Scan without mouse move", as in Yomitan, only a mouse button press does without moving.
 let lastPointer = null;
+let lastPressed = [];
 let scanKeyHeld = false;
+// The popup that has the pointer hover (see Popup.setPointerHover).
+let pointerPopup = null;
 
 window.__macpopupPointer = (x, y, shift, ctrl, alt, meta, pressed = []) => {
 	const moved = lastPointer === null || x !== lastPointer.x || y !== lastPointer.y;
 	lastPointer = { x, y };
+	const lastPressedBefore = lastPressed;
+	const buttonPressed = pressed.some((button) => !lastPressed.includes(button));
+	lastPressed = pressed;
 	const settings = getSettings();
 	const mods = { shift, ctrl, alt, meta, pressed };
 	const input = matchScanInput(settings.scanModifier, settings.scanInputs, mods);
 	const wasHeld = scanKeyHeld;
 	scanKeyHeld = input !== null && !input.passive;
-	const mayScan = moved || (scanKeyHeld && !wasHeld);
+	const scansAtRest = settings.scanWithoutMousemove !== false || buttonPressed;
+	const mayScan = moved || (scanKeyHeld && !wasHeld && scansAtRest);
 	const hit = popupManager.hitTest(x, y);
 	const overBox = !box.hidden && rectContains(box.getBoundingClientRect(), x, y);
 	const ocrLine = !hit && !overBox ? ocrLineAt(x, y) : null;
 	box.classList.toggle('hovered', overBox && !hit);
 	setPointerHover(overBox && !hit ? x : null, y);
+	if (pointerPopup !== null && pointerPopup !== hit?.popup) pointerPopup.api?.setPointerHover(null, null);
+	pointerPopup = hit?.popup ?? null;
+	const popupCursor = hit?.popup.api.setPointerHover(hit.x, hit.y);
+	setCursor(hit ? popupCursor : overBox ? cursorAt(document, x, y) : null);
 	if (hit) {
 		clearTimeout(scan.timer);
-		setHoveredToken(null);
-		hit.popup.api.onPointer(hit.x, hit.y, mods);
+		// The mouse's back and forward buttons go through the popup's history, as in Yomitan.
+		if (!settings.preventBackForwardInPopups && buttonPressed) {
+			if (pressed.includes('mouse3') && !lastPressedBefore.includes('mouse3')) hit.popup.api.navigate(-1);
+			else if (pressed.includes('mouse4') && !lastPressedBefore.includes('mouse4')) hit.popup.api.navigate(1);
+		}
+		hit.popup.api.onPointer(hit.x, hit.y, mods, moved || scansAtRest);
 	} else if (overBox) {
 		if (mayScan) scanBox(x, y, mods);
 	} else if (ocrLine) {
 		if (mayScan) scanOcr(x, y, mods, ocrLine);
 	} else {
 		clearTimeout(scan.timer);
-		setHoveredToken(null);
 		if (matchScanInput(settings.scanModifier, settings.scanInputs, mods) !== null) onSearchEmpty();
 	}
 
@@ -830,6 +906,12 @@ window.__macpopupPointer = (x, y, shift, ctrl, alt, meta, pressed = []) => {
 
 window.__macpopupOutsideClick = () => popupManager.closeAll();
 
+// Copied text, with "Enable background clipboard text monitoring" (see ClipboardMonitor.swift).
+window.__macpopupClipboard = (text) => {
+	const max = getSettings().clipboardMaxLength;
+	addLine(Number.isFinite(max) && max > 0 && text.length > max ? text.slice(0, max) : text);
+};
+
 // Screen OCR mode: the host reads another app's window with Live Text (OCRController.swift) and
 // sends the text here, where it's laid over the window invisibly (lib/ocr-layer.js) for scanning.
 
@@ -838,8 +920,11 @@ const ocr = {
 	// Another window is in front of the target under the cursor.
 	covered: false,
 	// The latest WebSocket line, matched against what's read. Lines usually arrive as the game
-	// starts drawing them, so a reading is retried if the line isn't fully on screen yet.
+	// starts drawing them, so a reading is retried if the line isn't fully on screen yet. It's kept
+	// outside OCR mode too, for the first reading after switching to it.
 	line: null,
+	// Whether OCR mode was on at the last settings change.
+	enabled: false,
 	awaitingLine: false,
 	retries: 0,
 	// The window is being read again: the text may be outdated, so it isn't scanned until the result.
@@ -882,20 +967,29 @@ function clearOcrText() {
 
 function showOcrResult(message) {
 	const settings = getSettings();
-	let lines = decodeLines(message.lines);
+	const decoded = decodeLines(message.lines);
+	// Only the first area is the dialogue: the WebSocket line is matched against it. A reading of
+	// only the other areas (`dialogue` false) isn't the one a new line waits for, and leaves out the
+	// previous dialogue meanwhile.
+	const readsDialogue = message.dialogue ?? true;
+	let dialogue = !readsDialogue && ocr.awaitingLine ? [] : decoded.filter((line) => line.area === 0);
+	const others = decoded.filter((line) => line.area !== 0);
 	if (ocr.line !== null && settings.ocrUseWebsocket) {
-		const { lines: corrected, quality, missingEnd } = correctWithText(lines, ocr.line);
-		if (ocr.awaitingLine && (quality < 0.6 || missingEnd > 1) && ocr.retries < 2) {
+		const { lines: corrected, quality, missingEnd } = correctWithText(dialogue, ocr.line);
+		if (readsDialogue && ocr.awaitingLine && (quality < 0.6 || missingEnd > 1) && ocr.retries < 2) {
 			// Probably still being drawn (it doesn't match, or its end isn't there yet): read again
 			// once the picture settles.
 			ocr.retries++;
 			nativeCall('ocr', { action: 'retry' }).catch(() => {});
 			return;
 		}
-		lines = corrected;
+		dialogue = corrected;
 	}
-	ocr.awaitingLine = false;
-	ocr.stale = false;
+	if (readsDialogue) {
+		ocr.awaitingLine = false;
+		ocr.stale = false;
+	}
+	const lines = [...dialogue, ...others];
 	const size = { width: message.width, height: message.height };
 	const key = JSON.stringify([lines, size]);
 	// Unchanged (e.g. read again after coming back from another space): keep the hovered word and
@@ -915,6 +1009,15 @@ window.__macpopupOcr = (message) => {
 			break;
 		case 'covered':
 			ocr.covered = message.value;
+			break;
+		case 'returned':
+			// Back from another space: the last line is most likely still shown, but the first reading
+			// may catch the window being drawn again. Check it against the line as for a new one, which
+			// reads again if it doesn't match yet.
+			if (ocr.line !== null) {
+				ocr.awaitingLine = true;
+				ocr.retries = 0;
+			}
 			break;
 		case 'changing':
 			// Don't offer the old text while the window changes. It's replaced once the window is read,
@@ -950,10 +1053,11 @@ function ocrLineText(rawText) {
 
 function ocrWebsocketLine(rawText) {
 	const settings = getSettings();
-	if (!settings.ocrMode || !settings.ocrUseWebsocket || state.paused) return;
+	if (state.paused) return;
 	const text = ocrLineText(rawText);
 	if (text === null) return;
 	ocr.line = text;
+	if (!settings.ocrMode || !settings.ocrUseWebsocket) return;
 	ocr.awaitingLine = true;
 	ocr.retries = 0;
 	clearOcrText();
@@ -972,7 +1076,7 @@ function scanOcr(x, y, mods, lineElement) {
 	const input = matchScanInput(settings.scanModifier, settings.scanInputs, mods);
 	if (input === null) return;
 	const vertical = lineElement.style.writingMode === 'vertical-rl';
-	const scanAtPoint = () => void scanSource(getTextSourceFromPoint(x, y), vertical);
+	const scanAtPoint = () => void scanSource(getTextSourceFromPoint(x, y), vertical, input);
 	if (input.passive) {
 		scan.timer = setTimeout(scanAtPoint, settings.scanDelay);
 	} else {
@@ -984,7 +1088,19 @@ function scanOcr(x, y, mods, lineElement) {
 
 function applySettings(settings) {
 	document.documentElement.dataset.theme = settings.theme;
+	// For the fonts' glyph shapes, e.g. Chinese or Japanese forms of the same character.
+	const lang = settings.language === 'xxx' ? '' : settings.language;
+	document.documentElement.lang = lang;
+	$('#ocr-text').lang = lang;
 	box.hidden = !!settings.ocrMode;
+	// Switched to OCR mode: the last WebSocket line is likely still on screen, so the first reading is
+	// checked against it as for a new line (read again if it doesn't match yet; left as read if it
+	// never does).
+	if (settings.ocrMode && !ocr.enabled && ocr.line !== null) {
+		ocr.awaitingLine = true;
+		ocr.retries = 0;
+	}
+	ocr.enabled = !!settings.ocrMode;
 	$('#ocr-layer').classList.toggle('show-boxes', !!settings.ocrShowBoxes);
 	if (!settings.ocrMode) setOcrWindow({ visible: false });
 	box.style.setProperty('--box-opacity', `${settings.boxOpacity}`);
@@ -997,6 +1113,8 @@ function applySettings(settings) {
 
 	const renderKey = JSON.stringify([
 		settings.showFurigana,
+		settings.furiganaReadingMode,
+		settings.termSpacing,
 		settings.linePadding,
 		settings.preserveWhitespace,
 		settings.showLinePoints,
@@ -1011,6 +1129,7 @@ function applySettings(settings) {
 	updateOcrWebsocket();
 	popupManager.applySettings();
 	reportHitRects();
+	updateHotkeys();
 }
 
 function renderPauseButton() {

@@ -2,9 +2,10 @@
 // or by lib/anki-templates.js when Settings → Anki says to render the imported templates.
 // The API has no page context, so markers that depend on it (sentence, cloze, screenshot, clipboard, …)
 // are filled in here, following Yomitan's default templates.
+import { createFuriganaHtml, createFuriganaPlain } from '../../../vendor/yomitan/ext/js/data/anki-note-builder.js';
 import { distributeFuriganaInflected } from '../../../vendor/yomitan/ext/js/language/ja/japanese.js';
 import { ankiInvoke, getRootDeckName } from './anki-connect.js';
-import { renderFields, shouldRenderLocally } from './anki-templates.js';
+import { ankiReadingMode, renderFields, shouldRenderLocally } from './anki-templates.js';
 import { nativeCall } from './native.js';
 import { getSettings } from './settings.js';
 import { ankiFields, tokenize } from './yomitan-api.js';
@@ -80,28 +81,6 @@ export function getCloze(dictionaryEntry, sentence) {
 	};
 }
 
-export function createFuriganaHtml(parsedContent) {
-	let result = '';
-	for (const term of parsedContent) {
-		result += '<span class="term">';
-		for (const { text, reading } of term) {
-			result += reading.length > 0 ? `<ruby>${text}<rt>${reading}</rt></ruby>` : text;
-		}
-		result += '</span>';
-	}
-	return result;
-}
-
-export function createFuriganaPlain(parsedContent) {
-	let result = '';
-	for (const term of parsedContent) {
-		for (const { text, reading } of term) {
-			result += reading.length > 0 ? ` ${text}[${reading}]` : text;
-		}
-	}
-	return result.trimStart();
-}
-
 function timestamp() {
 	const date = new Date();
 	const pad = (value, length = 2) => `${value}`.padStart(length, '0');
@@ -146,7 +125,8 @@ async function resolveLocalMarkers(markers, { dictionaryEntry, content, selectio
 					try {
 						const parsed = cloze.sentence ? await tokenize(cloze.sentence) : null;
 						if (parsed) {
-							value = marker === 'sentence-furigana' ? createFuriganaHtml(parsed.content) : createFuriganaPlain(parsed.content);
+							const readingMode = ankiReadingMode(getSettings());
+							value = marker === 'sentence-furigana' ? createFuriganaHtml(parsed.content, readingMode, null) : createFuriganaPlain(parsed.content, readingMode, null);
 						}
 					} catch (_) {
 						// Fall back to the plain sentence, like Yomitan does when parsing fails.
@@ -270,8 +250,50 @@ export async function buildFirstFieldNotes(content, cardFormats, cardFormatIndic
 	return results;
 }
 
-/** Builds the complete note for one entry and card format. */
-export async function buildNote({ content, entryIndex, cardFormat, selectionText }) {
+const audioExtensions = {
+	'audio/mpeg': 'mp3',
+	'audio/mp3': 'mp3',
+	'audio/mp4': 'm4a',
+	'audio/aac': 'aac',
+	'audio/ogg': 'ogg',
+	'audio/opus': 'opus',
+	'audio/wav': 'wav',
+	'audio/x-wav': 'wav',
+	'audio/webm': 'webm',
+	'audio/flac': 'flac',
+};
+
+/** FNV-1a, to name a media file after its contents. */
+function hashString(text) {
+	let hash = 0x811c9dc5;
+	for (let i = 0; i < text.length; ++i) {
+		hash ^= text.charCodeAt(i);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * Puts the audio chosen in the play button menu in place of the audio the API fetched for the same
+ * word (which is the first its sources have). Returns the file name to replace in fields, if any.
+ */
+function overrideAudio(api, override) {
+	const item = (api?.audioMedia ?? []).find(({ term, reading }) => term === override.term && reading === override.reading);
+	if (!item) return null;
+	const type = override.contentType.split(';')[0].trim().toLowerCase();
+	const filename = `yomitan_audio_${hashString(override.data)}.${audioExtensions[type] ?? 'mp3'}`;
+	const replaced = { from: item.ankiFilename, to: filename };
+	item.ankiFilename = filename;
+	item.content = override.data;
+	return replaced;
+}
+
+/**
+ * Builds the complete note for one entry and card format.
+ * @param {?{term: string, reading: string, data: string, contentType: string}} audioOverride Audio chosen
+ *   in the play button menu, used instead of the API's.
+ */
+export async function buildNote({ content, entryIndex, cardFormat, selectionText, audioOverride = null }) {
 	const fieldEntries = Object.entries(cardFormat.fields);
 	const markers = unique(fieldEntries.flatMap(([, { value }]) => getFieldMarkers(value)));
 	const apiMarkers = markers.filter((marker) => !localMarkers.has(marker));
@@ -287,6 +309,7 @@ export async function buildNote({ content, entryIndex, cardFormat, selectionText
 		),
 	]);
 
+	const replacedAudio = audioOverride ? overrideAudio(api, audioOverride) : null;
 	let rendered = api?.fields[entryIndex] ?? {};
 	// The API still provides the media (dictionary images, audio) that the local templates refer to.
 	if (apiMarkers.length && shouldRenderLocally()) {
@@ -296,6 +319,7 @@ export async function buildNote({ content, entryIndex, cardFormat, selectionText
 	const fields = {};
 	for (const [name, { value }] of fieldEntries) {
 		fields[name] = formatField(value, (marker) => (marker in rendered ? rendered[marker] : local.values.get(marker)));
+		if (replacedAudio) fields[name] = fields[name].replaceAll(replacedAudio.from, replacedAudio.to);
 	}
 
 	const allText = Object.values(fields).join('\n');

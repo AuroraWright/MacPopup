@@ -332,7 +332,8 @@ private final class PickerView: NSView {
             let windowRect = local(window.bounds)
             NSColor.black.withAlphaComponent(picker.regions.isEmpty && picker.dragRect == nil ? 0 : 0.3).setFill()
             windowRect.fill(using: .copy)
-            for rect in picker.regions + [picker.dragRect].compactMap({ $0 }) {
+            let areas = picker.regions + [picker.dragRect].compactMap({ $0 })
+            for rect in areas {
                 let localRect = local(rect)
                 NSColor.clear.setFill()
                 localRect.fill(using: .copy)
@@ -341,14 +342,18 @@ private final class PickerView: NSView {
                 border.lineWidth = 2
                 border.stroke()
             }
+            // The first area is the dialogue, matched with WebSocket lines; the others are read at once.
+            for (index, rect) in areas.enumerated() {
+                drawTag(index == 0 ? "Dialogue" : "Other text", at: local(rect).origin)
+            }
             accent.setStroke()
             let border = NSBezierPath(rect: windowRect.insetBy(dx: 1, dy: 1))
             border.lineWidth = 2
             border.setLineDash([6, 4], count: 2, phase: 0)
             border.stroke()
             instructions = picker.regions.isEmpty
-                ? "Drag over the parts with text to read only those (optional), or click Done to read the whole window"
-                : "Drag to add more areas, or click Done"
+                ? "Drag over the dialogue to read only the parts with text (optional), or click Done to read the whole window"
+                : "Drag over other parts with text (read as soon as they change, without the WebSocket line), or click Done"
         }
 
         let menuBar = window?.screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0
@@ -378,6 +383,21 @@ private final class PickerView: NSView {
             }
             x += rect.width + spacing
         }
+    }
+
+    /// A small label at the top left corner of an area, outside it when there's room.
+    private func drawTag(_ text: String, at corner: CGPoint) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.white,
+        ]
+        let string = NSAttributedString(string: text, attributes: attributes)
+        let size = string.size()
+        let height = size.height + 4
+        let box = CGRect(x: corner.x, y: corner.y >= height ? corner.y - height : corner.y, width: size.width + 10, height: height)
+        NSColor.controlAccentColor.setFill()
+        NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4).fill()
+        string.draw(at: CGPoint(x: box.minX + 5, y: box.minY + 2))
     }
 
     private func drawLabel(_ text: String, centeredAt center: CGPoint) {
