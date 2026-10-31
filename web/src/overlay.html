@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="business">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MacPopup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Klee+One&family=Noto+Serif+JP&family=Shippori+Mincho&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/app.css">
+    <link rel="stylesheet" href="/css/popup-outer.css">
+    <style id="popup-outer-custom-css"></style>
+    <style id="user-css"></style>
+    <script src="/overlay.js" type="module"></script>
+</head>
+<body>
+    <div id="box" class="text-base-content" hidden>
+        <div id="box-background" class="bg-base-100"></div>
+        <div id="box-header" class="flex items-center">
+            <div id="drag-handle" class="flex-1 self-stretch" title="Drag to move"></div>
+            <div id="socket-icons" class="flex items-center"></div>
+            <div role="button" id="pause-button" class="mx-1 header-button"></div>
+            <div role="button" id="clear-button" class="mx-1 header-button" title="Remove all lines"></div>
+            <div role="button" id="settings-button" class="mx-1 header-button" title="Open Settings"></div>
+            <div role="button" id="hide-button" class="mx-1 header-button" title="Hide overlay (show it again from the menu bar)"></div>
+        </div>
+        <main id="lines" class="flex flex-col flex-1 break-all w-full"></main>
+        <div id="toast" class="bg-base-200 border border-primary rounded-lg text-sm" hidden></div>
+        <div id="resize-handle" title="Drag to resize"></div>
+    </div>
+    <div id="popups"></div>
+</body>
+</html>

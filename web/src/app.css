@@ -1,0 +1,166 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Same online fonts as texthooker-ui. */
+@font-face {
+	font-family: 'Ackaisyo';
+	src: local(''), url('https://renji-xd.github.io/texthooker-ui/assets/fonts/ackaisyo.ttf') format('truetype');
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'CineCaption226';
+	src: local(''), url('https://renji-xd.github.io/texthooker-ui/assets/fonts/cinecaption226.ttf') format('truetype');
+	font-display: swap;
+}
+
+/* Overlay page: transparent, covering the whole display. Only #box and popups take the mouse. */
+html,
+body {
+	margin: 0;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	background: transparent !important;
+}
+
+#box {
+	position: fixed;
+	display: flex;
+	flex-direction: column;
+	min-width: 120px;
+	min-height: 60px;
+	border-radius: 0.5rem;
+	overflow: hidden;
+	--box-opacity: 0.85;
+}
+
+#box[hidden] {
+	display: none;
+}
+
+#box-background {
+	position: absolute;
+	inset: 0;
+	opacity: var(--box-opacity);
+	pointer-events: none;
+	z-index: -1;
+}
+
+#box-header {
+	position: absolute;
+	top: 0;
+	right: 0;
+	left: 0;
+	height: 28px;
+	padding: 0 4px;
+	z-index: 10;
+	opacity: 0;
+	transition: opacity 0.15s;
+	background: linear-gradient(hsl(var(--b1) / 0.9), hsl(var(--b1) / 0));
+}
+
+#box.hovered #box-header,
+#box.dragging #box-header {
+	opacity: 1;
+}
+
+#drag-handle {
+	cursor: move;
+}
+
+#lines {
+	overflow: auto;
+	min-height: 0;
+	scrollbar-width: none;
+	/* Leave room for the header that appears on hover. */
+	padding-top: 12px;
+}
+
+#lines::-webkit-scrollbar {
+	display: none;
+}
+
+#lines p:focus-visible {
+	outline: none;
+}
+
+#lines .show-bullet::before {
+	content: '• ';
+	opacity: 0.1;
+	transition: opacity 0.3s;
+}
+
+/* .pointer-hover stands in for :hover, which WebKit leaves stuck once the overlay stops receiving
+   mouse events (see setPointerHover in overlay.js). */
+#lines .show-bullet.pointer-hover::before {
+	opacity: 1;
+}
+
+#box-header .header-button.pointer-hover {
+	color: hsl(var(--p));
+}
+
+#lines .token.token-hover.token-word {
+	text-decoration: underline;
+	text-decoration-color: hsl(var(--p));
+	text-underline-offset: 0.2em;
+}
+
+#lines rt {
+	user-select: none;
+}
+
+::highlight(macpopup-scan) {
+	background-color: hsl(var(--p) / 0.35);
+}
+
+#resize-handle {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	width: 16px;
+	height: 16px;
+	cursor: nwse-resize;
+	z-index: 10;
+	background: linear-gradient(135deg, transparent 50%, hsl(var(--bc) / 0.35) 50%);
+	opacity: 0;
+	transition: opacity 0.15s;
+}
+
+#box.hovered #resize-handle {
+	opacity: 1;
+}
+
+#toast {
+	position: absolute;
+	left: 50%;
+	bottom: 8px;
+	transform: translateX(-50%);
+	padding: 4px 10px;
+	z-index: 20;
+	white-space: nowrap;
+}
+
+.line-enter {
+	animation: line-fly 250ms ease-out;
+}
+
+@keyframes line-fly {
+	from {
+		transform: translateX(-100px);
+		opacity: 0;
+	}
+}
+
+.line-enter-vertical {
+	animation: line-fly-vertical 250ms ease-out;
+}
+
+@keyframes line-fly-vertical {
+	from {
+		transform: translateX(100px);
+		opacity: 0;
+	}
+}

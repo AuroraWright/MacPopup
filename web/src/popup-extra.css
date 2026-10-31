@@ -1,0 +1,17 @@
+/* Additions on top of Yomitan's popup CSS. */
+
+/* The entry menu only offers browser-extension actions. */
+.action-button[data-action=menu] {
+    display: none;
+}
+
+/* Text matched by a nested lookup (Yomitan uses the selection; the overlay is never focused, so
+   the selection would render in the inactive colour). Override in custom popup CSS if needed. */
+::highlight(macpopup-scan) {
+    background-color: rgba(64, 128, 255, 0.35);
+}
+
+#error-api-message {
+    white-space: pre-wrap;
+    word-break: break-word;
+}

@@ -1,0 +1,1 @@
+Vendored from https://github.com/yomidevs/yomitan-handlebars at commit 12aff5e3550954d7d3a98a5917ff7d579f3cce25 (MIT), the version Yomitan uses. Only `src/` without tests. Needs the `handlebars` 4.7.8 npm package.

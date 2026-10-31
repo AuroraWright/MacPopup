@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<!-- Same structure as Yomitan's ext/popup.html, so Yomitan CSS and custom popup CSS apply unchanged. -->
+<html lang="en" data-page-type="popup">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Yomitan Search</title>
+    <link rel="stylesheet" type="text/css" href="/css/material.css">
+    <link rel="stylesheet" type="text/css" href="/css/display.css">
+    <link rel="stylesheet" type="text/css" href="/css/display-pronunciation.css">
+    <link rel="stylesheet" type="text/css" href="/css/structured-content.css">
+    <link rel="stylesheet" type="text/css" href="/popup-extra.css">
+    <style id="custom-popup-css"></style>
+    <script src="/popup.js" type="module"></script>
+</head>
+<body>
+
+<div class="content-outer">
+    <div class="content">
+        <div class="content-scroll contain-overscroll scrollbar" id="content-scroll">
+            <div class="content-body" id="content-body">
+                <div class="top-progress-bar-container"><div class="progress-bar-indeterminant" id="progress-indicator" hidden></div></div>
+                <div class="content-body-inner">
+
+                    <span tabindex="-1" id="content-scroll-focus"></span>
+
+                    <div id="dictionary-entries"></div>
+
+                    <div id="no-results" hidden>
+                        <div class="entry">
+                            <p>No results found.</p>
+                        </div>
+                    </div>
+
+                    <div id="error-api" hidden>
+                        <div class="entry">
+                            <p id="error-api-message"></p>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+        <div class="content-footer-container1"><div class="content-footer-container2"><div class="content-footer" id="content-footer"></div><div class="scrollbar-spacer scrollbar"></div></div></div>
+    </div>
+    <div class="content-sidebar scrollbar" id="content-sidebar">
+        <div class="content-sidebar-inner">
+            <div class="content-sidebar-top-pre">
+                <button type="button" class="sidebar-button danger" id="close-button" title="Close popup"><span class="sidebar-button-icon icon" data-icon="cross"></span></button>
+            </div>
+            <div class="content-sidebar-top">
+                <button type="button" class="sidebar-button" disabled id="navigate-previous-button" title="Previous definition"><span class="sidebar-button-icon icon" data-icon="left-chevron"></span></button>
+                <button type="button" class="sidebar-button" disabled id="navigate-next-button" title="Next definition"><span class="sidebar-button-icon icon" data-icon="right-chevron"></span></button>
+            </div>
+            <div class="content-sidebar-bottom">
+                <p id="profile-name"></p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="frame-resizer-container">
+    <div class="frame-resizer-sizer1"><div class="frame-resizer-sizer2 frame-resizer-sizer2-with-min-size scrollbar"></div></div>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" preserveAspectRatio="none" class="frame-resizer-svg" focusable="false">
+        <path d="M1 0L1 1L0 1Z" class="frame-resizer-handle" id="frame-resizer-handle"/>
+    </svg>
+</div>
+
+<div id="popup-menus"></div>
+
+</body>
+</html>
