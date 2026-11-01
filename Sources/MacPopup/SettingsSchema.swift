@@ -278,15 +278,11 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "ocrSettleTime", "Wait until unchanged for (in milliseconds)", .number(min: 0),
-                        hint: "Text is read once the picture stops changing, so lines that are still being drawn aren’t read half-finished. With several areas, only the first (the dialogue) waits; the others are read as soon as they change."
-                    ),
-                    SettingsField(
-                        "ocrStillTolerance", "Ignore changes fainter than", .slider(min: 0, max: 255, step: 1),
-                        hint: "How much a pixel’s brightness (0–255) has to change to count as still changing while waiting. Higher reads sooner when text fades in slowly or the picture is grainy (e.g. a video background), but may read text before its last characters are fully drawn. Lower waits for every faint change."
+                        hint: "The window is read right away and again until the recognized text stays the same for this long, so lines that are still being drawn aren’t taken half-finished (a reading that matches the WebSocket line is taken right away). With several areas, only the first (the dialogue) waits; the others are read as soon as they change."
                     ),
                     SettingsField(
                         "ocrMaxWait", "Read anyway after (in milliseconds)", .number(min: 100),
-                        hint: "If the picture keeps changing (e.g. slow text, or an animated background or effect), the window is read after this long anyway, and again once it stops changing. Choosing areas around the text avoids most of these waits."
+                        hint: "If the recognized text keeps changing (e.g. very slow text), the latest reading is taken after this long anyway."
                     ),
                     SettingsField(
                         "ocrShowBoxes", "Outline recognized text", .checkbox,

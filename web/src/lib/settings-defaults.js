@@ -99,9 +99,8 @@ export const defaultSettings = {
 	ocrPollInterval: 500,
 	ocrMouseWatch: true,
 	ocrMouseWatchTime: 2000,
-	// How long the picture has to stay the same before it's read (text is often drawn gradually).
+	// How long the recognized text has to stay the same before it's taken (text is often drawn gradually).
 	ocrSettleTime: 400,
-	ocrStillTolerance: 40,
 	ocrMaxWait: 4000,
 	ocrUseWebsocket: true,
 	ocrShowBoxes: false,

@@ -60,10 +60,10 @@ final class OCRController {
     private var checkSoon = false
     private var waitingForMouse = false
     /// When the page asked for the window to be read again (the text didn't match its line yet), and
-    /// when a reading of a still picture was last taken: one taken since makes the request moot.
+    /// when a reading of settled text was last taken: one taken since makes the request moot.
     private var pageRetryAt: Date?
-    private var lastStillReadingAt = Date.distantPast
-    /// Per area, thumbnail blocks that were seen animating while the rest was still.
+    private var lastSettledReadingAt = Date.distantPast
+    /// Per area, thumbnail blocks that were seen animating while the text stayed the same.
     private var animatedBlocks: [Set<Int>] = []
     /// Per area, the lines last read there: an area is read on its own, and sent with the others.
     private var areaLines: [[[String: Any]]] = []
@@ -589,7 +589,7 @@ final class OCRController {
                 pendingCue = nil
                 let retryAt = pageRetryAt
                 pageRetryAt = nil
-                if cue == .retry, let retryAt, lastStillReadingAt > retryAt {
+                if cue == .retry, let retryAt, lastSettledReadingAt > retryAt {
                     log("already read again since the page asked")
                     continue
                 }
@@ -625,97 +625,6 @@ final class OCRController {
         }
     }
 
-    /// Captures until the picture has been still for the settle time, then reads it.
-    /// - Parameter cue: For a new line, the picture has to change first, unless that doesn't happen
-    ///   within a moment (the line may already be on screen).
-    private func settleAndRecognize(cue: Cue?) async {
-        if readsUntilSettled {
-            await readUntilSettled(cue: cue)
-            return
-        }
-        log("settling for \(cue.map { "\($0)" } ?? "change")")
-        if cue == .newLine || cue == .retry {
-            send(["type": "changing"])
-        }
-        // A new line's reading is checked against the line on the page, which asks for another reading
-        // (with the full settle time) if the text was still being drawn, so it's read sooner.
-        var settleTime = cue == .newLine ? min(number("ocrSettleTime", 400) / 1000, 0.15) : number("ocrSettleTime", 400) / 1000
-        var interval = cue == .newLine ? 50 : 100
-        let maxWait = number("ocrMaxWait", 4000) / 1000
-        var start = Date()
-        var history: [Frame] = []
-        var sawChange = cue != .newLine
-
-        // A reading forced by the maximum wait may be of text that's still being drawn (e.g. slowly,
-        // over several lines), so the picture is watched on and read again once it settles.
-        for round in 0...3 {
-            var stableFrame: Frame?
-            var isStill = false
-            while !Task.isCancelled {
-                guard isWindowAvailable else {
-                    // Left (e.g. to another space): read it once it's back.
-                    log("window left while settling")
-                    if pendingCue == nil { pendingCue = .retry }
-                    return
-                }
-                guard let (_, frame) = await capture(scale: Self.comparisonScale) else { return }
-                stableFrame = frame
-                if let last = lastRecognizedFrame, differs(frame, last, only: [0]) {
-                    sawChange = true
-                }
-                if !sawChange && Date().timeIntervalSince(start) > 1.5 {
-                    sawChange = true
-                }
-                history.append(frame)
-                history.removeAll { frame.time.timeIntervalSince($0.time) > settleTime + 1 }
-                // Still: the picture is the same as at least the settle time ago, even in details like a
-                // single character being drawn. Any earlier frame counts, so an animation that keeps
-                // repeating (e.g. a blinking "next" icon) doesn't keep the window from being still.
-                let references = history.filter { frame.time.timeIntervalSince($0.time) >= settleTime }
-                if references.isEmpty {
-                    isStill = cue == .immediate && round == 0
-                } else if let same = references.first(where: { isSame(frame, $0, only: [0]) }) {
-                    isStill = true
-                    learnAnimatedBlocks(from: history.filter { $0.time >= same.time })
-                } else {
-                    isStill = false
-                }
-                if (sawChange && isStill) || Date().timeIntervalSince(start) > maxWait {
-                    break
-                }
-                if pendingCue == .newLine {
-                    // Another line arrived: start over.
-                    pendingCue = nil
-                    start = Date()
-                    history = []
-                    sawChange = false
-                }
-                try? await Task.sleep(for: .milliseconds(interval))
-            }
-            log("settled after \(String(format: "%.2f", Date().timeIntervalSince(start)))s, \(history.count) frames, sawChange \(sawChange), still \(isStill)")
-            guard !Task.isCancelled, isWindowAvailable else {
-                if pendingCue == nil { pendingCue = .retry }
-                return
-            }
-            if isStill { lastStillReadingAt = Date() }
-            // The other areas too when they haven't been read yet, or may have changed unseen.
-            let read = cue == .immediate || otherAreasOutdated || areaLines.count != areas.count ? Array(areas.indices) : [0]
-            otherAreasOutdated = false
-            guard let image = await captureForReading() else { return }
-            await recognize(image, frame: stableFrame, areas: read)
-            guard !isStill, round < 3 else { return }
-            log("still changing: reading again once it settles")
-            settleTime = number("ocrSettleTime", 400) / 1000
-            interval = 100
-            start = Date()
-            sawChange = true
-        }
-    }
-
-    /// Whether the text is read until it stops changing rather than once the picture is still: for an
-    /// engine fast enough to read repeatedly (meikiocr).
-    private var readsUntilSettled: Bool { engine == .meikiocr }
-
     /// The page took a provisional reading (it matched the WebSocket line).
     private var acceptedReading = false
 
@@ -725,7 +634,7 @@ final class OCRController {
     /// - Parameter cue: For a new line, the text only counts as settled once the picture changed, unless
     ///   that doesn't happen within a moment (the line may already be on screen): until then it's the
     ///   previous line's.
-    private func readUntilSettled(cue: Cue?) async {
+    private func settleAndRecognize(cue: Cue?) async {
         log("reading until settled for \(cue.map { "\($0)" } ?? "change")")
         if cue == .newLine || cue == .retry {
             send(["type": "changing"])
@@ -738,6 +647,8 @@ final class OCRController {
         var start = Date()
         var sawChange = cue != .newLine
         var previous: (texts: [String], time: Date)?
+        // The images read since the text last changed, to learn animated spots from.
+        var frames: [Frame] = []
         acceptedReading = false
         while !Task.isCancelled {
             guard isWindowAvailable else {
@@ -771,10 +682,26 @@ final class OCRController {
                 }
             }
             let started = Date()
-            guard let image = await captureForReading(), await readAreas(image, areas: read) else { return }
+            guard let image = await captureForReading() else { return }
+            // Thumbnails of the image itself rather than another capture (they're only compared with each
+            // other, so their scale doesn't matter), made while it's read.
+            let thumbnailAreas = thumbnailAreas(in: image)
+            let thumbnailing = Task.detached { thumbnailAreas.flatMap { Self.thumbnails(of: image, areas: $0) } }
+            guard await readAreas(image, areas: read) else { return }
             let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
-            if sawChange, let previous, previous.texts == texts, started.timeIntervalSince(previous.time) >= settleTime {
+            if previous?.texts != texts {
+                previous = (texts, started)
+                frames = []
+            }
+            if let (thumbnails, widths) = await thumbnailing.value {
+                frames.append(Frame(time: started, thumbnails: thumbnails, widths: widths))
+            }
+            if sawChange, let previous, started.timeIntervalSince(previous.time) >= settleTime {
                 log("settled after \(String(format: "%.2f", Date().timeIntervalSince(start)))s")
+                // What changed while the text stayed the same (e.g. a blinking "next" icon) doesn't count as
+                // the window changing later.
+                learnAnimatedBlocks(from: frames)
+                lastSettledReadingAt = Date()
                 otherAreasOutdated = false
                 sendResult(frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started, extra: ["settled": true])
                 return
@@ -785,7 +712,6 @@ final class OCRController {
                 sendResult(frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started)
                 return
             }
-            if previous?.texts != texts { previous = (texts, started) }
             sendResult(frame: nil, areas: read, started: started, extra: ["provisional": true])
         }
     }
@@ -910,7 +836,7 @@ final class OCRController {
     /// - Parameters:
     ///   - frame: The low resolution frame the reading was taken after, the reference for changes.
     ///   - extra: More for the page: "provisional" for a reading while the text may still change (only
-    ///     shown if it matches the WebSocket line, see readUntilSettled), "settled" for one of text that
+    ///     shown if it matches the WebSocket line, see settleAndRecognize), "settled" for one of text that
     ///     stopped changing.
     private func sendResult(frame: Frame?, areas indices: [Int], started: Date, extra: [String: Any] = [:]) {
         guard let bounds else { return }
@@ -1187,12 +1113,24 @@ final class OCRController {
 
     /// Small grayscale copies of the watched areas, the same size whatever the capture scale.
     private func thumbnails(of image: CGImage) -> ([[UInt8]], [Int])? {
+        thumbnailAreas(in: image).flatMap { Self.thumbnails(of: image, areas: $0) }
+    }
+
+    /// Each area's rectangle in `image`, in pixels, and its size in points.
+    private func thumbnailAreas(in image: CGImage) -> [(rect: CGRect, pointSize: CGSize)]? {
+        guard let bounds else { return nil }
+        return areas.map {
+            (pixelRect(of: $0, in: image), CGSize(width: $0.width * bounds.width, height: $0.height * bounds.height))
+        }
+    }
+
+    /// - Parameter areas: As given by `thumbnailAreas(in:)`.
+    nonisolated private static func thumbnails(of image: CGImage, areas: [(rect: CGRect, pointSize: CGSize)]) -> ([[UInt8]], [Int])? {
         var result: [[UInt8]] = []
         var widths: [Int] = []
-        for area in areas {
-            guard let crop = image.cropping(to: pixelRect(of: area, in: image)), let bounds else { return nil }
+        for (rect, pointSize) in areas {
+            guard let crop = image.cropping(to: rect) else { return nil }
             let longSide: CGFloat = 320
-            let pointSize = CGSize(width: area.width * bounds.width, height: area.height * bounds.height)
             let factor = longSide / max(pointSize.width, pointSize.height, 1)
             let width = max(1, Int(pointSize.width * factor)), height = max(1, Int(pointSize.height * factor))
             var pixels = [UInt8](repeating: 0, count: width * height)
@@ -1233,12 +1171,10 @@ final class OCRController {
     /// character of text drawn changes a few dense blocks). Noise spread thinly is ignored, and so are
     /// faint changes, like the end of a character's fade-in (a game's text can take half a second to
     /// reach full brightness).
-    /// - Parameter firstOnly: Stop at the first changed block that isn't in `ignoring`.
     /// - Parameter only: The areas to compare (the others count as unchanged), or all.
-    private func changedBlocks(_ a: Frame, _ b: Frame, ignoring: [Set<Int>] = [], firstOnly: Bool = false, only: [Int]? = nil) -> [Set<Int>]? {
+    private func changedBlocks(_ a: Frame, _ b: Frame, only: [Int]? = nil) -> [Set<Int>]? {
         guard a.thumbnails.count == b.thumbnails.count, a.widths == b.widths else { return nil }
         let block = Self.block
-        let tolerance = Int(number("ocrStillTolerance", 40))
         var result: [Set<Int>] = []
         for (area, ((x, y), width)) in zip(zip(a.thumbnails, b.thumbnails), a.widths).enumerated() {
             guard x.count == y.count, width > 0 else { return nil }
@@ -1246,7 +1182,6 @@ final class OCRController {
                 result.append([])
                 continue
             }
-            let ignored = area < ignoring.count ? ignoring[area] : []
             let height = x.count / width
             let columns = (width + block - 1) / block
             var counts = [Int](repeating: 0, count: columns * ((height + block - 1) / block))
@@ -1254,13 +1189,10 @@ final class OCRController {
             for row in 0..<height {
                 for column in 0..<width {
                     let index = row * width + column
-                    guard abs(Int(x[index]) - Int(y[index])) > tolerance else { continue }
+                    guard abs(Int(x[index]) - Int(y[index])) > 40 else { continue }
                     let cell = (row / block) * columns + column / block
                     counts[cell] += 1
-                    if counts[cell] == 5, !ignored.contains(cell) {
-                        changed.insert(cell)
-                        if firstOnly { return result + [changed] }
-                    }
+                    if counts[cell] == 5 { changed.insert(cell) }
                 }
             }
             result.append(changed)
@@ -1268,20 +1200,14 @@ final class OCRController {
         return result
     }
 
-    /// Whether two frames look the same in detail, apart from spots known to be animated.
-    private func isSame(_ a: Frame, _ b: Frame, only: [Int]? = nil) -> Bool {
-        guard let changed = changedBlocks(a, b, ignoring: animatedBlocks, firstOnly: true, only: only) else { return false }
-        return changed.allSatisfy(\.isEmpty)
-    }
-
-    /// Learns the spots that keep changing while the rest is still (e.g. a blinking "next" icon) from
-    /// frames since one that's the same as the latest, so that later they don't keep the window from
-    /// being still. Not when there are many (that's an animated background, not an icon).
+    /// Learns the spots that changed while the text stayed the same (e.g. a blinking "next" icon), so that
+    /// later they don't count as the window changing. Not when there are many (that's an animated
+    /// background, not an icon).
     private func learnAnimatedBlocks(from frames: [Frame]) {
         guard frames.count > 1, let first = frames.first else { return }
         var found = first.thumbnails.map { _ in Set<Int>() }
         for (a, b) in zip(frames, frames.dropFirst()) {
-            // Only the dialogue waits until still; the other areas are read whenever they change.
+            // Only the dialogue is read until settled; the other areas are read whenever they change.
             guard let changed = changedBlocks(a, b, only: [0]) else { return }
             for (area, blocks) in changed.enumerated() { found[area].formUnion(blocks) }
         }

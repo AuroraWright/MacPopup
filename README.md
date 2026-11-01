@@ -128,17 +128,19 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
     menu lists every language Live Text supports on your version of macOS).
   - meikiocr's models, by rtr46, are trained on Japanese game text and read only Japanese. They run
     on this Mac with Core ML (converted by `scripts/convert-meikiocr.py`; see `vendor/meikiocr`).
-    It's faster than Live Text and its character boxes fit the text more closely. Being fast, it
-    reads right away and again until the text stops changing (for the settle time), instead of first
-    waiting for the picture to be still, so a line usually shows in a fraction of a second, also over
-    an animated background. A WebSocket line is shown as soon as a reading matches it.
+    It's faster than Live Text and its character boxes fit the text more closely.
+
+  The window is read right away and again until the text stops changing (for the settle time),
+  instead of first waiting for the picture to be still, so a line usually shows in a fraction of a
+  second, also over an animated background. A WebSocket line is shown as soon as a reading matches it.
 
   Only the chosen areas are captured, and a window drawn at 1x
   (e.g. a VM or a game that isn't Retina aware) is read at 1x, which is faster ("Read at" in
   Settings overrides this).
 - Without a WebSocket, MacPopup watches the window (or the chosen areas) and reads it again when
-  more than the change threshold of it changes and then stays still. Small changes like a blinking
-  cursor stay under the threshold. Choosing areas helps with animated backgrounds. To save work,
+  more than the change threshold of it changes. Small changes like a blinking cursor stay under the
+  threshold, and so do spots that changed while the text stayed the same (e.g. a blinking "next"
+  icon). Choosing areas helps with animated backgrounds. To save work,
   with "Watch after mouse use" (on by default) this only happens for a while (2 seconds) after the
   mouse moves or clicks (e.g. a click that advances the text), and the window is checked right away
   when it starts being used. Words are looked up when the cursor moves (or a scan key is

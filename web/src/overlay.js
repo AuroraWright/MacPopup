@@ -1001,7 +1001,7 @@ function showOcrResult(message) {
 	let dialogue = !readsDialogue && ocr.awaitingLine ? [] : decoded.filter((line) => line.area === 0);
 	const others = decoded.filter((line) => line.area !== 0);
 	const awaitsMatch = readsDialogue && ocr.awaitingLine && ocr.line !== null && settings.ocrUseWebsocket;
-	// A reading while the text may still change (see readUntilSettled in OCRController.swift) is only
+	// A reading while the text may still change (see settleAndRecognize in OCRController.swift) is only
 	// taken when it matches the WebSocket line completely.
 	if (message.provisional) {
 		if (!awaitsMatch) return;
