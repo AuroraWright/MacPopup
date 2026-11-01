@@ -47,7 +47,6 @@ export const defaultSettings = {
 	websocketUrls: ['ws://localhost:6677'],
 	continuousReconnect: true,
 	showConnectionErrors: true,
-	showConnectionIcon: true,
 
 	// Lines (texthooker-ui)
 	theme: 'business',
@@ -227,4 +226,40 @@ export const defaultSettings = {
 	ankiNoteDupeCheckFirst: false,
 	// For audio downloaded by MacPopup for cards (the audio chosen in the play button menu), in ms; 0 = no limit.
 	ankiDownloadTimeout: 0,
+
+	// Sentence audio (SentenceAudio.swift): a shortcut records the game's voice line for the newest cards.
+	sentenceAudioEnabled: false,
+	// {key, modifiers} as in hotkeys, or null.
+	sentenceAudioShortcut: null,
+	// The audio input's name ('' for the system's default input).
+	sentenceAudioDevice: '',
+	// Cards added today with the same sentence as the newest one get the recording in this field. Their
+	// sentence field is the one their Yomitan card format fills with {sentence}.
+	sentenceAudioField: 'SentenceAudio',
+	// What's switched to before pressing keys: 'captured' (the captured window, ocrWindow, also outside
+	// OCR mode), 'named' (the app sentenceAudioAppName) or 'none'.
+	sentenceAudioApp: 'captured',
+	sentenceAudioAppName: '',
+	// Keys pressed to open the game's backlog (replaying the line) and to close it, [{key, modifiers}].
+	sentenceAudioOpenKeys: [],
+	sentenceAudioCloseKeys: [],
+	// In ms: before pressing keys (after switching apps), between keys, and how long each is held.
+	sentenceAudioKeyDelay: 1000,
+	sentenceAudioKeyInterval: 800,
+	sentenceAudioKeyHold: 100,
+	// In ms, after the keys, before recording (without voice detection, which waits for the voice).
+	sentenceAudioRecordDelay: 500,
+	// Detect when the voice starts and ends; otherwise the shortcut starts and stops the recording.
+	sentenceAudioDetectVoice: true,
+	// In seconds: how long to wait for the voice to start.
+	sentenceAudioVoiceWait: 10,
+	// In ms: the voice has ended after this long without it (or after the padding, if longer).
+	sentenceAudioPause: 3000,
+	// In ms: kept before and after the detected voice.
+	sentenceAudioPadding: 500,
+	// In seconds.
+	sentenceAudioMaxLength: 60,
+	sentenceAudioPlay: true,
+	// Show the cards in Anki's card browser afterwards.
+	sentenceAudioBrowse: true,
 };

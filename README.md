@@ -26,12 +26,18 @@ open build/MacPopup.app
 `scripts/build.sh debug` makes a debug build. The first build downloads Yomitan's kanji stroke
 order font into `build/cache`.
 
+The app is signed with the "Apple Development: Your Name (TEAMID)" certificate, so macOS keeps
+its permissions (Screen Recording, Microphone, Accessibility) from one build to the next. Set
+`MACPOPUP_SIGN_IDENTITY` to another identity, or to `-` to sign ad-hoc (without a certificate, the
+permissions are asked for again after each build); without that identity in the keychain, the build
+signs ad-hoc with a warning.
+
 The app has no Dock icon. Use the menu bar item (speech bubble) for Settings, OCR mode,
 hiding the overlay, moving it to another display, reloading, and quitting.
 
 ## Usage
 
-- Text arrives from each WebSocket URL in Settings → Connection (default `ws://localhost:6677`).
+- Text arrives from each WebSocket URL in Settings → WebSockets (default `ws://localhost:6677`).
   Plain text and texthooker JSON (`{"sentence": "..."}`) messages are both accepted.
 - Drag the box by its header and resize it from the bottom right corner. Its position is saved.
 - Hover a word to look it up. Settings → Scanning sets the modifier key (none by default), and
@@ -47,7 +53,7 @@ hiding the overlay, moving it to another display, reloading, and quitting.
 - In a popup, as in Yomitan, the mouse wheel with Option moves between entries and with Shift goes
   back and forward in the popup's history, and so do the mouse's back and forward buttons (unless
   "Prevent mouse back and forward buttons in popups" is on).
-- Yomitan's popup keyboard shortcuts (Settings → Shortcuts) work while a popup shows, even with
+- Yomitan's popup keyboard shortcuts (Settings → Popup Shortcuts) work while a popup shows, even with
   another app such as a game in front: close the popup, move between entries and dictionaries,
   go back and forward in history, add or view notes, play audio, copy the selection, or toggle a
   setting. While a popup shows, those keys go to MacPopup instead of the app in front.
@@ -64,7 +70,7 @@ hiding the overlay, moving it to another display, reloading, and quitting.
 - Settings → Scanning → **Language** is your Yomitan profile's language (Import copies it). Lookups
   use Yomitan's own setting; MacPopup uses this one for the audio sources, for marking text with the
   language (so fonts use, say, Chinese rather than Japanese character forms), and for word scan resolution.
-- Audio comes from the sources in Settings → Popup → **Audio sources** (Yomitan's source types:
+- Audio comes from the sources in Settings → Yomitan Popup → **Audio sources** (Yomitan's source types:
   JapanesePod101, Jisho.org, text-to-speech, a custom URL or a local audio server's JSON list, and so
   on), tried in order; Import → Yomitan Settings copies Yomitan's. As in Yomitan, "Enable default
   audio sources" adds the language's defaults after them when they aren't among them (JapanesePod101,
@@ -73,14 +79,14 @@ hiding the overlay, moving it to another display, reloading, and quitting.
   source has for the word (each voice of a local audio server, for example), as in Yomitan. The audio
   played from that menu, or marked with its card button, is used when you add the word to Anki.
 - The header buttons pause new lines, clear lines, open Settings and hide the overlay.
-- Settings → Window mode → **Replacements** rewrites each new line with regular expressions, in order,
+- Settings → Window Mode → **Replacements** rewrites each new line with regular expressions, in order,
   like texthooker-ui's replacements (which Import brings over). Type a line under the list to see
   what the replacements make of it.
-- Settings → Window mode shows furigana from the Yomitan tokenizer, in hiragana, katakana, romaji or
+- Settings → Window Mode shows furigana from the Yomitan tokenizer, in hiragana, katakana, romaji or
   as the dictionary has it (Yomitan's "Reading mode", which also sets the furigana of
   `{sentence-furigana}` on cards; as in Yomitan, only hiragana and katakana change those), with or
   without space between words. Punctuation gets no furigana.
-- Settings → Window mode → **Enable background clipboard text monitoring** adds text copied in any app to the box, like
+- Settings → Window Mode → **Enable background clipboard text monitoring** adds text copied in any app to the box, like
   Yomitan's background clipboard monitor (which opens its search page instead), up to the maximum
   length set. MacPopup's own copies and text password managers mark as concealed are skipped.
 
@@ -103,7 +109,7 @@ captured window open popups when hovered, the same way as in the box. Without a 
 whole screen the overlay is on is read instead (MacPopup's own windows aside). MacPopup needs the
 Screen Recording permission (System Settings → Privacy & Security), which macOS asks for the first time.
 
-- **Select Captured Window…** (or Select… at Settings → Overlay → **Captured window**, which doesn't
+- **Select Captured Window…** (or Select… at Settings → General → **Captured window**, which doesn't
   turn OCR mode on) covers the screen: click the window to
   read, then optionally drag over the parts that show text and click **Done** (or press Return).
   The first area is the dialogue (the game's text box): only it is matched with WebSocket lines and
@@ -151,7 +157,7 @@ extension's popup: dictionary entries, tags, frequencies, pitch accents, inflect
 entries, audio and history navigation.
 
 Popup options that live in Yomitan's settings, such as theme, scale, size, position, custom CSS,
-the styles that come with dictionaries and each dictionary's collapse mode, can't be read through the Yomitan API. MacPopup has its own copies of them in Settings → Popup.
+the styles that come with dictionaries and each dictionary's collapse mode, can't be read through the Yomitan API. MacPopup has its own copies of them in Settings → Yomitan Popup.
 Use **Import Yomitan** to copy them over, or set them by hand.
 
 ## Anki
@@ -163,7 +169,7 @@ markers the API can't know about from the overlay itself:
 - `{sentence}`, `{cloze-prefix}`, `{cloze-body}`, `{cloze-suffix}`, `{sentence-furigana}`,
   `{sentence-furigana-plain}`: from the line you looked up
 - `{document-title}`: the name of the frontmost app
-- `{screenshot}`: the captured window (Settings → Overlay), by itself (no other windows or overlay),
+- `{screenshot}`: the captured window (Settings → General), by itself (no other windows or overlay),
   also outside OCR mode; without one, or while it isn't on screen, the display the overlay is
   on, without the overlay. This needs Screen Recording permission (System Settings → Privacy & Security).
 - `{clipboard-text}`, `{clipboard-image}`, `{popup-selection-text}`
@@ -180,6 +186,31 @@ the duplicate settings in Settings → Anki. So do Yomitan's other Anki options 
 cards, syncing after adding a card, showing the tags and flags of existing cards (and their state on
 the "view note" button), the quick duplicate check before notes are made, and the download timeout
 for audio added to cards.
+
+### Sentence audio
+
+Settings → **Anki Sentence Audio** records a game's voice line for the cards you just added, with a
+shortcut that works in any app:
+
+1. MacPopup switches to the game (the captured window from Settings → General, also outside OCR
+   mode, or an app you name) and presses the keys you recorded to open its backlog, where the line
+   can be replayed.
+2. It records the audio input you chose, e.g. a virtual device (Loopback, BlackHole) that the game's
+   sound goes to. With **Detect when the voice starts and ends** (on by default), macOS's sound
+   classifier listens for speech, so music and sound effects don't count: the recording stops once
+   the voice has been gone for 3 seconds (**The voice has ended after**), and only the voice is
+   kept, with **Detected voice padding** before and after it. If none is heard in time,
+   nothing is saved. Otherwise, recording starts after **Wait before recording**, and the shortcut
+   stops it.
+3. It presses the keys that close the backlog.
+4. The recording goes into the sentence audio field (chosen from your note types' fields) of the
+   newest card added today, and of the other cards added today with the same sentence (ignoring
+   formatting) whose field is empty. Their sentence is the field their Yomitan card format fills
+   with `{sentence}` (or the sentence with furigana, or a cloze). They're
+   shown in Anki's card browser, and the recording is played (both optional).
+
+Recording needs Microphone permission, and pressing keys needs Accessibility permission (System
+Settings → Privacy & Security), which macOS asks for the first time.
 
 ## Limitations
 

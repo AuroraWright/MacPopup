@@ -1,10 +1,11 @@
 import AppKit
 import LiveText
 import ScreenCaptureKit
+import UniformTypeIdentifiers
 
 /// Screen OCR mode: instead of showing the text box, MacPopup reads the text of another app's window
 /// with Live Text and lays an invisible copy of it over the window (see web/src/lib/ocr-layer.js), so
-/// hovering the window's own text opens popups. Without a captured window (Settings → Overlay), it reads
+/// hovering the window's own text opens popups. Without a captured window (Settings → General), it reads
 /// the whole screen the overlay is on instead, apart from MacPopup's own windows; "window" below then
 /// means that screen.
 ///
@@ -103,6 +104,9 @@ final class OCRController {
     private var isPicking = false
     /// MACPOPUP_DEBUG_OCR=1 logs what triggers readings to stderr.
     private let debug = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_OCR"] != nil
+    /// MACPOPUP_DEBUG_OCR_DIR=<directory> saves each area read there (read-N-areaI.png).
+    private let debugDirectory = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_OCR_DIR"]
+    private var debugReadings = 0
 
     private var scWindow: SCWindow?
     /// The display the window lies within, if it does (the screen that's read without a window).
@@ -474,7 +478,7 @@ final class OCRController {
         sendWindowState(visible: info.isOnScreen)
     }
 
-    /// Without a window: the screen the overlay is on (Settings → Overlay → Display).
+    /// Without a window: the screen the overlay is on (Settings → General → Display).
     private func trackScreen() {
         overlay.preferredScreen = nil
         guard let screen = overlay.panel.screen ?? NSScreen.main else { return }
@@ -759,9 +763,18 @@ final class OCRController {
         guard let bounds else { return }
         let started = Date()
         if areaLines.count != areas.count { areaLines = areas.map { _ in [] } }
+        debugReadings += 1
         for index in indices {
             let area = areas[index]
             guard let crop = image.cropping(to: pixelRect(of: area, in: image)) else { continue }
+            if let debugDirectory {
+                let url = URL(fileURLWithPath: debugDirectory).appendingPathComponent("read-\(debugReadings)-area\(index).png")
+                if let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) {
+                    CGImageDestinationAddImage(destination, crop, nil)
+                    CGImageDestinationFinalize(destination)
+                }
+                log("saved \(url.lastPathComponent)")
+            }
             let items: [MPLiveTextItem]
             let recognizeStarted = Date()
             do {
@@ -1004,7 +1017,7 @@ final class OCRController {
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
     }
 
-    /// The captured window (Settings → Overlay), whole and at its display's resolution, for the
+    /// The captured window (Settings → General), whole and at its display's resolution, for the
     /// `{screenshot}` Anki marker: only that window, without other windows in front of it or the overlay.
     /// Also when screen OCR mode is off. Nil when no window is set or it isn't on screen.
     func windowScreenshot() async throws -> CGImage? {

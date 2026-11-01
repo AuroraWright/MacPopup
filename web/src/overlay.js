@@ -1,7 +1,7 @@
 // The overlay page: a texthooker-ui style text box plus Yomitan-style popups, on a transparent
 // page covering the whole display. The host polls the mouse and calls window.__macpopupPointer,
 // and makes the window click-through everywhere except the rects reported via setHitRects.
-import { mdiCog, mdiConnection, mdiDeleteSweep, mdiEyeOff, mdiPause, mdiPlay } from '@mdi/js';
+import { mdiClipboardOffOutline, mdiClipboardTextOutline, mdiCog, mdiConnection, mdiDeleteSweep, mdiEyeOff, mdiPause, mdiPlay } from '@mdi/js';
 import { log, nativeCall } from './lib/native.js';
 import { getPopupPosition } from './lib/popup-position.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
@@ -59,6 +59,9 @@ function showToast(message) {
 	clearTimeout(toastTimer);
 	toastTimer = setTimeout(() => (toast.hidden = true), 4000);
 }
+
+// From the host, e.g. about recording sentence audio (SentenceAudio.swift).
+window.__macpopupToast = showToast;
 
 // Lines (same processing as texthooker-ui's App.svelte)
 
@@ -277,6 +280,7 @@ class SocketConnection {
 	connect() {
 		if (this.socket && this.socket.readyState < 2) return;
 		clearTimeout(this.retryTimer);
+		this.retryTimer = null;
 		this.closeRequested = false;
 		this.setState(0);
 		try {
@@ -313,12 +317,13 @@ class SocketConnection {
 	onClose(socket) {
 		if (socket !== this.socket) return;
 		const settings = getSettings();
-		if (!this.closeRequested && settings.showConnectionErrors && (this.wasConnected || !settings.continuousReconnect)) {
+		const reconnects = alwaysReconnects(settings) || settings.continuousReconnect;
+		if (!this.closeRequested && settings.showConnectionErrors && (this.wasConnected || !reconnects)) {
 			showToast(this.wasConnected ? `Lost connection to ${this.url}` : `Unable to connect to ${this.url}`);
 		}
 		this.wasConnected = false;
 		this.setState(3);
-		if (!this.closeRequested && settings.continuousReconnect) {
+		if (!this.closeRequested && reconnects) {
 			this.retryTimer = setTimeout(() => this.connect(), 1000);
 		}
 	}
@@ -338,11 +343,11 @@ class SocketConnection {
 		this.state = value;
 		this.render();
 		updateOcrWebsocket();
+		reportConnectedSockets();
 	}
 
 	render() {
 		const el = this.element;
-		el.hidden = !getSettings().showConnectionIcon;
 		el.title = this.state === 1 ? `Connected with ${this.url}` : `Not connected (${this.url})`;
 		if (this.state === 0) {
 			el.innerHTML = '<span class="animate-ping relative inline-flex rounded-full h-3 w-3 mx-1 bg-primary"></span>';
@@ -356,6 +361,24 @@ class SocketConnection {
 }
 
 const sockets = new Map();
+
+/**
+ * In OCR mode with WebSocket lines, WebSockets always reconnect: the box with their icons (which
+ * reconnect when clicked) isn't shown there.
+ */
+function alwaysReconnects(settings) {
+	return !!settings.ocrMode && !!settings.ocrUseWebsocket;
+}
+
+let connectedUrls = '';
+
+/** Shows on the menu bar icon whether a WebSocket is connected. */
+function reportConnectedSockets() {
+	const connected = [...sockets.values()].filter((socket) => socket.state === 1).map((socket) => socket.url);
+	if (connected.join('\n') === connectedUrls) return;
+	connectedUrls = connected.join('\n');
+	nativeCall('websockets', { connected }).catch(() => {});
+}
 
 function syncSockets() {
 	const urls = getSettings().websocketUrls.filter((url) => url.trim().length > 0);
@@ -375,7 +398,10 @@ function syncSockets() {
 		}
 		socket.render();
 		container.append(socket.element);
+		// Not connected and not about to retry (e.g. disconnected by hand in Window Mode).
+		if (alwaysReconnects(getSettings()) && socket.state === 3 && socket.retryTimer === null) socket.connect();
 	}
+	reportConnectedSockets();
 }
 
 // Box geometry
@@ -1127,9 +1153,18 @@ function applySettings(settings) {
 	}
 	syncSockets();
 	updateOcrWebsocket();
+	renderClipboardButton();
 	popupManager.applySettings();
 	reportHitRects();
 	updateHotkeys();
+}
+
+function renderClipboardButton() {
+	const button = $('#clipboard-button');
+	const enabled = !!getSettings().clipboardMonitor;
+	button.innerHTML = icon(enabled ? mdiClipboardTextOutline : mdiClipboardOffOutline);
+	button.title = enabled ? 'Clipboard monitoring on: copied text is added as a line (click to turn off)' : 'Clipboard monitoring off (click to turn on)';
+	button.classList.toggle('text-green-700', enabled);
 }
 
 function renderPauseButton() {
@@ -1154,6 +1189,7 @@ async function main() {
 		renderPauseButton();
 		updateOcrWebsocket();
 	});
+	$('#clipboard-button').addEventListener('click', () => void saveSettings({ clipboardMonitor: !getSettings().clipboardMonitor }));
 	$('#clear-button').addEventListener('click', clearLines);
 	$('#settings-button').addEventListener('click', () => nativeCall('openSettings'));
 	$('#hide-button').addEventListener('click', () => nativeCall('setOverlayVisible', { visible: false }));

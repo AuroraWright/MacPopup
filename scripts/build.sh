@@ -26,6 +26,14 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/MacPopup"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R build/web "$APP/Contents/Resources/web"
-codesign --force --sign - "$APP" >/dev/null
+# Signed with a certificate, macOS keeps the privacy permissions (Screen Recording, Microphone,
+# Accessibility) across builds; ad-hoc signatures change with every build, so they'd be asked for again.
+# MACPOPUP_SIGN_IDENTITY overrides the identity ("-" for ad-hoc).
+IDENTITY="${MACPOPUP_SIGN_IDENTITY:-Apple Development: Your Name (TEAMID)}"
+if [[ "$IDENTITY" != "-" ]] && ! security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\""; then
+    echo "warning: no code signing identity \"$IDENTITY\"; signing ad-hoc (permissions will be asked for again)"
+    IDENTITY="-"
+fi
+codesign --force --timestamp=none --sign "$IDENTITY" "$APP" >/dev/null
 
 echo "Built $APP"

@@ -40,6 +40,9 @@ struct SettingsField: Identifiable {
         case scanInputs
         /// Keyboard shortcuts for popups, [{action, argument, key, modifiers, enabled}] (see Hotkeys.swift).
         case hotkeys
+        /// Yomitan's sentence termination characters, [{enabled, character1, character2 (null for a
+        /// terminator), includeCharacterAtStart, includeCharacterAtEnd}].
+        case terminationCharacters
         /// A value copied by Import Yomitan, which is only edited in Yomitan: a summary and a button to clear it.
         /// - Parameter details: A longer description, shown as a tooltip.
         case imported(describe: ([Any]) -> String, emptyText: String, details: (([Any]) -> String)? = nil)
@@ -49,6 +52,16 @@ struct SettingsField: Identifiable {
         case ocrWindow
         /// An index into the connected displays (NSScreen.screens, the main one first).
         case display
+        /// One global keyboard shortcut, {key, modifiers} or null.
+        case shortcut
+        /// Keys pressed in turn, [{key, modifiers}].
+        case keySequence
+        /// An audio input's name ("" for the system's default input).
+        case audioInput
+        /// A field name of the note types in Anki (from AnkiConnect).
+        case ankiField
+        /// Whether a macOS permission is granted, with buttons to ask for it (not a setting).
+        case permission(Permission)
     }
 
     enum ConnectionTest {
@@ -74,7 +87,7 @@ struct SettingsField: Identifiable {
     /// Shown across the whole width, below its label.
     var isWide: Bool {
         switch kind {
-        case .textarea, .lines, .json, .replacements, .audioSources, .scanInputs, .hotkeys, .ankiTemplates: true
+        case .textarea, .lines, .json, .replacements, .audioSources, .scanInputs, .hotkeys, .terminationCharacters, .ankiTemplates: true
         default: false
         }
     }
@@ -154,19 +167,8 @@ enum SettingsSchema {
     static let sections: [SettingsSection] = {
         let support = SettingsSupport.shared
         return [
-            SettingsSection(title: "Connection", symbol: "network", fields: [
-                SettingsField("websocketUrls", "WebSockets (one per line)", .lines),
-                SettingsField("continuousReconnect", "Continuous reconnect", .checkbox),
-                SettingsField("showConnectionErrors", "Show connection errors", .checkbox),
-                SettingsField("showConnectionIcon", "Show connection icon", .checkbox),
-            ]),
-            SettingsSection(title: "Overlay", symbol: "macwindow", fields: [
-                SettingsField("boxOpacity", "Background opacity", .percentSlider(step: 0.05)),
+            SettingsSection(title: "General", symbol: "gearshape", fields: [
                 SettingsField("displayIndex", "Display", .display),
-                SettingsField(
-                    "ocrWindow", "Captured window", .ocrWindow,
-                    hint: "OCR mode reads this window, and Anki screenshots ({screenshot}) show only it. Without one, both use the whole screen the overlay is on."
-                ),
                 SettingsField("windowLevel", "Window level", .select([
                     SettingsOption("floating", "Floating"),
                     SettingsOption("statusBar", "Status bar"),
@@ -174,11 +176,24 @@ enum SettingsSchema {
                     SettingsOption("screenSaver", "Screen saver"),
                     SettingsOption("shielding", "Shielding (above captured displays)"),
                 ])),
+                SettingsField(
+                    "ocrWindow", "Captured window", .ocrWindow,
+                    hint: "OCR mode reads this window, and Anki screenshots ({screenshot}) show only it. Without one, both use the whole screen the overlay is on."
+                ),
             ]),
-            SettingsSection(title: "Window mode", symbol: "text.alignleft", fields: [
+            SettingsSection(title: "WebSockets", symbol: "network", fields: [
+                SettingsField("websocketUrls", "WebSockets (one per line)", .lines),
+                SettingsField(
+                    "continuousReconnect", "Continuous reconnect", .checkbox,
+                    hint: "For Window Mode. In OCR Mode with “Use WebSocket lines” on, WebSockets always reconnect."
+                ),
+                SettingsField("showConnectionErrors", "Show connection errors", .checkbox),
+            ]),
+            SettingsSection(title: "Window Mode", symbol: "text.alignleft", fields: [
+                SettingsField("boxOpacity", "Background opacity", .percentSlider(step: 0.05)),
                 SettingsField(
                     "clipboardMonitor", "Enable background clipboard text monitoring", .checkbox,
-                    hint: "Text copied in any app is added to the text box as a line (Yomitan opens its search page instead). Text that password managers mark as concealed is skipped."
+                    hint: "Text copied in any app is added to the text box as a line. Text that password managers mark as concealed is skipped."
                 ),
                 SettingsField(
                     "clipboardMaxLength", "Maximum clipboard text search length", .number(min: 1),
@@ -220,8 +235,8 @@ enum SettingsSchema {
             ]),
             SettingsSection(
                 title: "OCR Mode", symbol: "text.viewfinder",
-                description: "Instead of the text box, read the captured window (Settings → Overlay), or the whole screen without one, with Live Text and show popups when hovering its text. "
-                    + "Toggle it with OCR Mode in the menu bar. Needs the Screen Recording permission.",
+                description: "Instead of the text box, read the captured window (Settings → General), or the whole screen without one, with Live Text and show popups when hovering its text. "
+                    + "Needs the Screen Recording permission.",
                 fields: [
                     SettingsField("ocrMode", "OCR mode", .checkbox),
                     SettingsField(
@@ -322,11 +337,14 @@ enum SettingsSchema {
                     SettingsOption("newlines", "Newlines only"),
                     SettingsOption("none", "None"),
                 ])),
-                SettingsField("sentenceTerminationCharacters", "Custom sentence termination characters", .json, hint: "JSON, in Yomitan’s format."),
+                SettingsField(
+                    "sentenceTerminationCharacters", "Custom sentence termination characters", .terminationCharacters,
+                    hint: "Sentences are terminated by punctuation (terminators) and quotation marks (quotes). “Include character in sentence” keeps a terminator, or a quote’s first or second character, in the sentence.",
+                    showIf: { ["custom", "custom-no-newlines"].contains($0["sentenceTerminationCharacterMode"] as? String ?? "custom") }
+                ),
             ]),
             SettingsSection(
-                title: "Popup", symbol: "rectangle.on.rectangle",
-                description: "Mirrors Yomitan’s Appearance and Popup settings (the Yomitan API doesn’t expose them).",
+                title: "Yomitan Popup", symbol: "rectangle.on.rectangle",
                 fields: [
                     SettingsField("popupTheme", "Theme (body)", .select(themeOptions)),
                     SettingsField("popupOuterTheme", "Theme (shadow)", .select(themeOptions + [SettingsOption("none", "None")])),
@@ -451,6 +469,11 @@ enum SettingsSchema {
                 ]
             ),
             SettingsSection(
+                title: "Popup Shortcuts", symbol: "keyboard",
+                description: "Yomitan’s keyboard shortcuts for popups. They work while a popup shows, also when another app such as a game is in front; their keys go to the popup instead until it closes.",
+                fields: [SettingsField("hotkeys", "", .hotkeys)]
+            ),
+            SettingsSection(
                 title: "Anki", symbol: "rectangle.stack.badge.plus",
                 description: "Card formats and handlebars come from the active Yomitan profile through the Yomitan API.",
                 fields: [
@@ -499,9 +522,78 @@ enum SettingsSchema {
                 ]
             ),
             SettingsSection(
-                title: "Shortcuts", symbol: "keyboard",
-                description: "Yomitan’s keyboard shortcuts for popups. They work while a popup shows, also when another app such as a game is in front; their keys go to the popup instead until it closes.",
-                fields: [SettingsField("hotkeys", "Keyboard shortcuts", .hotkeys)]
+                title: "Anki Sentence Audio", symbol: "waveform",
+                description: "A shortcut records the voice of the line just mined and adds it to the newest Anki cards with that sentence. It switches to the game, presses the keys that open its backlog (where the line can be replayed), records until the voice ends, and presses the keys that close the backlog. Recording asks for Microphone permission, and pressing keys for Accessibility.",
+                fields: [
+                    SettingsField("sentenceAudioEnabled", "Enable sentence audio recording", .checkbox),
+                    SettingsField(
+                        "sentenceAudioShortcut", "Shortcut", .shortcut,
+                        hint: "Works in any app. Pressed while recording, it stops the recording and keeps it."
+                    ),
+                    SettingsField(
+                        "sentenceAudioDevice", "Audio input", .audioInput,
+                        hint: "What’s recorded: e.g. a virtual device (Loopback, BlackHole) that the game’s sound goes to."
+                    ),
+                    SettingsField(
+                        "sentenceAudioField", "Sentence audio field", .ankiField,
+                        hint: "The recording goes into this field of the newest card added today, and of the other cards added today with the same sentence, where it’s empty. Their sentence field is the one their Yomitan card format fills with {sentence}."
+                    ),
+                    SettingsField("sentenceAudioApp", "Switch to", .select([
+                        SettingsOption("captured", "The captured window"),
+                        SettingsOption("named", "Another app"),
+                        SettingsOption("none", "Don’t switch apps"),
+                    ]), hint: "Before pressing keys, so the game gets them. The captured window is the one chosen in Settings → General, also outside OCR mode."),
+                    SettingsField(
+                        "sentenceAudioAppName", "App name", .text(), hint: "As the Dock shows it, e.g. Parallels Desktop.",
+                        showIf: { $0["sentenceAudioApp"] as? String == "named" }
+                    ),
+                    SettingsField("sentenceAudioOpenKeys", "Keys that open the backlog", .keySequence, hint: "Pressed in turn before recording, e.g. to open the backlog and replay the line’s voice."),
+                    SettingsField("sentenceAudioCloseKeys", "Keys that close the backlog", .keySequence, hint: "Pressed in turn after recording."),
+                    SettingsField("sentenceAudioKeyDelay", "Wait before pressing keys (in milliseconds)", .number(min: 0), hint: "After switching apps, until the game takes keys."),
+                    SettingsField("sentenceAudioKeyInterval", "Wait between keys (in milliseconds)", .number(min: 0)),
+                    SettingsField("sentenceAudioKeyHold", "Hold each key for (in milliseconds)", .number(min: 0)),
+                    SettingsField("sentenceAudioRecordDelay", "Wait before recording (in milliseconds)", .number(min: 0), hint: "After the keys, e.g. until the backlog’s own sounds are over. Not used with “Detect when the voice starts and ends”, which waits for the voice instead."),
+                    SettingsField(
+                        "sentenceAudioDetectVoice", "Detect when the voice starts and ends", .checkbox,
+                        hint: "Detects speech (not music or sound effects) with macOS’s sound classifier: recording stops when the voice ends, and only the voice is kept. Off: press the shortcut again to stop."
+                    ),
+                    SettingsField(
+                        "sentenceAudioVoiceWait", "Wait for the voice for (in seconds)", .number(min: 1),
+                        hint: "Nothing is saved if no voice is heard by then.",
+                        showIf: { $0["sentenceAudioDetectVoice"] as? Bool ?? true }
+                    ),
+                    SettingsField(
+                        "sentenceAudioPause", "The voice has ended after (in milliseconds)", .number(min: 100),
+                        hint: "Without speech: recording stops then (or after the padding below, if it’s longer). Raise it if lines are cut off at pauses.",
+                        showIf: { $0["sentenceAudioDetectVoice"] as? Bool ?? true }
+                    ),
+                    SettingsField(
+                        "sentenceAudioPadding", "Detected voice padding (in milliseconds)", .number(min: 0),
+                        hint: "Kept before the voice starts and after it ends.",
+                        showIf: { $0["sentenceAudioDetectVoice"] as? Bool ?? true }
+                    ),
+                    SettingsField("sentenceAudioMaxLength", "Record at most (in seconds)", .number(min: 1)),
+                    SettingsField("sentenceAudioPlay", "Play the recording after adding it", .checkbox),
+                    SettingsField("sentenceAudioBrowse", "Show the cards in Anki’s card browser", .checkbox),
+                ]
+            ),
+            SettingsSection(
+                title: "Permissions", symbol: "lock.shield",
+                description: "What MacPopup needs macOS’s permission for. Each one is only asked for when it’s first needed, or here. A permission turned off in System Settings can only be turned on again there.",
+                fields: [
+                    SettingsField(
+                        "permission.screenRecording", "Screen Recording", .permission(.screenRecording),
+                        hint: "For OCR Mode (choosing and reading the captured window) and for screenshots on Anki cards ({screenshot}). macOS may ask to reopen MacPopup once it’s granted."
+                    ),
+                    SettingsField(
+                        "permission.microphone", "Microphone", .permission(.microphone),
+                        hint: "For Anki Sentence Audio: recording its audio input, also a virtual device such as Loopback or BlackHole."
+                    ),
+                    SettingsField(
+                        "permission.accessibility", "Accessibility", .permission(.accessibility),
+                        hint: "For Anki Sentence Audio: pressing the keys that open and close the game’s backlog, and bringing the captured window to the front."
+                    ),
+                ]
             ),
         ]
     }()

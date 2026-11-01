@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var ocrItem: NSMenuItem!
     private var ocr: OCRController!
     private var clipboardMonitor: ClipboardMonitor!
+    private var sentenceAudio: SentenceAudioController!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         schemeHandler = WebAssetsSchemeHandler(root: WebViewFactory.webRoot)
@@ -20,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         // Both web views share one configuration, so they share the bridge and the asset scheme.
         let configuration = WebViewFactory.makeConfiguration(bridge: bridge, schemeHandler: schemeHandler)
         overlay = OverlayController(configuration: configuration)
-        // From Settings → Overlay: only the window is chosen, screen OCR mode stays as it is.
+        // From Settings → General: only the window is chosen, screen OCR mode stays as it is.
         settingsWindow = SettingsWindowController { [weak self] in self?.ocr.selectWindow(enableOCR: false) }
         overlay.onMouseButtonEvent = { [weak self] button, isDown in
             self?.settingsWindow.mouseButtonEvent(button: button, isDown: isDown)
@@ -29,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
 
         ocr = OCRController(overlay: overlay)
         clipboardMonitor = ClipboardMonitor(overlay: overlay)
+        sentenceAudio = SentenceAudioController(overlay: overlay)
 
         setUpStatusItem()
         setUpEditMenu()
@@ -56,11 +58,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
 
     private func setUpStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "text.bubble", accessibilityDescription: "MacPopup")
+        setConnectedWebsockets([])
 
         let menu = NSMenu()
         menu.delegate = self
-        toggleItem = NSMenuItem(title: "Hide Overlay", action: #selector(toggleOverlay), keyEquivalent: "")
+        toggleItem = NSMenuItem(title: "Hide Overlays", action: #selector(toggleOverlay), keyEquivalent: "")
         menu.addItem(toggleItem)
         ocrItem = NSMenuItem(title: "OCR Mode", action: #selector(toggleOCR), keyEquivalent: "")
         menu.addItem(ocrItem)
@@ -78,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        toggleItem.title = overlay.isVisible ? "Hide Overlay" : "Show Overlay"
+        toggleItem.title = overlay.isVisible ? "Hide Overlays" : "Show Overlays"
         ocrItem.state = ocr.isEnabled ? .on : .off
     }
 
@@ -144,8 +146,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         return png
     }
 
+    func pressSentenceAudioShortcut() {
+        sentenceAudio.shortcutPressed()
+    }
+
     func simulateMouse(x: Double, y: Double, shift: Bool) {
         overlay.simulateMouse(x: x, y: y, modifiers: shift ? .shift : [])
+    }
+
+    /// The menu bar icon is filled while a WebSocket is connected.
+    func setConnectedWebsockets(_ urls: [String]) {
+        guard let button = statusItem?.button else { return }
+        button.image = NSImage(
+            systemSymbolName: urls.isEmpty ? "text.bubble" : "text.bubble.fill",
+            accessibilityDescription: urls.isEmpty ? "MacPopup" : "MacPopup, WebSocket connected"
+        )
+        button.toolTip = urls.isEmpty ? "MacPopup: no WebSocket connected" : "MacPopup: connected to " + urls.joined(separator: ", ")
     }
 
     func setOverlayCursor(_ cursor: String?) {

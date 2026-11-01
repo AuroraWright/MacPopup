@@ -115,6 +115,19 @@ enum OCRLayout {
         }
         let levels = [percentile(0.98), percentile(0.02)]
 
+        // Where the text's strokes are across the line: Live Text's line box often reaches well past
+        // them (up to twice their thickness).
+        func strokes(level: Int) -> (first: Int, last: Int)? {
+            let energy = (c0...c1).map { c in
+                stride(from: a0, through: a1, by: 2).reduce(0) { $0 + (abs(pixel($1, c) - level) <= 32 ? 1 : 0) }
+            }
+            let peak = energy.max() ?? 0
+            guard peak > 0, let first = energy.firstIndex(where: { Double($0) > Double(peak) * 0.12 }),
+                  let last = energy.lastIndex(where: { Double($0) > Double(peak) * 0.12 }),
+                  last - first >= crossSize / 3 else { return nil }
+            return (c0 + first, c0 + last)
+        }
+
         var best: (score: Double, pitch: Double, phase: Double, level: Int)?
         for level in levels {
             // Pixels of the text's color in each column across the line (rows for vertical text).
@@ -133,10 +146,11 @@ enum OCRLayout {
             guard mean > 0 else { continue }
 
             // The cell size and offset whose boundaries fall in the gaps. Full-width cells are about
-            // as long as the line is thick.
+            // as long as the text is thick.
             let length = Double(a1 - a0)
-            var pitch = Double(crossSize) * 0.6
-            while pitch <= Double(crossSize) * 1.3 {
+            let thickness = strokes(level: level).map { Double($0.last - $0.first + 1) } ?? Double(crossSize)
+            var pitch = thickness * 0.6
+            while pitch <= thickness * 1.3 {
                 if length / pitch >= 2.5 {
                     var phase = 0.0
                     while phase < pitch {
@@ -176,52 +190,72 @@ enum OCRLayout {
             }
             return Double(count) > Double(crossSize) * 0.03 * half / 2
         }
-        let n = chars.count
-        guard n > 0, units > 0 else { return nil }
+        guard !chars.isEmpty, units > 0 else { return nil }
+        // A run of dots, dashes or tildes is one item, which takes from one cell up to one per character:
+        // Live Text often reads an ellipsis or a long dash as more characters than the cells it's drawn
+        // in (e.g. "……" as seven "・"). As when matching WebSocket lines (see web/src/lib/ocr-layer.js).
+        var items: [Range<Int>] = []
+        for index in chars.indices {
+            if let last = items.last, let kind = lookalikeKind(chars[index].text), kind == lookalikeKind(chars[last.lowerBound].text) {
+                items[items.count - 1] = last.lowerBound..<(index + 1)
+            } else {
+                items.append(index..<(index + 1))
+            }
+        }
+        let m = items.count
         let emptyCost = best.pitch
         let skipInkCost = best.pitch * 0.6
         let inkSkipped = { (from: Int, to: Int) -> Double in
-            Double((from..<to).filter { unitInk[$0] }.count) / 2 * skipInkCost
+            from < to ? Double((from..<to).filter { unitInk[$0] }.count) / 2 * skipInkCost : 0
         }
 
-        func assign(offset: Double) -> (cost: Double, units: [Int])? {
-            // cost[i][u]: best cost placing characters 0...i with character i starting at unit u.
-            var cost = [[Double]](repeating: [Double](repeating: .infinity, count: units + 1), count: n)
-            var from = [[Int]](repeating: [Int](repeating: -1, count: units + 1), count: n)
-            for i in 0..<n {
+        func assign(offset: Double) -> (cost: Double, placements: [(start: Int, width: Int)])? {
+            // cost[i][e]: best cost placing items 0...i with item i ending at unit e.
+            var cost = [[Double]](repeating: [Double](repeating: .infinity, count: units + 1), count: m)
+            var from = [[(end: Int, start: Int)]](repeating: [(end: Int, start: Int)](repeating: (-1, -1), count: units + 1), count: m)
+            for i in 0..<m {
+                let first = items[i].lowerBound
                 // Full-width characters start on a cell, half-width ones on either half.
-                for u in stride(from: 0, through: units - widths[i], by: widths[i]) {
-                    var place = abs(starts[i] - offset - (origin + Double(u) * half))
-                    if !chars[i].text.allSatisfy(\.isWhitespace), !(u..<(u + widths[i])).contains(where: { unitInk[$0] }) {
-                        place += emptyCost
-                    }
-                    if i == 0 {
-                        cost[i][u] = place + inkSkipped(0, u)
-                        continue
-                    }
-                    for previous in 0...u where cost[i - 1][previous].isFinite {
-                        let end = previous + widths[i - 1]
-                        guard end <= u else { break }
-                        let total = cost[i - 1][previous] + inkSkipped(end, u) + place
-                        if total < cost[i][u] {
-                            cost[i][u] = total
-                            from[i][u] = previous
+                let step = widths[first]
+                let isBlank = chars[first].text.allSatisfy(\.isWhitespace)
+                for width in stride(from: step, through: step * items[i].count, by: step) {
+                    for start in stride(from: 0, through: units - width, by: step) {
+                        var place = abs(starts[first] - offset - (origin + Double(start) * half))
+                        if !isBlank, !(start..<(start + width)).contains(where: { unitInk[$0] }) {
+                            place += emptyCost
+                        }
+                        let end = start + width
+                        if i == 0 {
+                            let total = place + inkSkipped(0, start)
+                            if total < cost[i][end] {
+                                cost[i][end] = total
+                                from[i][end] = (-1, start)
+                            }
+                            continue
+                        }
+                        for previousEnd in 0...start where cost[i - 1][previousEnd].isFinite {
+                            let total = cost[i - 1][previousEnd] + inkSkipped(previousEnd, start) + place
+                            if total < cost[i][end] {
+                                cost[i][end] = total
+                                from[i][end] = (previousEnd, start)
+                            }
                         }
                     }
                 }
             }
-            // Text after the last character that it didn't take counts as skipped too.
-            let finalCost = cost[n - 1].indices.map { u in cost[n - 1][u] + inkSkipped(min(u + widths[n - 1], units), units) }
-            guard var u = finalCost.indices.min(by: { finalCost[$0] < finalCost[$1] }), finalCost[u].isFinite else { return nil }
-            let total = finalCost[u]
-            var result = [Int](repeating: 0, count: n)
-            for i in stride(from: n - 1, through: 0, by: -1) {
-                result[i] = u
-                u = from[i][u]
+            // Text after the last item that it didn't take counts as skipped too.
+            let finalCost = cost[m - 1].indices.map { end in cost[m - 1][end] + inkSkipped(end, units) }
+            guard var end = finalCost.indices.min(by: { finalCost[$0] < finalCost[$1] }), finalCost[end].isFinite else { return nil }
+            let total = finalCost[end]
+            var placements = [(start: Int, width: Int)](repeating: (0, 0), count: m)
+            for i in stride(from: m - 1, through: 0, by: -1) {
+                let start = from[i][end].start
+                placements[i] = (start, end - start)
+                end = from[i][end].end
             }
-            return (total, result)
+            return (total, placements)
         }
-        var assignment: (cost: Double, units: [Int])?
+        var assignment: (cost: Double, placements: [(start: Int, width: Int)])?
         for step in -18...18 {
             if let candidate = assign(offset: Double(step) * best.pitch / 20), candidate.cost < assignment?.cost ?? .infinity {
                 assignment = candidate
@@ -229,27 +263,31 @@ enum OCRLayout {
         }
         guard let assignment else { return nil }
 
-        // Across the line, keep only the part with strokes (the line box often reaches below them).
-        // Only ever shrink it: beyond it are the neighboring lines.
-        let crossRange = c0...c1
-        let crossEnergy = crossRange.map { c in
-            stride(from: a0, through: a1, by: 2).reduce(0) { $0 + (abs(pixel($1, c) - best.level) <= 32 ? 1 : 0) }
-        }
-        let peak = crossEnergy.max() ?? 0
-        var cross = (Double(c0), Double(c1))
-        if peak > 0, let first = crossEnergy.firstIndex(where: { Double($0) > Double(peak) * 0.12 }),
-           let last = crossEnergy.lastIndex(where: { Double($0) > Double(peak) * 0.12 }),
-           last - first >= crossSize / 2 {
-            cross = (Double(crossRange.lowerBound + first), Double(crossRange.lowerBound + last + 1))
-        }
+        // Across the line, keep only the part with strokes. Only ever shrink it: beyond it are the
+        // neighboring lines.
+        let cross = strokes(level: best.level).map { (Double($0.first), Double($0.last + 1)) } ?? (Double(c0), Double(c1))
 
-        return zip(chars, zip(assignment.units, widths)).map { char, placement in
-            let start = origin + Double(placement.0) * half
-            let size = Double(placement.1) * half
-            let box = vertical
-                ? CGRect(x: cross.0, y: start, width: cross.1 - cross.0, height: size)
-                : CGRect(x: start, y: cross.0, width: size, height: cross.1 - cross.0)
-            return Char(text: char.text, box: box)
+        // The characters of a run share its cells evenly.
+        var result: [Char] = []
+        for (item, placement) in zip(items, assignment.placements) {
+            let size = Double(placement.width) * half / Double(item.count)
+            for (offset, index) in item.enumerated() {
+                let start = origin + Double(placement.start) * half + Double(offset) * size
+                let box = vertical
+                    ? CGRect(x: cross.0, y: start, width: cross.1 - cross.0, height: size)
+                    : CGRect(x: start, y: cross.0, width: size, height: cross.1 - cross.0)
+                result.append(Char(text: chars[index].text, box: box))
+            }
         }
+        return result
+    }
+
+    /// Which of dots, dashes or tildes a character is (also an ellipsis, as dots), or nil: Live Text
+    /// reads runs of them as more or fewer characters than are drawn. The same kinds as LOOKALIKES in
+    /// web/src/lib/ocr-layer.js.
+    static func lookalikeKind(_ text: String) -> Int? {
+        let key = text.precomposedStringWithCompatibilityMapping
+        guard !key.isEmpty else { return nil }
+        return [".・·⋯", "-‐‑‒–—―─━ー", "~〜"].firstIndex { kind in key.allSatisfy { kind.contains($0) } }
     }
 }

@@ -91,8 +91,8 @@ struct KeyCombination: Equatable {
     }
 }
 
-/// Popup keyboard shortcuts, registered as global hotkeys only while a popup shows (see
-/// web/src/overlay.js). The overlay never has keyboard focus, so the app being read keeps it; a
+/// Global hotkeys: popup keyboard shortcuts, registered only while a popup shows (see
+/// web/src/overlay.js), and the sentence audio shortcut (SentenceAudio.swift). The overlay never has keyboard focus, so the app being read keeps it; a
 /// registered hotkey's key goes to MacPopup instead, and back to that app once it's unregistered.
 /// Global hotkeys need no permission.
 @MainActor
@@ -104,7 +104,12 @@ final class HotkeyController {
     private var current: [KeyCombination] = []
     private var handler: EventHandlerRef?
 
-    private static let signature: OSType = 0x4D50_484B // "MPHK"
+    /// Tells this controller's hotkeys from other controllers' (each installs its own handler).
+    private let signature: OSType
+
+    init(signature: OSType = 0x4D50_484B) { // "MPHK"
+        self.signature = signature
+    }
 
     /// Registers these shortcuts in place of the previous ones. Returns whether each one could be
     /// (another app may already use it).
@@ -117,7 +122,7 @@ final class HotkeyController {
         registered = combinations.enumerated().map { index, combination in
             guard let keyCode = combination.keyCode else { return nil }
             var ref: EventHotKeyRef?
-            let id = EventHotKeyID(signature: Self.signature, id: UInt32(index))
+            let id = EventHotKeyID(signature: signature, id: UInt32(index))
             let status = RegisterEventHotKey(UInt32(keyCode), combination.carbonModifiers, id, GetApplicationEventTarget(), 0, &ref)
             return status == noErr ? ref : nil
         }
@@ -140,8 +145,9 @@ final class HotkeyController {
                 event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
                 MemoryLayout<EventHotKeyID>.size, nil, &id
             )
-            guard status == noErr, id.signature == HotkeyController.signature, let context else { return OSStatus(eventNotHandledErr) }
+            guard status == noErr, let context else { return OSStatus(eventNotHandledErr) }
             let controller = Unmanaged<HotkeyController>.fromOpaque(context).takeUnretainedValue()
+            guard id.signature == controller.signature else { return OSStatus(eventNotHandledErr) }
             // Carbon delivers hotkey events on the main thread.
             MainActor.assumeIsolated { controller.onPress?(Int(id.id)) }
             return noErr

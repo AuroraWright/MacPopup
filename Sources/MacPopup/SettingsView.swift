@@ -96,7 +96,8 @@ private struct FieldRow: View {
     var body: some View {
         if field.isWide {
             VStack(alignment: .leading, spacing: 6) {
-                FieldLabel(field: field)
+                // A field that's all of its section (Shortcuts) has no label of its own.
+                if !field.label.isEmpty || field.hint != nil { FieldLabel(field: field) }
                 wideControl
             }
         } else {
@@ -146,6 +147,35 @@ private struct FieldRow: View {
             DisplayPicker(index: (value as? NSNumber)?.intValue ?? 0) { model.set(field.key, $0) } label: {
                 FieldLabel(field: field)
             }
+        case .shortcut:
+            LabeledContent {
+                ShortcutControl(value: value as? [String: Any]) { model.set(field.key, $0 ?? NSNull()) }
+            } label: {
+                FieldLabel(field: field)
+            }
+        case .keySequence:
+            LabeledContent {
+                KeySequenceControl(items: (value as? [Any] ?? []).compactMap { $0 as? [String: Any] }) { model.set(field.key, $0) }
+            } label: {
+                FieldLabel(field: field)
+            }
+        case .audioInput:
+            AudioInputPicker(name: value as? String ?? "") { model.set(field.key, $0) } label: {
+                FieldLabel(field: field)
+            }
+        case let .permission(permission):
+            // The status and buttons on their own line, so they're in the same place whatever their width.
+            VStack(alignment: .leading, spacing: 6) {
+                FieldLabel(field: field)
+                HStack {
+                    Spacer()
+                    PermissionControl(permission: permission)
+                }
+            }
+        case .ankiField:
+            AnkiFieldPicker(name: value as? String ?? "", settings: model.values) { model.set(field.key, $0) } label: {
+                FieldLabel(field: field)
+            }
         case let .select(options, match):
             let stored = value as? String ?? ""
             let current = options.contains { $0.value == stored } ? stored : match?(stored) ?? stored
@@ -173,8 +203,8 @@ private struct FieldRow: View {
             LabeledContent {
                 HStack {
                     Text(items.isEmpty ? emptyText : describe(items))
-                        .foregroundStyle(.secondary).multilineTextAlignment(.leading).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .foregroundStyle(.secondary).multilineTextAlignment(.trailing).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                         .help(items.isEmpty ? "" : details?(items) ?? "")
                     if !items.isEmpty {
                         Button("Clear") { model.set(field.key, [Any]()) }
@@ -218,6 +248,8 @@ private struct FieldRow: View {
             ScanInputsControl(key: field.key, values: value as? [String] ?? [], model: model, recorder: recorder)
         case .hotkeys:
             HotkeysControl(key: field.key, model: model)
+        case .terminationCharacters:
+            TerminationCharactersControl(key: field.key, model: model)
         case .ankiTemplates:
             AnkiTemplatesControl(key: field.key, model: model)
         default:
@@ -293,6 +325,187 @@ private struct DisplayPicker<Label: View>: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
             displays = Self.connectedDisplays()
         }
+    }
+}
+
+/// The audio inputs, by name: the default input when none is chosen.
+private struct AudioInputPicker<Label: View>: View {
+    let name: String
+    let commit: (String) -> Void
+    @ViewBuilder let label: Label
+    @State private var inputs: [String] = Self.connectedInputs()
+
+    private static func connectedInputs() -> [String] {
+        AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified).devices.map(\.localizedName)
+    }
+
+    var body: some View {
+        Picker(selection: Binding(get: { name }, set: commit)) {
+            Text("System default").tag("")
+            ForEach(inputs, id: \.self) { Text($0).tag($0) }
+            // Kept until another is chosen: it's used again when it's connected.
+            if !name.isEmpty && !inputs.contains(name) {
+                Text("\(name) (not connected)").tag(name)
+            }
+        } label: {
+            label
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in inputs = Self.connectedInputs() }
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { _ in inputs = Self.connectedInputs() }
+    }
+}
+
+/// Whether a permission is granted (checked again every second, as it's changed in System Settings),
+/// and buttons to ask for it.
+private struct PermissionControl: View {
+    let permission: Permission
+    @State private var status: Permission.Status?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let status {
+                if status == .granted {
+                    Label("Granted", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                } else {
+                    Label("Not granted", systemImage: "exclamationmark.circle.fill").foregroundStyle(.orange)
+                    // Once turned off, only System Settings turns it on.
+                    if !(permission == .microphone && status == .notGranted) {
+                        Button("Request Access") {
+                            Task {
+                                await permission.request()
+                                self.status = permission.status
+                            }
+                        }
+                    }
+                    if status == .notGranted {
+                        Button("Open System Settings") { permission.openSystemSettings() }
+                    }
+                }
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                status = permission.status
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+}
+
+/// The field names of the note types of the Yomitan term card formats, loaded from AnkiConnect when
+/// shown. Nothing shows until they're loaded, or why they couldn't be.
+private struct AnkiFieldPicker<Label: View>: View {
+    let name: String
+    let settings: [String: Any]
+    let commit: (String) -> Void
+    @ViewBuilder let label: Label
+    @State private var fields: [String]?
+    @State private var error: String?
+
+    var body: some View {
+        Group {
+            if let fields {
+                Picker(selection: Binding(get: { name }, set: commit)) {
+                    if name.isEmpty { Text("Choose a field").tag("") }
+                    ForEach(fields, id: \.self) { Text($0).tag($0) }
+                    // Kept until another is chosen.
+                    if !name.isEmpty && !fields.contains(name) { Text("\(name) (not found)").tag(name) }
+                } label: {
+                    label
+                }
+            } else {
+                LabeledContent {
+                    if let error {
+                        HStack(spacing: 6) {
+                            Text(error).foregroundStyle(.secondary)
+                            Button("Retry") { Task { await load() } }
+                        }
+                    }
+                } label: {
+                    label
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        error = nil
+        do {
+            fields = try await AnkiConnect.fieldNames(settings: settings)
+        } catch {
+            self.error = "Couldn’t list the fields: \(error.localizedDescription)"
+        }
+    }
+}
+
+private func keyCombination(_ item: [String: Any]?) -> KeyCombination? {
+    guard let key = item?["key"] as? String, !key.isEmpty else { return nil }
+    return KeyCombination(key: key, modifiers: item?["modifiers"] as? [String] ?? [])
+}
+
+/// Records one keyboard shortcut.
+private struct ShortcutControl: View {
+    let value: [String: Any]?
+    let commit: ([String: Any]?) -> Void
+    @StateObject private var recorder = ShortcutRecorder()
+
+    var body: some View {
+        HStack {
+            let isActive = recorder.activeIndex != nil
+            Button {
+                if isActive {
+                    recorder.cancel()
+                } else {
+                    recorder.start(index: 0) { commit(["key": $0.key, "modifiers": $0.modifiers]) }
+                }
+            } label: {
+                Text(isActive ? "Press keys…" : keyCombination(value)?.displayName ?? "Record Shortcut").frame(minWidth: 90)
+            }
+            .help(isActive ? "Click to cancel" : "Click, then press the shortcut")
+            Button("Clear") { commit(nil) }.disabled(value == nil)
+        }
+        .onDisappear { recorder.cancel() }
+    }
+}
+
+/// Keys pressed in turn: each can be removed, and more recorded.
+private struct KeySequenceControl: View {
+    let items: [[String: Any]]
+    let commit: ([[String: Any]]) -> Void
+    @StateObject private var recorder = ShortcutRecorder()
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                HStack(spacing: 2) {
+                    Text(keyCombination(item)?.displayName ?? "?").monospacedDigit()
+                    Button {
+                        var updated = items
+                        updated.remove(at: index)
+                        commit(updated)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Remove")
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.15)))
+            }
+            let isActive = recorder.activeIndex != nil
+            Button(isActive ? "Press a key…" : items.isEmpty ? "Record Key" : "Add Key") {
+                if isActive {
+                    recorder.cancel()
+                } else {
+                    recorder.start(index: 0) { commit(items + [["key": $0.key, "modifiers": $0.modifiers]]) }
+                }
+            }
+            .help(isActive ? "Click to cancel" : "Click, then press the key (with any modifier keys)")
+        }
+        .onDisappear { recorder.cancel() }
     }
 }
 
@@ -934,6 +1147,116 @@ private final class ShortcutRecorder: ObservableObject {
     }
 }
 
+/// Yomitan's sentence termination characters, edited as in its “Configure…” dialog.
+private struct TerminationCharactersControl: View {
+    let key: String
+    @ObservedObject var model: SettingsModel
+    @State private var confirmingReset = false
+
+    private var items: [[String: Any]] {
+        (model[key] as? [Any] ?? []).map { $0 as? [String: Any] ?? [:] }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if items.isEmpty {
+                Text("No terminators defined.").foregroundStyle(.secondary)
+            } else {
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
+                    GridRow {
+                        Text("#")
+                        Text("Enabled")
+                        Text("Type")
+                        Text("Character 1")
+                        Text("Character 2")
+                        Text("Include character in sentence")
+                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                        let isQuote = item["character2"] is String
+                        GridRow {
+                            Text("\(index + 1).").monospacedDigit().foregroundStyle(.secondary)
+                            Toggle("", isOn: binding(index, "enabled", true))
+                                .toggleStyle(.switch).controlSize(.small).labelsHidden()
+                            Picker("", selection: Binding(get: { isQuote }, set: { quote in
+                                // As in Yomitan, a quote starts out as the first character twice.
+                                update(index, ["character2": quote ? item["character1"] as? String ?? "" : NSNull()])
+                            })) {
+                                Text("Terminator").tag(false)
+                                Text("Quote").tag(true)
+                            }
+                            .labelsHidden()
+                            .fixedSize()
+                            characterField(index, "character1")
+                            if isQuote {
+                                characterField(index, "character2")
+                            } else {
+                                Text("—").foregroundStyle(.secondary).frame(width: 40)
+                            }
+                            HStack(spacing: 12) {
+                                Toggle("At start", isOn: binding(index, "includeCharacterAtStart", false)).toggleStyle(.checkbox)
+                                Toggle("At end", isOn: binding(index, "includeCharacterAtEnd", false)).toggleStyle(.checkbox)
+                            }
+                            .fixedSize()
+                            Button {
+                                var updated = items
+                                updated.remove(at: index)
+                                model.set(key, updated)
+                            } label: {
+                                Image(systemName: "minus.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Delete")
+                        }
+                    }
+                }
+            }
+            HStack {
+                Button("Add") {
+                    model.set(key, items + [[
+                        "enabled": true, "character1": "\"", "character2": "\"",
+                        "includeCharacterAtStart": false, "includeCharacterAtEnd": false,
+                    ]])
+                }
+                Button("Reset to Defaults") { confirmingReset = true }
+            }
+            .padding(.top, 8)
+        }
+        .confirmationDialog("Replace all sentence termination characters with Yomitan’s defaults?", isPresented: $confirmingReset) {
+            Button("Reset", role: .destructive) { model.set(key, SettingsSupport.shared.defaults[key] ?? [Any]()) }
+        }
+    }
+
+    private func update(_ index: Int, _ changes: [String: Any]) {
+        var updated = items
+        guard updated.indices.contains(index) else { return }
+        updated[index].merge(changes) { _, new in new }
+        model.set(key, updated)
+    }
+
+    private func binding(_ index: Int, _ field: String, _ fallback: Bool) -> Binding<Bool> {
+        Binding(get: { items.indices.contains(index) ? items[index][field] as? Bool ?? fallback : fallback }, set: { update(index, [field: $0]) })
+    }
+
+    /// One character: typing replaces it (Yomitan's field takes one character).
+    private func characterField(_ index: Int, _ field: String) -> some View {
+        TextField("", text: Binding(
+            get: { items.indices.contains(index) ? items[index][field] as? String ?? "" : "" },
+            set: { update(index, [field: $0.last.map(String.init) ?? ""]) }
+        ))
+        // The borderless field at its own size, centered in a drawn border: a bordered field grows
+        // with the taller line of the font Japanese punctuation falls back to, so they wouldn't line up.
+        // Sized to its character, which the box centers (the form aligns field text to the right).
+        .fixedSize()
+        .frame(minWidth: 12)
+        .frame(width: 40, height: 28)
+        .background(RoundedRectangle(cornerRadius: 5).fill(Color(nsColor: .textBackgroundColor)))
+        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color(nsColor: .separatorColor)))
+    }
+}
+
 private struct HotkeysControl: View {
     let key: String
     @ObservedObject var model: SettingsModel
@@ -991,6 +1314,7 @@ private struct HotkeysControl: View {
                 }
                 Button("Reset to Defaults") { confirmingReset = true }
             }
+            .padding(.top, 8)
         }
         .onDisappear { recorder.cancel() }
         .confirmationDialog("Replace all keyboard shortcuts with Yomitan’s defaults?", isPresented: $confirmingReset) {
@@ -1088,7 +1412,7 @@ private struct HotkeyRow: View {
         switch action {
         case "nextEntry", "previousEntry":
             let count = Int(argument) ?? 1
-            HStack(spacing: 2) {
+            HStack(spacing: 5) {
                 Text("by \(count)").monospacedDigit()
                 Stepper("", value: Binding(get: { count }, set: { change(.set(["argument": String($0)])) }), in: 1...99)
                     .labelsHidden()

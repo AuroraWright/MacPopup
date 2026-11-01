@@ -14,7 +14,11 @@ protocol BridgeHost: AnyObject {
     /// The window being read in screen OCR mode, or nil when there isn't one.
     func ocrWindowScreenshot() async throws -> CGImage?
     func simulateMouse(x: Double, y: Double, shift: Bool)
+    /// As if the sentence audio shortcut was pressed.
+    func pressSentenceAudioShortcut()
     func setOverlayCursor(_ cursor: String?)
+    /// The WebSocket URLs that are connected, shown on the menu bar icon.
+    func setConnectedWebsockets(_ urls: [String])
     func setHotkeys(_ combinations: [KeyCombination]) -> [Bool]
     var overlayIgnoresMouseEvents: Bool { get }
 }
@@ -135,6 +139,15 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
                 shift: body["shift"] as? Bool ?? false
             )
             return ["ignoresMouseEvents": host.overlayIgnoresMouseEvents]
+        case "debugSentenceAudio":
+            guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
+                throw BridgeError("Unavailable")
+            }
+            host.pressSentenceAudioShortcut()
+            return nil
+        case "websockets":
+            host?.setConnectedWebsockets(body["connected"] as? [String] ?? [])
+            return nil
         case "setCursor":
             host?.setOverlayCursor(body["cursor"] as? String)
             return nil

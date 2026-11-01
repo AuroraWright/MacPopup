@@ -243,12 +243,20 @@ function applyOperations(lines, ocr, target, operations) {
 			const own = edit.deleted ? [] : edit.text !== null ? [...edit.text] : [char.text, ...entry.group.map((index) => line.chars[index].text)];
 			const after = [...edit.after];
 			const trailingSpaces = [];
+			const isLineEnd = !line.chars.slice(lastIndex + 1).some((other) => !SPACE.test(other.text));
 			if (spaceAfter.has(lastIndex)) {
 				while (after.length > 0 && SPACE.test(after[after.length - 1])) trailingSpaces.unshift(after.pop());
+			} else if (isLineEnd) {
+				// The text's whitespace at the end of a recognized line is where it wraps (e.g. "\n　").
+				while (after.length > 0 && SPACE.test(after[after.length - 1])) after.pop();
 			}
 			// Characters that weren't recognized often left an empty space before the next one: put
-			// inserted text there instead of squeezing it into this character's box.
-			const gap = after.length > 0 && own.length > 0 ? gapAfter(line, lastIndex) : null;
+			// inserted text there instead of squeezing it into this character's box. After the last
+			// character of a line, the text continues at its size.
+			const gap =
+				after.length > 0 && own.length > 0
+					? (gapAfter(line, lastIndex) ?? (isLineEnd ? continuation(box, own.length, after.length, line.vertical) : null))
+					: null;
 			const parts = gap ? [...edit.before, ...own] : [...edit.before, ...own, ...after];
 			if (gap) chars.push(...divide(box, parts, line.vertical), ...divide(gap, after, line.vertical));
 			else if (parts.length > 0) {
@@ -274,6 +282,14 @@ function gapAfter(line, charIndex) {
 	return line.vertical
 		? { x: char.x, y: char.y + char.height, width: char.width, height: gap }
 		: { x: char.x + char.width, y: char.y, width: gap, height: char.height };
+}
+
+/** Room for `count` more characters after `box`, which holds `own` of them, at the same size. */
+function continuation(box, own, count, vertical) {
+	const size = (vertical ? box.height : box.width) / own;
+	return vertical
+		? { x: box.x, y: box.y + box.height, width: box.width, height: size * count }
+		: { x: box.x + box.width, y: box.y, width: size * count, height: box.height };
 }
 
 /** Splits `box` into equal parts along the line, one per string in `texts`. */
