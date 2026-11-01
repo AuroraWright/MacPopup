@@ -182,13 +182,15 @@ enum OCRLayout {
         let units = Int(((length - best.phase) / best.pitch + 2).rounded(.up)) * 2
         let widths = chars.map { isFullWidth($0.text) || $0.text.allSatisfy(\.isWhitespace) ? 2 : 1 }
         let starts = chars.map { vertical ? Double($0.box.minY) : Double($0.box.minX) }
+        let ends = chars.map { vertical ? Double($0.box.maxY) : Double($0.box.maxX) }
         let unitInk = (0..<units).map { unit -> Bool in
             let start = max(Int(origin + Double(unit) * half), a0), end = max(min(Int(origin + Double(unit + 1) * half), a1), start)
             var count = 0
             for a in start..<end {
                 for c in stride(from: c0, to: c1, by: 2) where abs(pixel(a, c) - best.level) <= 32 { count += 1 }
             }
-            return Double(count) > Double(crossSize) * 0.03 * half / 2
+            // Thin glyphs (an ellipsis's dots, a closing bracket) have little ink in a half-cell.
+            return Double(count) > Double(crossSize) * 0.015 * half / 2
         }
         guard !chars.isEmpty, units > 0 else { return nil }
         // A run of dots, dashes or tildes is one item, which takes from one cell up to one per character:
@@ -205,53 +207,100 @@ enum OCRLayout {
         let m = items.count
         let emptyCost = best.pitch
         let skipInkCost = best.pitch * 0.6
+        // Full-width characters half a cell off the grid: a half-width character puts the ones before or
+        // after it there (e.g. "「8時"), so they can be, but only next to one, and starting off the grid
+        // costs a little (lines without half-width characters stay on it). The grid fits most of the line,
+        // so the characters off it before a half-width one are fewer than half of them.
+        let offGridCost = best.pitch * 0.3
         let inkSkipped = { (from: Int, to: Int) -> Double in
             from < to ? Double((from..<to).filter { unitInk[$0] }.count) / 2 * skipInkCost : 0
         }
 
         func assign(offset: Double) -> (cost: Double, placements: [(start: Int, width: Int)])? {
-            // cost[i][e]: best cost placing items 0...i with item i ending at unit e.
-            var cost = [[Double]](repeating: [Double](repeating: .infinity, count: units + 1), count: m)
-            var from = [[(end: Int, start: Int)]](repeating: [(end: Int, start: Int)](repeating: (-1, -1), count: units + 1), count: m)
+            // cost[i][e * 3 + p]: best cost placing items 0...i with item i ending at unit e, where p is 0 on
+            // the grid, 1 off it before a half-width character and 2 off it after one (see offGridCost).
+            var cost = [[Double]](repeating: [Double](repeating: .infinity, count: (units + 1) * 3), count: m)
+            var from = [[(state: Int, start: Int)]](repeating: [(state: Int, start: Int)](repeating: (-1, -1), count: (units + 1) * 3), count: m)
+            // How many items up to `item` are off the grid on the best way to its `state`: fewer than half.
+            func isMinority(_ item: Int, _ state: Int) -> Bool {
+                var count = 0, item = item, state = state
+                while item >= 0, state >= 0, state % 3 != 0 {
+                    count += 1
+                    state = from[item][state].state
+                    item -= 1
+                }
+                return count * 2 < m
+            }
             for i in 0..<m {
                 let first = items[i].lowerBound
-                // Full-width characters start on a cell, half-width ones on either half.
+                // Full-width characters take whole cells, half-width ones half.
                 let step = widths[first]
                 let isBlank = chars[first].text.allSatisfy(\.isWhitespace)
                 for width in stride(from: step, through: step * items[i].count, by: step) {
-                    for start in stride(from: 0, through: units - width, by: step) {
+                    for start in stride(from: 0, through: units - width, by: 1) {
+                        let end = start + width
                         var place = abs(starts[first] - offset - (origin + Double(start) * half))
                         if !isBlank, !(start..<(start + width)).contains(where: { unitInk[$0] }) {
                             place += emptyCost
                         }
-                        let end = start + width
-                        if i == 0 {
-                            let total = place + inkSkipped(0, start)
-                            if total < cost[i][end] {
-                                cost[i][end] = total
-                                from[i][end] = (-1, start)
+                        // How many cells a run takes is otherwise a tie when its cells look alike (e.g.
+                        // an ellipsis's dots are too thin to count as text): then it ends where it was read.
+                        if items[i].count > 1 {
+                            place += abs(ends[items[i].upperBound - 1] - offset - (origin + Double(end) * half)) * 0.01
+                        }
+                        func consider(_ total: Double, _ p: Int, from previous: Int) {
+                            let state = end * 3 + p
+                            if total < cost[i][state] {
+                                cost[i][state] = total
+                                from[i][state] = (previous, start)
                             }
+                        }
+                        let offGrid = step == 2 && start % 2 == 1
+                        if i == 0 {
+                            consider(place + inkSkipped(0, start) + (offGrid ? offGridCost : 0), offGrid ? 1 : 0, from: -1)
                             continue
                         }
-                        for previousEnd in 0...start where cost[i - 1][previousEnd].isFinite {
-                            let total = cost[i - 1][previousEnd] + inkSkipped(previousEnd, start) + place
-                            if total < cost[i][end] {
-                                cost[i][end] = total
-                                from[i][end] = (previousEnd, start)
+                        for previousEnd in 0...start {
+                            for p in 0..<3 {
+                                let state = previousEnd * 3 + p
+                                guard cost[i - 1][state].isFinite else { continue }
+                                let total = cost[i - 1][state] + inkSkipped(previousEnd, start) + place
+                                let adjacent = start == previousEnd
+                                if !offGrid {
+                                    // Back on the grid: off-grid characters before a half-width one need it
+                                    // right after them.
+                                    if p == 0 || p == 2 && isMinority(i - 1, state) || p == 1 && step == 1 && adjacent && isMinority(i - 1, state) {
+                                        consider(total, 0, from: state)
+                                    }
+                                } else if p == 1 {
+                                    if adjacent { consider(total, 1, from: state) }
+                                } else if p == 2 || previousEnd % 2 == 1 {
+                                    // After a half-width character (an odd end on the grid is one).
+                                    consider(total, 2, from: state)
+                                } else {
+                                    consider(total + offGridCost, 1, from: state)
+                                }
                             }
                         }
                     }
                 }
             }
             // Text after the last item that it didn't take counts as skipped too.
-            let finalCost = cost[m - 1].indices.map { end in cost[m - 1][end] + inkSkipped(end, units) }
-            guard var end = finalCost.indices.min(by: { finalCost[$0] < finalCost[$1] }), finalCost[end].isFinite else { return nil }
-            let total = finalCost[end]
+            let finalCost = (0...units).map { end -> (cost: Double, state: Int) in
+                let candidates = [end * 3, end * 3 + 2].filter { cost[m - 1][$0].isFinite && ($0 % 3 == 0 || isMinority(m - 1, $0)) }
+                let best = candidates.min { cost[m - 1][$0] < cost[m - 1][$1] } ?? end * 3
+                return (cost[m - 1][best] + inkSkipped(end, units), best)
+            }
+            guard let bestEnd = finalCost.indices.min(by: { finalCost[$0].cost < finalCost[$1].cost }), finalCost[bestEnd].cost.isFinite else { return nil }
+            let total = finalCost[bestEnd].cost
+            var state = finalCost[bestEnd].state
+            var end = bestEnd
             var placements = [(start: Int, width: Int)](repeating: (0, 0), count: m)
             for i in stride(from: m - 1, through: 0, by: -1) {
-                let start = from[i][end].start
+                let start = from[i][state].start
                 placements[i] = (start, end - start)
-                end = from[i][end].end
+                state = from[i][state].state
+                end = state / 3
             }
             return (total, placements)
         }

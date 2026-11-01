@@ -281,12 +281,19 @@ function applyOperations(lines, ocr, target, operations) {
 			}
 			// Characters that weren't recognized often left an empty space before the next one: put
 			// inserted text there instead of squeezing it into this character's box. After the last
-			// character of a line, the text continues at its size.
+			// character of a line, the text continues at its size, and before the first, it starts at it.
+			const before = edit.before;
+			const isLineStart = !line.chars.slice(0, charIndex).some((other) => !SPACE.test(other.text));
+			const gapFront =
+				before.length > 0 && own.length > 0
+					? (gapBefore(line, charIndex) ?? (isLineStart ? continuation(box, own.length, before.length, line.vertical, true) : null))
+					: null;
 			const gap =
 				after.length > 0 && own.length > 0
 					? (gapAfter(line, lastIndex) ?? (isLineEnd ? continuation(box, own.length, after.length, line.vertical) : null))
 					: null;
-			const parts = gap ? [...edit.before, ...own] : [...edit.before, ...own, ...after];
+			const parts = [...(gapFront ? [] : before), ...own, ...(gap ? [] : after)];
+			if (gapFront) chars.push(...divide(gapFront, before, line.vertical));
 			if (gap) chars.push(...divide(box, parts, line.vertical), ...divide(gap, after, line.vertical));
 			else if (parts.length > 0) {
 				chars.push(...divide(box, parts, line.vertical));
@@ -313,12 +320,25 @@ function gapAfter(line, charIndex) {
 		: { x: char.x + char.width, y: char.y, width: gap, height: char.height };
 }
 
-/** Room for `count` more characters after `box`, which holds `own` of them, at the same size. */
-function continuation(box, own, count, vertical) {
+/** The empty space between a character and the one before it in its line, if it fits a character. */
+function gapBefore(line, charIndex) {
+	const char = line.chars[charIndex];
+	const previous = line.chars.slice(0, charIndex).findLast((other) => !SPACE.test(other.text));
+	if (!previous) return null;
+	const size = line.vertical ? char.height : char.width;
+	const gap = line.vertical ? char.y - (previous.y + previous.height) : char.x - (previous.x + previous.width);
+	if (gap < size * 0.6) return null;
+	return line.vertical
+		? { x: char.x, y: previous.y + previous.height, width: char.width, height: gap }
+		: { x: previous.x + previous.width, y: char.y, width: gap, height: char.height };
+}
+
+/** Room for `count` more characters after `box` (or before it), which holds `own` of them, at the same size. */
+function continuation(box, own, count, vertical, before = false) {
 	const size = (vertical ? box.height : box.width) / own;
 	return vertical
-		? { x: box.x, y: box.y + box.height, width: box.width, height: size * count }
-		: { x: box.x + box.width, y: box.y, width: size * count, height: box.height };
+		? { x: box.x, y: before ? box.y - size * count : box.y + box.height, width: box.width, height: size * count }
+		: { x: before ? box.x - size * count : box.x + box.width, y: box.y, width: size * count, height: box.height };
 }
 
 /** Splits `box` into equal parts along the line, one per string in `texts`. */
@@ -458,14 +478,17 @@ export function renderLines(container, lines) {
 	});
 
 	// Stretch each glyph along the line to the width of its box (letter-spacing counts as part of the
-	// character's rect). Measured all at once so layout happens only once.
+	// character's rect). Measured all at once so layout happens only once. The spacing goes after the
+	// glyph, so where the text is shown (Outline recognized text), it's drawn shifted to the middle.
 	const range = document.createRange();
 	const lengths = spans.map(({ span, vertical }) => {
 		range.selectNodeContents(span.firstChild);
 		const rect = range.getBoundingClientRect();
 		return vertical ? rect.height : rect.width;
 	});
-	spans.forEach(({ span, length }, index) => {
-		span.style.letterSpacing = `${length - lengths[index]}px`;
+	spans.forEach(({ span, length, vertical }, index) => {
+		const spacing = length - lengths[index];
+		span.style.letterSpacing = `${spacing}px`;
+		span.style.setProperty(vertical ? '--center-y' : '--center-x', `${spacing / 2}px`);
 	});
 }

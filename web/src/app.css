@@ -144,6 +144,12 @@ body {
 	color: rgb(40 200 90 / 0.8);
 }
 
+/* The glyph in the middle of its box (see renderLines), without moving the text that's hovered. */
+#ocr-layer.show-boxes .ocr-char {
+	-webkit-text-fill-color: transparent;
+	text-shadow: var(--center-x, 0) var(--center-y, 0) 0 currentColor;
+}
+
 #ocr-toast {
 	position: absolute;
 	left: 50%;
