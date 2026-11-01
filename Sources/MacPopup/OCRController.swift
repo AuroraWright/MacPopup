@@ -351,6 +351,8 @@ final class OCRController {
         case "cue":
             // Read when the window is available, which may be later (e.g. it's in another space).
             pendingCue = .newLine
+        case "accept":
+            acceptedReading = true
         case "retry":
             if pendingCue == nil {
                 pendingCue = .retry
@@ -627,6 +629,10 @@ final class OCRController {
     /// - Parameter cue: For a new line, the picture has to change first, unless that doesn't happen
     ///   within a moment (the line may already be on screen).
     private func settleAndRecognize(cue: Cue?) async {
+        if readsUntilSettled {
+            await readUntilSettled(cue: cue)
+            return
+        }
         log("settling for \(cue.map { "\($0)" } ?? "change")")
         if cue == .newLine || cue == .retry {
             send(["type": "changing"])
@@ -706,6 +712,84 @@ final class OCRController {
         }
     }
 
+    /// Whether the text is read until it stops changing rather than once the picture is still: for an
+    /// engine fast enough to read repeatedly (meikiocr).
+    private var readsUntilSettled: Bool { engine == .meikiocr }
+
+    /// The page took a provisional reading (it matched the WebSocket line).
+    private var acceptedReading = false
+
+    /// Reads right away and again until the dialogue's text stays the same, instead of first waiting for
+    /// the picture to be still (which an animated background can keep it from being). Each reading goes
+    /// to the page as provisional, which takes it as soon as it matches the WebSocket line.
+    /// - Parameter cue: For a new line, the text only counts as settled once the picture changed, unless
+    ///   that doesn't happen within a moment (the line may already be on screen): until then it's the
+    ///   previous line's.
+    private func readUntilSettled(cue: Cue?) async {
+        log("reading until settled for \(cue.map { "\($0)" } ?? "change")")
+        if cue == .newLine || cue == .retry {
+            send(["type": "changing"])
+        }
+        let maxWait = number("ocrMaxWait", 4000) / 1000
+        // The text has to stay the same for the settle time, as the picture does otherwise: text drawn a
+        // character at a time looks the same between characters, and once read too early, the rest of
+        // the line may change too little of the picture to be noticed.
+        let settleTime = number("ocrSettleTime", 400) / 1000
+        var start = Date()
+        var sawChange = cue != .newLine
+        var previous: (texts: [String], time: Date)?
+        acceptedReading = false
+        while !Task.isCancelled {
+            guard isWindowAvailable else {
+                log("window left while reading")
+                if pendingCue == nil { pendingCue = .retry }
+                return
+            }
+            if pendingCue == .newLine {
+                // Another line arrived: start over.
+                pendingCue = nil
+                start = Date()
+                sawChange = false
+                previous = nil
+                acceptedReading = false
+                send(["type": "changing"])
+            }
+            let read = cue == .immediate || otherAreasOutdated || areaLines.count != areas.count ? Array(areas.indices) : [0]
+            if acceptedReading {
+                log("the page took a reading")
+                otherAreasOutdated = false
+                sendResult(frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: Date(), extra: ["accepted": true])
+                return
+            }
+            if !sawChange {
+                guard let (_, frame) = await capture(scale: Self.comparisonScale) else { return }
+                if let last = lastRecognizedFrame, differs(frame, last, only: [0]) {
+                    sawChange = true
+                    previous = nil
+                } else if lastRecognizedFrame == nil || Date().timeIntervalSince(start) > 1.5 {
+                    sawChange = true
+                }
+            }
+            let started = Date()
+            guard let image = await captureForReading(), await readAreas(image, areas: read) else { return }
+            let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
+            if sawChange, let previous, previous.texts == texts, started.timeIntervalSince(previous.time) >= settleTime {
+                log("settled after \(String(format: "%.2f", Date().timeIntervalSince(start)))s")
+                otherAreasOutdated = false
+                sendResult(frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started, extra: ["settled": true])
+                return
+            }
+            if Date().timeIntervalSince(start) > maxWait {
+                log("still changing after \(String(format: "%.2f", maxWait))s")
+                otherAreasOutdated = false
+                sendResult(frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started)
+                return
+            }
+            if previous?.texts != texts { previous = (texts, started) }
+            sendResult(frame: nil, areas: read, started: started, extra: ["provisional": true])
+        }
+    }
+
     /// Reads areas after the first right away, without waiting for them to be still.
     private func readNow(_ indices: [Int], frame: Frame) async {
         guard let image = await captureForReading() else { return }
@@ -770,8 +854,14 @@ final class OCRController {
     ///   - frame: The low resolution frame `image` was taken after, the reference for changes in `areas`.
     ///   - areas: The indexes of the areas to read; the others keep their last lines.
     private func recognize(_ image: CGImage, frame: Frame?, areas indices: [Int]) async {
-        guard let bounds else { return }
         let started = Date()
+        guard await readAreas(image, areas: indices) else { return }
+        sendResult(frame: frame, areas: indices, started: started)
+    }
+
+    /// Reads the areas into `areaLines`. False if it failed (the page was told).
+    private func readAreas(_ image: CGImage, areas indices: [Int]) async -> Bool {
+        guard let bounds else { return false }
         if areaLines.count != areas.count { areaLines = areas.map { _ in [] } }
         debugReadings += 1
         for index in indices {
@@ -792,7 +882,7 @@ final class OCRController {
                 log("\(engine.rawValue): \(String(format: "%.2f", Date().timeIntervalSince(recognizeStarted)))s for \(crop.width)x\(crop.height)")
             } catch {
                 send(["type": "error", "message": error.localizedDescription])
-                return
+                return false
             }
             // The boxes are normalized to the crop; convert them to window points.
             let toWindow = { (box: CGRect) -> CGRect in
@@ -813,9 +903,19 @@ final class OCRController {
             }
             log("layout: \(String(format: "%.2f", Date().timeIntervalSince(layoutStarted)))s")
         }
-        updateReference(frame, areas: indices)
+        return true
+    }
+
+    /// Sends what `readAreas` read to the page.
+    /// - Parameters:
+    ///   - frame: The low resolution frame the reading was taken after, the reference for changes.
+    ///   - extra: More for the page: "provisional" for a reading while the text may still change (only
+    ///     shown if it matches the WebSocket line, see readUntilSettled), "settled" for one of text that
+    ///     stopped changing.
+    private func sendResult(frame: Frame?, areas indices: [Int], started: Date, extra: [String: Any] = [:]) {
+        guard let bounds else { return }
         let lines = areaLines.flatMap { $0 }
-        let result: [String: Any] = [
+        var result: [String: Any] = [
             "type": "result",
             "lines": lines,
             // Whether the dialogue was read (the page checks it against the WebSocket line), or only others.
@@ -824,10 +924,13 @@ final class OCRController {
             "width": bounds.width,
             "height": bounds.height,
         ]
+        result.merge(extra) { $1 }
+        log("read \(lines.count) lines in \(String(format: "%.2f", Date().timeIntervalSince(started)))s\(extra.isEmpty ? "" : " \(extra.keys.sorted())")")
+        send(result)
+        if extra["provisional"] as? Bool == true { return }
+        updateReference(frame, areas: indices)
         lastResult = result
         if indices.contains(0) { watchUntil = Date().addingTimeInterval(1.5) }
-        log("read \(lines.count) lines in \(String(format: "%.2f", Date().timeIntervalSince(started)))s")
-        send(result)
     }
 
     /// What reads the text (Settings → OCR Mode → Text recognition).

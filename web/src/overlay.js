@@ -1000,9 +1000,19 @@ function showOcrResult(message) {
 	const readsDialogue = message.dialogue ?? true;
 	let dialogue = !readsDialogue && ocr.awaitingLine ? [] : decoded.filter((line) => line.area === 0);
 	const others = decoded.filter((line) => line.area !== 0);
+	const awaitsMatch = readsDialogue && ocr.awaitingLine && ocr.line !== null && settings.ocrUseWebsocket;
+	// A reading while the text may still change (see readUntilSettled in OCRController.swift) is only
+	// taken when it matches the WebSocket line completely.
+	if (message.provisional) {
+		if (!awaitsMatch) return;
+		const { quality, missingEnd } = correctWithText(dialogue, ocr.line);
+		if (quality < 0.6 || missingEnd > 0) return;
+		nativeCall('ocr', { action: 'accept' }).catch(() => {});
+	}
 	if (ocr.line !== null && settings.ocrUseWebsocket) {
 		const { lines: corrected, quality, missingEnd } = correctWithText(dialogue, ocr.line);
-		if (readsDialogue && ocr.awaitingLine && (quality < 0.6 || missingEnd > 1) && ocr.retries < 2) {
+		// A reading of text that stopped changing isn't still being drawn.
+		if (awaitsMatch && !message.settled && (quality < 0.6 || missingEnd > 1) && ocr.retries < 2) {
 			// Probably still being drawn (it doesn't match, or its end isn't there yet): read again
 			// once the picture settles.
 			ocr.retries++;
