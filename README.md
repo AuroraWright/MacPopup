@@ -7,7 +7,8 @@ Anki card creation. Lookups come from your installed Yomitan through the
 [Yomitan API](https://github.com/yomidevs/yomitan-api).
 
 In OCR mode, MacPopup instead reads another app's window (a game, say) with Apple's Live
-Text and lets you hover the window's own text, with no text box at all.
+Text or [meikiocr](https://github.com/rtr46/meikiocr) and lets you hover the window's own text, with no
+text box at all.
 
 ## Requirements
 
@@ -121,9 +122,15 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
   starts from it and its areas, so they can be added to or removed.
   The window is found again by its app and title the next time MacPopup starts. **Clear** in
   Settings goes back to the whole screen. The captured window is also what Anki screenshots show.
-- Text is recognized with Live Text in the language set in Settings → OCR Mode (Japanese by
-  default; the menu lists every language Live Text supports on your version of macOS),
-  horizontal or vertical. Only the chosen areas are captured, and a window drawn at 1x
+- Text is recognized, horizontal or vertical, with Live Text or meikiocr (**Text recognition** in
+  Settings → OCR Mode):
+  - Live Text (the default) reads the language set in Settings → OCR Mode (Japanese by default; the
+    menu lists every language Live Text supports on your version of macOS).
+  - meikiocr's models, by rtr46, are trained on Japanese game text and read only Japanese. They run
+    on this Mac with Core ML (converted by `scripts/convert-meikiocr.py`; see `vendor/meikiocr`).
+    It's faster than Live Text and its character boxes fit the text more closely.
+
+  Only the chosen areas are captured, and a window drawn at 1x
   (e.g. a VM or a game that isn't Retina aware) is read at 1x, which is faster ("Read at" in
   Settings overrides this).
 - Without a WebSocket, MacPopup watches the window (or the chosen areas) and reads it again when
@@ -228,3 +235,7 @@ Settings → Privacy & Security), which macOS asks for the first time.
 
 GPL-3.0, because it includes code from [Yomitan](https://github.com/yomidevs/yomitan) (see
 `vendor/yomitan/README.md` for the commit). See `LICENSE`.
+
+meikiocr's models (in `vendor/meikiocr`, converted to Core ML) are licensed under the LGPL-3.0, and
+`Sources/MacPopup/MeikiOCR.swift` follows meikiocr's code, licensed under the Apache License 2.0; see
+`vendor/meikiocr/README.md`.

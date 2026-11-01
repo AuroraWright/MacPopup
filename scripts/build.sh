@@ -26,6 +26,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/MacPopup"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R build/web "$APP/Contents/Resources/web"
+# meikiocr's models (see vendor/meikiocr), compiled for Core ML.
+mkdir -p "$APP/Contents/Resources/Models"
+for model in vendor/meikiocr/*.mlpackage; do
+    xcrun coremlcompiler compile "$model" "$APP/Contents/Resources/Models" >/dev/null
+done
 # Signed with a certificate, macOS keeps the privacy permissions (Screen Recording, Microphone,
 # Accessibility) across builds; ad-hoc signatures change with every build, so they'd be asked for again.
 # MACPOPUP_SIGN_IDENTITY overrides the identity ("-" for ad-hoc).

@@ -238,12 +238,17 @@ enum SettingsSchema {
             ]),
             SettingsSection(
                 title: "OCR Mode", symbol: "text.viewfinder",
-                description: "Instead of the text box, read the captured window (Settings → General), or the whole screen without one, with Live Text and show popups when hovering its text. "
+                description: "Instead of the text box, read the captured window (Settings → General), or the whole screen without one, and show popups when hovering its text. "
                     + "Needs the Screen Recording permission.",
                 fields: [
                     SettingsField(
+                        "ocrEngine", "Text recognition",
+                        .select([SettingsOption("liveText", "Live Text"), SettingsOption("meikiocr", "meikiocr")]),
+                        hint: "Live Text is Apple’s, as in Preview and Photos. meikiocr (by rtr46) is made for Japanese game text and reads only Japanese; it runs with Core ML."
+                    ),
+                    SettingsField(
                         "ocrLanguage", "Language", .select(ocrLanguages, match: matchLanguage),
-                        hint: "The languages Live Text can read on this version of macOS. English is always read too."
+                        hint: "For Live Text: the languages it can read on this version of macOS. English is always read too."
                     ),
                     SettingsField(
                         "ocrResolution", "Read at",

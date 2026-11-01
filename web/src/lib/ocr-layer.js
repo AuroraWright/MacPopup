@@ -88,25 +88,44 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 	});
 	const n = target.length;
 	const m = ocr.length;
+	// Whether there's no room before each OCR character for missed ones: its neighbor before it on the
+	// line touches it (less than half a character between them). Text inserted there would be squeezed,
+	// so it costs more, and a misread character takes its place instead (in "割けない、" for
+	// "割けない形になるが、", the 、 is a cut-off 形 rather than the 、 four characters later).
+	const sizes = lines.map((line) => {
+		const extents = line.chars.filter((char) => !SPACE.test(char.text)).map((char) => (line.vertical ? char.height : char.width)).sort((a, b) => a - b);
+		return extents[Math.floor(extents.length / 2)] ?? 0;
+	});
+	const cramped = new Uint8Array(m + 1);
+	for (let j = 1; j < m; j++) {
+		const before = ocr[j - 1];
+		const after = ocr[j];
+		if (before.lineIndex !== after.lineIndex) continue;
+		const line = lines[after.lineIndex];
+		const last = line.chars[before.group.at(-1) ?? before.charIndex];
+		const gap = line.vertical ? after.char.y - (last.y + last.height) : after.char.x - (last.x + last.width);
+		cramped[j] = gap < sizes[after.lineIndex] * 0.5 ? 1 : 0;
+	}
 	const significant = target.filter((character) => !SPACE.test(character)).length;
 	if (n === 0 || m === 0 || significant === 0) return { lines, quality: 0, missingEnd: significant };
 
-	// score[i][j]: best score aligning target[0..i) with ocr[..j), any OCR prefix being free.
+	// score[i][j]: best score aligning target[0..i) with ocr[..j), any OCR prefix being free. A match
+	// scores 4, a mismatch -2 (-6 for whitespace), a missed character -2 (-5 where there's no room for
+	// it) and an extra OCR character -2.
 	const width = m + 1;
 	const score = new Int32Array((n + 1) * width);
 	const move = new Uint8Array((n + 1) * width); // 1 diagonal, 2 target gap (insert), 3 OCR gap (delete)
 	for (let i = 1; i <= n; i++) {
-		const gap = SPACE.test(target[i - 1]) ? 0 : -1;
+		const gap = SPACE.test(target[i - 1]) ? 0 : -2;
 		score[i * width] = score[(i - 1) * width] + gap;
 		move[i * width] = 2;
 	}
 	for (let i = 1; i <= n; i++) {
 		const isSpace = SPACE.test(target[i - 1]);
-		const insertCost = isSpace ? 0 : -1;
 		for (let j = 1; j <= m; j++) {
-			const diagonal = score[(i - 1) * width + j - 1] + (targetKeys[i - 1] === ocr[j - 1].key ? 2 : isSpace ? -3 : -1);
-			const insert = score[(i - 1) * width + j] + insertCost;
-			const remove = score[i * width + j - 1] - 1;
+			const diagonal = score[(i - 1) * width + j - 1] + (targetKeys[i - 1] === ocr[j - 1].key ? 4 : isSpace ? -6 : -2);
+			const insert = score[(i - 1) * width + j] + (isSpace ? 0 : cramped[j] ? -5 : -2);
+			const remove = score[i * width + j - 1] - 2;
 			let best = diagonal;
 			let direction = 1;
 			if (insert > best) {
@@ -146,6 +165,16 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 		}
 	}
 	operations.reverse();
+	// Characters left at the end of the last line it reached, where the text goes on, are misread ones
+	// of what follows (e.g. cut off by the area's edge) rather than other text: they stand for it in order.
+	let next = operations.length;
+	while (next > 0 && operations[next - 1].type === 'insert') next--;
+	for (let j = end; end > 0 && j < m && ocr[j].lineIndex === ocr[end - 1].lineIndex; j++) {
+		while (next < operations.length && SPACE.test(target[operations[next].target])) next++;
+		if (next === operations.length) break;
+		operations[next] = { type: 'match', target: operations[next].target, ocr: j };
+		next++;
+	}
 
 	// Text at the very start or end that isn't on screen at all (e.g. a speaker name the hook adds)
 	// is left out rather than squeezed into the first or last character. A single character is more

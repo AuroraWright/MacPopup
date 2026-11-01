@@ -164,6 +164,11 @@ final class OCRController {
             return
         }
         guard isEnabled, !isPicking else { return }
+        if engine != startedEngine {
+            startedEngine = engine
+            Task { [weak self] in await self?.warmUp() }
+            readAgain()
+        }
         // The window or areas were changed elsewhere (e.g. the settings were reset or imported, or the
         // window was cleared).
         let saved = settings["ocrWindow"] as? [String: Any]
@@ -246,8 +251,9 @@ final class OCRController {
         RunLoop.main.add(timer, forMode: .common)
         trackTimer = timer
         trackWindow()
+        startedEngine = engine
         loopTask = Task { [weak self] in
-            await self?.warmUpLiveText()
+            await self?.warmUp()
             await self?.runLoop()
         }
         if hasSource {
@@ -779,16 +785,16 @@ final class OCRController {
                 }
                 log("saved \(url.lastPathComponent)")
             }
-            let items: [MPLiveTextItem]
+            let items: [RecognizedLine]
             let recognizeStarted = Date()
             do {
-                items = try await Self.recognizeText(crop, locales: languages)
-                log("Live Text: \(String(format: "%.2f", Date().timeIntervalSince(recognizeStarted)))s for \(crop.width)x\(crop.height)")
+                items = try await recognizeText(crop)
+                log("\(engine.rawValue): \(String(format: "%.2f", Date().timeIntervalSince(recognizeStarted)))s for \(crop.width)x\(crop.height)")
             } catch {
                 send(["type": "error", "message": error.localizedDescription])
                 return
             }
-            // Live Text boxes are normalized to the crop; convert them to window points.
+            // The boxes are normalized to the crop; convert them to window points.
             let toWindow = { (box: CGRect) -> CGRect in
                 CGRect(
                     x: (area.minX + box.minX * area.width) * bounds.width,
@@ -824,8 +830,48 @@ final class OCRController {
         send(result)
     }
 
-    /// Live Text takes about a second longer for its first reading, so it reads a small blank picture
-    /// first, before the window needs reading.
+    /// What reads the text (Settings → OCR Mode → Text recognition).
+    enum Engine: String {
+        case liveText
+        case meikiocr
+    }
+
+    /// The engine when OCR mode started or it last changed.
+    private var startedEngine: Engine?
+
+    private var engine: Engine {
+        Engine(rawValue: settings["ocrEngine"] as? String ?? "") ?? .liveText
+    }
+
+    private func recognizeText(_ image: CGImage) async throws -> [RecognizedLine] {
+        switch engine {
+        case .liveText:
+            try await Self.recognizeText(image, locales: languages).map { line in
+                RecognizedLine(text: line.text, box: line.box, words: line.words.map { ($0.text, $0.box) })
+            }
+        case .meikiocr:
+            try await MeikiOCR.shared.recognize(image)
+        }
+    }
+
+    /// The first reading takes longer (Live Text's by about a second, meikiocr's loads its models), so the
+    /// engine is prepared before the window needs reading.
+    private func warmUp() async {
+        let started = Date()
+        switch engine {
+        case .liveText:
+            await warmUpLiveText()
+        case .meikiocr:
+            do {
+                try await MeikiOCR.shared.prepare()
+            } catch {
+                send(["type": "error", "message": error.localizedDescription])
+            }
+        }
+        log("\(engine.rawValue) ready in \(String(format: "%.2f", Date().timeIntervalSince(started)))s")
+    }
+
+    /// Live Text reads a small blank picture.
     private func warmUpLiveText() async {
         guard let context = CGContext(
             data: nil, width: 64, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
@@ -834,9 +880,7 @@ final class OCRController {
         context.setFillColor(gray: 1, alpha: 1)
         context.fill(CGRect(x: 0, y: 0, width: 64, height: 32))
         guard let image = context.makeImage() else { return }
-        let started = Date()
         _ = try? await Self.recognizeText(image, locales: languages)
-        log("Live Text ready in \(String(format: "%.2f", Date().timeIntervalSince(started)))s")
     }
 
     private var languages: [String] {
@@ -855,13 +899,14 @@ final class OCRController {
         }
     }
 
-    /// A line with one box per character. Live Text gives boxes per word (single characters for
-    /// Japanese); longer words are divided evenly, and the spaces between words fill the gaps. Lines of
-    /// evenly spaced full-width text are then snapped to their cells (see OCRLayout).
+    /// A line with one box per character. The engines give boxes per word (Live Text: single characters
+    /// for Japanese; meikiocr: always characters); longer words are divided evenly, and the spaces between
+    /// words fill the gaps. Lines of evenly spaced full-width text are then snapped to their cells (see
+    /// OCRLayout).
     /// - Parameters:
-    ///   - image: The image Live Text read, whose pixels Live Text's normalized boxes refer to.
+    ///   - image: The image that was read, whose pixels the line's normalized boxes refer to.
     ///   - toWindow: Converts a box normalized to `image` to window points.
-    private static func encodeLine(_ line: MPLiveTextItem, image: GrayImage?, size: CGSize, toWindow: (CGRect) -> CGRect) -> [String: Any] {
+    private static func encodeLine(_ line: RecognizedLine, image: GrayImage?, size: CGSize, toWindow: (CGRect) -> CGRect) -> [String: Any] {
         // Work in image pixels, which keep the aspect ratio.
         let toPixels = { (box: CGRect) in
             CGRect(x: box.minX * size.width, y: box.minY * size.height, width: box.width * size.width, height: box.height * size.height)

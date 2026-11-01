@@ -91,6 +91,7 @@ export const defaultSettings = {
 	// Areas of the window to read, normalized to it ({x, y, width, height} in 0-1). Empty: the whole window.
 	ocrRegions: [],
 	// A language Live Text supports (ImageAnalyzer.supportedTextRecognitionLanguages).
+	ocrEngine: 'liveText',
 	ocrLanguage: 'ja-JP',
 	ocrResolution: 'auto',
 	// Percentage of the watched area that has to change before the window is read again.
