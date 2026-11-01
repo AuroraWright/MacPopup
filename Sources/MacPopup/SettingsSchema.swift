@@ -15,6 +15,8 @@ struct SettingsOption: Hashable {
 struct SettingsField: Identifiable {
     enum Kind {
         case checkbox
+        /// An on/off setting shown as two choices side by side.
+        case toggleChoice(off: String, on: String)
         case number(min: Double? = nil, max: Double? = nil, step: Double? = nil)
         /// A fraction from 0 to 1, shown as a percentage.
         case percentSlider(step: Double)
@@ -168,6 +170,7 @@ enum SettingsSchema {
         let support = SettingsSupport.shared
         return [
             SettingsSection(title: "General", symbol: "gearshape", fields: [
+                SettingsField("ocrMode", "Mode", .toggleChoice(off: "Window Mode", on: "OCR Mode")),
                 SettingsField("displayIndex", "Display", .display),
                 SettingsField("windowLevel", "Window level", .select([
                     SettingsOption("floating", "Floating"),
@@ -238,7 +241,6 @@ enum SettingsSchema {
                 description: "Instead of the text box, read the captured window (Settings → General), or the whole screen without one, with Live Text and show popups when hovering its text. "
                     + "Needs the Screen Recording permission.",
                 fields: [
-                    SettingsField("ocrMode", "OCR mode", .checkbox),
                     SettingsField(
                         "ocrLanguage", "Language", .select(ocrLanguages, match: matchLanguage),
                         hint: "The languages Live Text can read on this version of macOS. English is always read too."

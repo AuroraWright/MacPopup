@@ -304,7 +304,11 @@ final class OCRController {
         guard !isPicking else { return }
         isPicking = true
         send(["type": "window", "visible": false])
-        WindowPicker.pick(above: overlay.panel.level) { [weak self] result in
+        // Start from the window being read, when it's on screen.
+        let selection = target.flatMap { target in
+            Self.onScreenWindows().first { $0.id == target.windowID }.map { (window: $0, regions: regions) }
+        }
+        WindowPicker.pick(above: overlay.panel.level, selection: selection) { [weak self] result in
             guard let self else { return }
             self.isPicking = false
             guard let result else {

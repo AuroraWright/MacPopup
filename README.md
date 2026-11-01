@@ -104,7 +104,7 @@ hiding the overlay, moving it to another display, reloading, and quitting.
 
 ## OCR mode
 
-Turn it on with **OCR Mode** in the menu bar. The text box disappears, and words in the
+Turn it on with **OCR Mode** in the menu bar, or Mode at Settings → General. The text box disappears, and words in the
 captured window open popups when hovered, the same way as in the box. Without a captured window, the
 whole screen the overlay is on is read instead (MacPopup's own windows aside). MacPopup needs the
 Screen Recording permission (System Settings → Privacy & Security), which macOS asks for the first time.
@@ -116,7 +116,9 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
   waits until it stops changing. Other areas (e.g. menus or choices) are taken to appear at once:
   they're read as soon as they change, which is checked like the window without a WebSocket (below),
   WebSocket or not. Without areas, the whole window is read as the dialogue. **Undo** (Delete) removes the
-  last area or goes back to choosing the window, and **Cancel** (Esc) keeps the previous choice.
+  last area or goes back to choosing the window, **Other Window** goes back to choosing it with no areas,
+  and **Cancel** (Esc) keeps the previous choice. When the captured window is on screen, the picker
+  starts from it and its areas, so they can be added to or removed.
   The window is found again by its app and title the next time MacPopup starts. **Clear** in
   Settings goes back to the whole screen. The captured window is also what Anki screenshots show.
 - Text is recognized with Live Text in the language set in Settings → OCR Mode (Japanese by

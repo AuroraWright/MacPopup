@@ -112,6 +112,14 @@ private struct FieldRow: View {
                 FieldLabel(field: field)
             }
             .toggleStyle(.switch)
+        case let .toggleChoice(off, on):
+            Picker(selection: Binding(get: { value as? Bool ?? false }, set: { model.set(field.key, $0) })) {
+                Text(off).tag(false)
+                Text(on).tag(true)
+            } label: {
+                FieldLabel(field: field)
+            }
+            .pickerStyle(.segmented)
         case let .number(min, max, step):
             LabeledContent {
                 NumberField(value: (value as? NSNumber)?.doubleValue ?? 0, min: min, max: max, decimals: step.map { $0 < 1 } ?? false) {
@@ -1349,7 +1357,11 @@ private struct HotkeyRow: View {
     /// MacPopup's on/off settings, for "Toggle option".
     private static let toggleOptions: [SettingsOption] = SettingsSchema.sections.flatMap { section in
         section.fields.compactMap { field in
-            if case .checkbox = field.kind { SettingsOption(field.key, "\(section.title): \(field.label)") } else { nil }
+            switch field.kind {
+            case .checkbox: SettingsOption(field.key, "\(section.title): \(field.label)")
+            case let .toggleChoice(_, on): SettingsOption(field.key, "\(section.title): \(on)")
+            default: nil
+            }
         }
     }
 

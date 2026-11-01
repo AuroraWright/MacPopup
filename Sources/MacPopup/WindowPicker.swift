@@ -20,9 +20,20 @@ final class WindowPicker {
     }
 
     /// Calls `completion` with the choice, or nil when cancelled.
-    static func pick(above level: NSWindow.Level, completion: @escaping (Result?) -> Void) {
+    /// - Parameter selection: The window chosen before and its areas (normalized, empty for the whole
+    ///   window), shown to start from when the window is on screen.
+    static func pick(above level: NSWindow.Level, selection: (window: OCRController.WindowInfo, regions: [CGRect])? = nil,
+                     completion: @escaping (Result?) -> Void) {
         guard current == nil else { return }
         let picker = WindowPicker(level: NSWindow.Level(rawValue: level.rawValue + 2), completion: completion)
+        if let selection {
+            let bounds = selection.window.bounds
+            picker.phase = .regions(selection.window)
+            picker.regions = selection.regions.map {
+                CGRect(x: bounds.minX + $0.minX * bounds.width, y: bounds.minY + $0.minY * bounds.height,
+                       width: $0.width * bounds.width, height: $0.height * bounds.height)
+            }
+        }
         current = picker
         picker.begin()
     }
@@ -68,6 +79,7 @@ final class WindowPicker {
             return self.keyDown(event) ? nil : event
         }
         mouseMoved(to: Self.globalPoint(NSEvent.mouseLocation))
+        redraw()
     }
 
     private func finish(_ result: Result?) {
@@ -102,11 +114,12 @@ final class WindowPicker {
     // MARK: Buttons
 
     enum Button: CaseIterable {
-        case cancel, undo, done
+        case cancel, otherWindow, undo, done
 
         var title: String {
             switch self {
             case .cancel: "Cancel  esc"
+            case .otherWindow: "Other Window"
             case .undo: "Undo  ⌫"
             case .done: "Done  ↩"
             }
@@ -117,13 +130,14 @@ final class WindowPicker {
     var buttons: [Button] {
         switch phase {
         case .window: [.cancel]
-        case .regions: [.cancel, .undo, .done]
+        case .regions: [.cancel, .otherWindow, .undo, .done]
         }
     }
 
     func press(_ button: Button) {
         switch button {
         case .cancel: finish(nil)
+        case .otherWindow: chooseWindow()
         case .undo: undo()
         case .done: done()
         }
@@ -146,11 +160,18 @@ final class WindowPicker {
     private func undo() {
         if !regions.isEmpty {
             regions.removeLast()
-        } else if case .regions = phase {
-            phase = .window
-            hovered = nil
-            mouseMoved(to: Self.globalPoint(NSEvent.mouseLocation))
+            redraw()
+        } else {
+            chooseWindow()
         }
+    }
+
+    private func chooseWindow() {
+        guard case .regions = phase else { return }
+        phase = .window
+        regions = []
+        hovered = nil
+        mouseMoved(to: Self.globalPoint(NSEvent.mouseLocation))
         redraw()
     }
 
