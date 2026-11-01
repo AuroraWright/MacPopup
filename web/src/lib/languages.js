@@ -1,5 +1,5 @@
 // Yomitan's languages (getLanguageSummaries in its js/language/languages.js), from its
-// js/language/language-descriptors.js at commit 67db60dd. Only these fields are used here, so the
+// js/language/language-descriptors.js at commit d3c54c1. Only these fields are used here, so the
 // descriptors with every language's text processors aren't bundled.
 export const languageSummaries = [
 	{ iso: 'xxx', iso639_3: 'xxx', name: 'Any / Unknown', exampleText: '???' },
@@ -42,6 +42,7 @@ export const languageSummaries = [
 	{ iso: 'kw', iso639_3: 'cor', name: 'Cornish', exampleText: 'lenna' },
 	{ iso: 'mn', iso639_3: 'mon', name: 'Mongolian', exampleText: 'унших' },
 	{ iso: 'mt', iso639_3: 'mlt', name: 'Maltese', exampleText: 'kiteb' },
+	{ iso: 'hy', iso639_3: 'hye', name: 'Armenian', exampleText: 'կարդալ' },
 	{ iso: 'nl', iso639_3: 'nld', name: 'Dutch', exampleText: 'lezen' },
 	{ iso: 'no', iso639_3: 'nor', name: 'Norwegian', exampleText: 'lese' },
 	{ iso: 'pl', iso639_3: 'pol', name: 'Polish', exampleText: 'czytać' },
