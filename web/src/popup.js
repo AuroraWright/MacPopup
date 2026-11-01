@@ -128,6 +128,59 @@ async function drawMediaToCanvas(item, canvas, color = null) {
 	}
 }
 
+/**
+ * Yomitan's ElementOverflowController checks whether each definition is long enough to collapse as
+ * it's added, reading its height right after changing its classes, so WebKit lays the whole popup out
+ * again for every definition (hundreds of milliseconds for a long popup). This checks the definitions
+ * added since the last `flush` together, with one layout. Each check only depends on the definition's
+ * own size, so the result is the same.
+ */
+class BatchedOverflowController extends ElementOverflowController {
+	constructor(display) {
+		super(display);
+		this.pending = [];
+	}
+
+	_updateElement(element) {
+		this.pending.push(element);
+	}
+
+	_update() {
+		super._update();
+		this.flush();
+	}
+
+	clearElements() {
+		super.clearElements();
+		this.pending = [];
+	}
+
+	flush() {
+		const elements = this.pending;
+		this.pending = [];
+		for (const element of elements) element.classList.add('collapse-test');
+		const collapsible = elements.map((element) => element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth);
+		elements.forEach((element, i) => {
+			element.classList.toggle('collapsible', collapsible[i]);
+			element.classList.remove('collapse-test');
+		});
+	}
+}
+
+/**
+ * Resolves once what was changed so far has been painted (a timer alone can run before the next
+ * frame), or after 100 ms if no frame comes.
+ */
+function afterNextPaint() {
+	return new Promise((resolve) => {
+		const timer = setTimeout(resolve, 100);
+		requestAnimationFrame(() => setTimeout(() => {
+			clearTimeout(timer);
+			resolve();
+		}, 0));
+	});
+}
+
 // Custom popup CSS followed by each dictionary's styles, scoped to its entries like Yomitan's
 // Display._getCustomCss.
 function getCustomCss(settings) {
@@ -205,7 +258,7 @@ class Popup {
 
 		this.contentManager = new PopupContentManager(this);
 		this.generator = new DisplayGenerator(this.contentManager, null);
-		this.overflowController = new ElementOverflowController(this);
+		this.overflowController = new BatchedOverflowController(this);
 		this.container = document.querySelector('#dictionary-entries');
 		this.footer = document.querySelector('#content-footer');
 		this.progressIndicator = document.querySelector('#progress-indicator');
@@ -356,7 +409,20 @@ class Popup {
 			dictionaries: [...dictionaries].map((name) => ({ name, definitionsCollapsible: collapsible.get(name) ?? settings.definitionsCollapsible })),
 		});
 
+		this.setCurrentEntry(0);
+		document.querySelector('#content-scroll').scrollTop = 0;
+		// As in Yomitan's Display, the first entry is shown without waiting for the rest. The rest follow in
+		// parts of about 50 ms each (Yomitan adds each on its own, but a layout and paint for each one makes
+		// long popups take twice as long to finish here).
+		let sliceStart = 0;
 		for (let i = 0; i < dictionaryEntries.length; ++i) {
+			if (i === 1 || (i > 1 && performance.now() - sliceStart > 50)) {
+				this.overflowController.flush();
+				void this.contentManager.executeMediaRequests();
+				await afterNextPaint();
+				if (token !== this.renderToken) return;
+				sliceStart = performance.now();
+			}
 			const dictionaryEntry = dictionaryEntries[i];
 			const entry = dictionaryEntry.type === 'term'
 				? this.generator.createTermEntry(dictionaryEntry, [])
@@ -366,11 +432,11 @@ class Popup {
 			this.addEntryEventListeners(entry);
 			this.container.appendChild(entry);
 			this.entryNodes.push(entry);
+			if (i === this.index) entry.classList.add('entry-current');
 			this.overflowController.addElements(entry);
 		}
+		this.overflowController.flush();
 		void this.contentManager.executeMediaRequests();
-		this.setCurrentEntry(0);
-		document.querySelector('#content-scroll').scrollTop = 0;
 
 		if (settings.audioEnabled !== false && settings.audioAutoPlay && content.type === 'term' && dictionaryEntries.length > 0) {
 			void this.playAudio(0, 0);
