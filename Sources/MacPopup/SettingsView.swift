@@ -9,8 +9,8 @@ struct SettingsActions {
     var importYomitan: () -> Void
     var importTexthooker: () -> Void
     var resetAll: () -> Void
-    var loadScreenAIModels: () -> Void
-    var removeScreenAIModels: () -> Void
+    var loadModels: (ConvertedModelsKind) -> Void
+    var removeModels: (ConvertedModelsKind) -> Void
 }
 
 struct SettingsView: View {
@@ -182,9 +182,9 @@ private struct FieldRow: View {
                     PermissionControl(permission: permission)
                 }
             }
-        case .screenAIModels:
+        case let .convertedModels(kind):
             LabeledContent {
-                ScreenAIModelsControl(load: actions.loadScreenAIModels, remove: actions.removeScreenAIModels)
+                ConvertedModelsControl(kind: kind, load: actions.loadModels, remove: actions.removeModels)
             } label: {
                 FieldLabel(field: field)
             }
@@ -408,11 +408,19 @@ private struct PermissionControl: View {
     }
 }
 
-/// Whether Screen AI's models are loaded (and when they were converted), with buttons to load and remove them.
-private struct ScreenAIModelsControl: View {
-    let load: () -> Void
-    let remove: () -> Void
-    @ObservedObject private var models = ScreenAIModels.shared
+/// Whether an engine's converted models are loaded (and when they were converted), with buttons to load and remove
+/// them.
+private struct ConvertedModelsControl: View {
+    let load: (ConvertedModelsKind) -> Void
+    let remove: (ConvertedModelsKind) -> Void
+    @ObservedObject private var models: ConvertedModelsStatus
+
+    init(kind: ConvertedModelsKind, load: @escaping (ConvertedModelsKind) -> Void,
+         remove: @escaping (ConvertedModelsKind) -> Void) {
+        self.load = load
+        self.remove = remove
+        models = ConvertedModelsStatus.shared(kind)
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -425,9 +433,9 @@ private struct ScreenAIModelsControl: View {
             } else {
                 Label("Not loaded", systemImage: "exclamationmark.circle.fill").foregroundStyle(.orange)
             }
-            Button("Load…", action: load).disabled(models.busy)
+            Button("Load…") { load(models.kind) }.disabled(models.busy)
             if models.converted != nil {
-                Button("Remove", action: remove).disabled(models.busy)
+                Button("Remove") { remove(models.kind) }.disabled(models.busy)
             }
         }
     }

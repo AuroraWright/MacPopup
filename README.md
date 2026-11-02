@@ -7,8 +7,8 @@ Anki card creation. Lookups come from your installed Yomitan through the
 [Yomitan API](https://github.com/yomidevs/yomitan-api).
 
 In OCR mode, MacPopup instead reads another app's window (a game, say) with Apple's Live
-Text, [meikiocr](https://github.com/rtr46/meikiocr) or Chrome's Screen AI and lets you hover the window's
-own text, with no text box at all.
+Text, [meikiocr](https://github.com/rtr46/meikiocr), Chrome's Screen AI or Windows' OneOCR and lets you
+hover the window's own text, with no text box at all.
 
 ## Requirements
 
@@ -122,7 +122,7 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
   starts from it and its areas, so they can be added to or removed.
   The window is found again by its app and title the next time MacPopup starts. **Clear** in
   Settings goes back to the whole screen. The captured window is also what Anki screenshots show.
-- Text is recognized, horizontal or vertical, with Live Text, meikiocr or Screen AI (**Text
+- Text is recognized, horizontal or vertical, with Live Text, meikiocr, Screen AI or OneOCR (**Text
   recognition** in Settings → OCR Mode):
   - Live Text (the default) reads the language set in Settings → OCR Mode (Japanese by default; the
     menu lists every language Live Text supports on your version of macOS).
@@ -136,6 +136,13 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
     run `scripts/convert-screenai.py` (its first lines say what it needs), then choose the zip it
     makes with **Screen AI models → Load…** in Settings → OCR Mode. They're kept in
     `~/Library/Application Support/MacPopup/ScreenAI`; **Remove** deletes them.
+  - OneOCR is the OCR of the Windows Snipping Tool, ported to Swift (`Sources/OneOCR`) so that it gives
+    the same results: its detector runs exactly on the GPU with Core ML, its recognizers' networks on
+    the CPU. It reads most scripts and finds the language by itself. Microsoft's models can't be
+    distributed with MacPopup, and this repository doesn't decrypt them: `scripts/convert-oneocr.py`
+    converts the decrypted models (`config.json` and the `Model_Edge` folder) on your Mac into a zip,
+    which **OneOCR models → Load…** in Settings → OCR Mode reads. They're kept in
+    `~/Library/Application Support/MacPopup/OneOCR`.
 
   The window is read right away and again until the text stops changing (for the settle time),
   instead of first waiting for the picture to be still, so a line usually shows in a fraction of a

@@ -64,8 +64,8 @@ struct SettingsField: Identifiable {
         case ankiField
         /// Whether a macOS permission is granted, with buttons to ask for it (not a setting).
         case permission(Permission)
-        /// Whether Screen AI's models are loaded, with buttons to load and remove them (not a setting).
-        case screenAIModels
+        /// Whether an engine's converted models are loaded, with buttons to load and remove them (not a setting).
+        case convertedModels(ConvertedModelsKind)
     }
 
     enum ConnectionTest {
@@ -245,14 +245,20 @@ enum SettingsSchema {
                 fields: [
                     SettingsField(
                         "ocrEngine", "Text recognition",
-                        .select([SettingsOption("liveText", "Live Text"), SettingsOption("meikiocr", "meikiocr"), SettingsOption("screenai", "Screen AI")]),
+                        .select([SettingsOption("liveText", "Live Text"), SettingsOption("meikiocr", "meikiocr"), SettingsOption("screenai", "Screen AI"),
+                                 SettingsOption("oneocr", "OneOCR")]),
                         hint: "Live Text is Apple’s, as in Preview and Photos. meikiocr (by rtr46) is made for Japanese game text and reads only Japanese; it runs with Core ML. "
-                            + "Screen AI is Chrome’s OCR, run with Core ML; it reads most scripts and finds the language by itself, and needs its models loaded (below)."
+                            + "Screen AI is Chrome’s OCR and OneOCR is Windows’ (as in the Snipping Tool), both run with Core ML; they read most scripts, find the language by themselves, and need their models loaded (below)."
                     ),
                     SettingsField(
-                        "screenAIModels", "Screen AI models", .screenAIModels,
+                        "screenAIModels", "Screen AI models", .convertedModels(.screenAI),
                         hint: "Google’s models can’t come with MacPopup: scripts/convert-screenai.py converts the ones Chrome downloads (its screen_ai folder) on this Mac into a zip, which Load reads.",
                         showIf: { $0["ocrEngine"] as? String == "screenai" }
+                    ),
+                    SettingsField(
+                        "oneOCRModels", "OneOCR models", .convertedModels(.oneOCR),
+                        hint: "Microsoft’s models can’t come with MacPopup: scripts/convert-oneocr.py converts those of the Snipping Tool (oneocr.onemodel) on this Mac into a zip, which Load reads.",
+                        showIf: { $0["ocrEngine"] as? String == "oneocr" }
                     ),
                     SettingsField(
                         "ocrLanguage", "Language", .select(ocrLanguages, match: matchLanguage),

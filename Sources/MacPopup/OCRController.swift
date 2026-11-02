@@ -864,6 +864,7 @@ final class OCRController {
         case liveText
         case meikiocr
         case screenAI = "screenai"
+        case oneOCR = "oneocr"
     }
 
     /// The engine when OCR mode started or it last changed.
@@ -883,11 +884,13 @@ final class OCRController {
             try await MeikiOCR.shared.recognize(image)
         case .screenAI:
             try await ScreenAIOCR.shared.recognize(image)
+        case .oneOCR:
+            try await OneOCROCR.shared.recognize(image)
         }
     }
 
-    /// The first reading takes longer (Live Text's by about a second, meikiocr's and Screen AI's load their
-    /// models), so the engine is prepared before the window needs reading.
+    /// The first reading takes longer (Live Text's by about a second, the others load their models), so the engine is
+    /// prepared before the window needs reading.
     private func warmUp() async {
         let started = Date()
         func prepare(_ body: () async throws -> Void) async {
@@ -904,6 +907,8 @@ final class OCRController {
             await prepare(MeikiOCR.shared.prepare)
         case .screenAI:
             await prepare(ScreenAIOCR.shared.prepare)
+        case .oneOCR:
+            await prepare(OneOCROCR.shared.prepare)
         }
         log("\(engine.rawValue) ready in \(String(format: "%.2f", Date().timeIntervalSince(started)))s")
     }

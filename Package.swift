@@ -21,9 +21,25 @@ let package = Package(
             dependencies: ["ScreenAI"],
             path: "Sources/ScreenAICLI"
         ),
+        // oneocr (the Windows Snipping Tool's OCR), ported to Swift; models converted by scripts/convert-oneocr.py.
+        .target(
+            name: "OneOCRKernels",
+            path: "Sources/OneOCRKernels"
+        ),
+        .target(
+            name: "OneOCR",
+            dependencies: ["OneOCRKernels"],
+            path: "Sources/OneOCR"
+        ),
+        // Runs oneocr on image files (for checking the port against the Python reimplementation).
+        .executableTarget(
+            name: "oneocr-cli",
+            dependencies: ["OneOCR"],
+            path: "Sources/OneOCRCLI"
+        ),
         .executableTarget(
             name: "MacPopup",
-            dependencies: ["LiveText", "ScreenAI"],
+            dependencies: ["LiveText", "ScreenAI", "OneOCR"],
             path: "Sources/MacPopup"
         ),
     ]

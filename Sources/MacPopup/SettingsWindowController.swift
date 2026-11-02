@@ -26,8 +26,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 importYomitan: { [weak self] in self?.importYomitan() },
                 importTexthooker: { [weak self] in self?.importTexthooker() },
                 resetAll: { [weak self] in self?.resetAll() },
-                loadScreenAIModels: { [weak self] in self?.loadScreenAIModels() },
-                removeScreenAIModels: { [weak self] in self?.removeScreenAIModels() }
+                loadModels: { [weak self] in self?.loadModels($0) },
+                removeModels: { [weak self] in self?.removeModels($0) }
             )
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 820, height: 640),
@@ -98,18 +98,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func loadScreenAIModels() {
+    private func loadModels(_ kind: ConvertedModelsKind) {
         let panel = NSOpenPanel()
-        panel.message = "Choose the zip made by scripts/convert-screenai.py."
+        panel.message = "Choose the zip made by \(kind.script)."
         panel.allowedContentTypes = [.zip]
         panel.canChooseDirectories = false
         panel.level = NSWindow.Level(rawValue: (window?.level.rawValue ?? 0) + 1)
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let models = ScreenAIModels.shared
+        let models = ConvertedModelsStatus.shared(kind)
         models.busy = true
         Task {
             do {
-                try await ScreenAIOCR.shared.installModels(from: url)
+                try await kind.store.installModels(from: url)
             } catch {
                 inform("Couldn’t load the models", detail: error.localizedDescription, style: .warning)
             }
@@ -118,19 +118,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func removeScreenAIModels() {
+    private func removeModels(_ kind: ConvertedModelsKind) {
         let alert = NSAlert()
-        alert.messageText = "Remove Screen AI’s models?"
-        alert.informativeText = "Screen AI can’t read text until they’re loaded again."
+        alert.messageText = "Remove \(kind.name)’s models?"
+        alert.informativeText = "\(kind.name) can’t read text until they’re loaded again."
         alert.addButton(withTitle: "Remove")
         alert.addButton(withTitle: "Cancel")
         alert.buttons[0].hasDestructiveAction = true
         guard runModal(alert) == .alertFirstButtonReturn else { return }
-        let models = ScreenAIModels.shared
+        let models = ConvertedModelsStatus.shared(kind)
         models.busy = true
         Task {
             do {
-                try await ScreenAIOCR.shared.removeModels()
+                try await kind.store.removeModels()
             } catch {
                 inform("Couldn’t remove the models", detail: error.localizedDescription, style: .warning)
             }
