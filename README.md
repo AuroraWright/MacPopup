@@ -115,8 +115,7 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
   read, then optionally drag over the parts that show text and click **Done** (or press Return).
   The first area is the dialogue (the game's text box): only it is matched with WebSocket lines and
   waits until it stops changing. Other areas (e.g. menus or choices) are taken to appear at once:
-  they're read as soon as they change, which is checked like the window without a WebSocket (below),
-  WebSocket or not. Without areas, the whole window is read as the dialogue. **Undo** (Delete) removes the
+  they're read as soon as they change. Without areas, the whole window is read as the dialogue. **Undo** (Delete) removes the
   last area or goes back to choosing the window, **Other Window** goes back to choosing it with no areas,
   and **Cancel** (Esc) keeps the previous choice. When the captured window is on screen, the picker
   starts from it and its areas, so they can be added to or removed.
@@ -151,29 +150,36 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
   Only the chosen areas are captured, and a window drawn at 1x
   (e.g. a VM or a game that isn't Retina aware) is read at 1x, which is faster ("Read at" in
   Settings overrides this).
-- Without a WebSocket, MacPopup watches the window (or the chosen areas) and reads it again when
+- MacPopup watches the window (or the chosen areas) and reads it again when
   more than the change threshold of it changes. Small changes like a blinking cursor stay under the
   threshold, and so do spots that changed while the text stayed the same (e.g. a blinking "next"
   icon). Choosing areas helps with animated backgrounds. To save work,
   with "Watch after mouse use" (on by default) this only happens for a while (2 seconds) after the
-  mouse moves or clicks (e.g. a click that advances the text), and the window is checked right away
-  when it starts being used. Words are looked up when the cursor moves (or a scan key is
+  mouse moves or clicks (e.g. a click that advances the text), and the dialogue also for a while
+  after each reading of it (e.g. a line drawn in bursts), mouse used or not. The window is checked
+  right away when the mouse starts being used. Words are looked up when the cursor moves (or a scan key is
   pressed), not when new text appears under a resting cursor.
 - The window is only read while it's on screen in the current space; it's read again when it comes
-  back, and lines that arrive meanwhile are read then. Coming back, that reading is matched against the
-  last WebSocket line like a new one, so it's read again if the window is still being redrawn.
-- With a WebSocket connected, each new line is the cue to read the window instead, and the window
-  is only watched for changes for a moment after each reading. Hooks usually send the line as the
+  back, and lines that arrive meanwhile are read then.
+- With a WebSocket connected, each new line is also the cue to read the window. The window is still
+  watched as above,
+  since the dialogue can go away (e.g. a menu opened) or show the line in parts, a click at a time.
+  Hooks usually send the line as the
   game starts drawing it, so MacPopup waits until the window stops changing before reading, and
-  hides the previous text meanwhile. Recognized text that matches the line is
-  corrected with it (the WebSocket text wins), and if it doesn't match yet, the window is read
-  again. Only letters and digits decide whether it matches, since punctuation is often misread, and
-  punctuation that looks alike is lined up (e.g. "……" read as "・・・・・"). The first reading
-  after switching to OCR mode is matched against the last line received in window mode the same
-  way. Turn this off with **Use WebSocket lines**.
+  hides the previous text meanwhile (until the window changes, or **Wait for a new line to appear**
+  passes without a change). Recognized text that matches the line (**Match lines from**, 60% of its
+  letters and digits) is corrected with it (the WebSocket text wins), and a reading that matches is
+  taken as soon as it does. Text that shows only a part of the line (e.g. a page of a long line) is
+  corrected with that part. Only letters and digits decide whether it matches, since punctuation is
+  often misread, and punctuation that looks alike is lined up (e.g. "……" read as "・・・・・").
+  Readings after switching to OCR mode are matched against the last line received in window mode
+  the same way. Turn this off with **Use WebSocket lines**; while no WebSocket is connected, it works as if it
+  were off, and readings aren't matched against the last line.
 - Words are only looked up while no other window covers the chosen one at the cursor.
 - **Outline recognized text** in Settings is for debugging: it shows what was recognized, red for
   plain OCR text, green for lines corrected with the WebSocket line.
+
+How the readings and these settings work together is detailed in [docs/ocr-mode.md](docs/ocr-mode.md).
 
 Live Text is read through a private VisionKit interface (the same one owocr uses), so a future
 macOS version could change it.

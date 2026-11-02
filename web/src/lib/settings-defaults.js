@@ -101,8 +101,12 @@ export const defaultSettings = {
 	ocrMouseWatchTime: 2000,
 	// How long the recognized text has to stay the same before it's taken (text is often drawn gradually).
 	ocrSettleTime: 400,
-	ocrMaxWait: 4000,
+	ocrMaxWait: 8000,
 	ocrUseWebsocket: true,
+	// With WebSocket lines: the share of a line's letters a reading must match to show it (percent), and
+	// how long the window is given to start showing a new line.
+	ocrMatchThreshold: 60,
+	ocrNewLineWait: 1500,
 	ocrShowBoxes: false,
 
 	// Scanning

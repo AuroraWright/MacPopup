@@ -945,14 +945,11 @@ const ocr = {
 	window: null,
 	// Another window is in front of the target under the cursor.
 	covered: false,
-	// The latest WebSocket line, matched against what's read. Lines usually arrive as the game
-	// starts drawing them, so a reading is retried if the line isn't fully on screen yet. It's kept
-	// outside OCR mode too, for the first reading after switching to it.
+	// The latest WebSocket line, matched against what's read. It's kept outside OCR mode too, for the
+	// readings after switching to it.
 	line: null,
-	// Whether OCR mode was on at the last settings change.
-	enabled: false,
+	// A new line arrived and the dialogue wasn't read since.
 	awaitingLine: false,
-	retries: 0,
 	// The window is being read again: the text may be outdated, so it isn't scanned until the result.
 	stale: false,
 	// Whether the host was told that WebSocket lines are the cue to read the window.
@@ -992,7 +989,6 @@ function clearOcrText() {
 }
 
 function showOcrResult(message) {
-	const settings = getSettings();
 	const decoded = decodeLines(message.lines);
 	// Only the first area is the dialogue: the WebSocket line is matched against it. A reading of
 	// only the other areas (`dialogue` false) isn't the one a new line waits for, and leaves out the
@@ -1000,27 +996,20 @@ function showOcrResult(message) {
 	const readsDialogue = message.dialogue ?? true;
 	let dialogue = !readsDialogue && ocr.awaitingLine ? [] : decoded.filter((line) => line.area === 0);
 	const others = decoded.filter((line) => line.area !== 0);
-	const awaitsMatch = readsDialogue && ocr.awaitingLine && ocr.line !== null && settings.ocrUseWebsocket;
+	// WebSocket lines count only while one is connected: otherwise the last line is no longer news, and the
+	// readings are taken as they are, as with WebSocket lines off.
+	const usesLine = ocr.line !== null && !!ocr.websocketConnected;
+	const minQuality = getSettings().ocrMatchThreshold / 100;
 	// A reading while the text may still change (see settleAndRecognize in OCRController.swift) is only
-	// taken when it matches the WebSocket line completely.
+	// taken when it matches the WebSocket line completely, new or not (e.g. the dialogue shown again
+	// after a menu closed).
 	if (message.provisional) {
-		if (!awaitsMatch) return;
-		const { quality, missingEnd } = correctWithText(dialogue, ocr.line);
-		if (quality < 0.6 || missingEnd > 0) return;
+		if (!readsDialogue || !usesLine) return;
+		const { quality, missingEnd } = correctWithText(dialogue, ocr.line, minQuality);
+		if (quality < minQuality || missingEnd > 0) return;
 		nativeCall('ocr', { action: 'accept' }).catch(() => {});
 	}
-	if (ocr.line !== null && settings.ocrUseWebsocket) {
-		const { lines: corrected, quality, missingEnd } = correctWithText(dialogue, ocr.line);
-		// A reading of text that stopped changing isn't still being drawn.
-		if (awaitsMatch && !message.settled && (quality < 0.6 || missingEnd > 1) && ocr.retries < 2) {
-			// Probably still being drawn (it doesn't match, or its end isn't there yet): read again
-			// once the picture settles.
-			ocr.retries++;
-			nativeCall('ocr', { action: 'retry' }).catch(() => {});
-			return;
-		}
-		dialogue = corrected;
-	}
+	if (usesLine) dialogue = correctWithText(dialogue, ocr.line, minQuality).lines;
 	if (readsDialogue) {
 		ocr.awaitingLine = false;
 		ocr.stale = false;
@@ -1045,15 +1034,6 @@ window.__macpopupOcr = (message) => {
 			break;
 		case 'covered':
 			ocr.covered = message.value;
-			break;
-		case 'returned':
-			// Back from another space: the last line is most likely still shown, but the first reading
-			// may catch the window being drawn again. Check it against the line as for a new one, which
-			// reads again if it doesn't match yet.
-			if (ocr.line !== null) {
-				ocr.awaitingLine = true;
-				ocr.retries = 0;
-			}
 			break;
 		case 'changing':
 			// Don't offer the old text while the window changes. It's replaced once the window is read,
@@ -1095,7 +1075,6 @@ function ocrWebsocketLine(rawText) {
 	ocr.line = text;
 	if (!settings.ocrMode || !settings.ocrUseWebsocket) return;
 	ocr.awaitingLine = true;
-	ocr.retries = 0;
 	clearOcrText();
 	nativeCall('ocr', { action: 'cue' }).catch(() => {});
 }
@@ -1129,14 +1108,6 @@ function applySettings(settings) {
 	document.documentElement.lang = lang;
 	$('#ocr-text').lang = lang;
 	box.hidden = !!settings.ocrMode;
-	// Switched to OCR mode: the last WebSocket line is likely still on screen, so the first reading is
-	// checked against it as for a new line (read again if it doesn't match yet; left as read if it
-	// never does).
-	if (settings.ocrMode && !ocr.enabled && ocr.line !== null) {
-		ocr.awaitingLine = true;
-		ocr.retries = 0;
-	}
-	ocr.enabled = !!settings.ocrMode;
 	$('#ocr-layer').classList.toggle('show-boxes', !!settings.ocrShowBoxes);
 	if (!settings.ocrMode) setOcrWindow({ visible: false });
 	box.style.setProperty('--box-opacity', `${settings.boxOpacity}`);

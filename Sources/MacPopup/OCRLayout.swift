@@ -83,10 +83,47 @@ enum OCRLayout {
 
     /// Returns the characters moved to the line's cells, or nil if the line doesn't look like evenly
     /// spaced full-width text (then Live Text's boxes are kept).
+    ///
+    /// Whitespace takes no cell of its own: OCR puts spaces between words where the text has none (OneOCR
+    /// around an ellipsis, e.g. "「 …… 厄介"), and a blank cell is skipped anyway. It goes in the gap
+    /// between the cells of the characters around it, which is empty where they touch.
     static func snapToGrid(_ chars: [Char], line: CGRect, vertical: Bool, image: GrayImage) -> [Char]? {
-        let visible = chars.filter { !$0.text.allSatisfy(\.isWhitespace) }
-        guard visible.count >= 3,
-              Double(visible.filter { isFullWidth($0.text) }.count) >= Double(visible.count) * 0.7 else { return nil }
+        let isBlank = { (char: Char) in char.text.allSatisfy(\.isWhitespace) }
+        guard let snapped = snapVisible(chars.filter { !isBlank($0) }, line: line, vertical: vertical, image: image) else { return nil }
+        var result: [Char] = []
+        var next = 0
+        var index = chars.startIndex
+        while index < chars.endIndex {
+            guard isBlank(chars[index]) else {
+                result.append(snapped[next])
+                next += 1
+                index += 1
+                continue
+            }
+            // A run of whitespace shares the gap evenly.
+            let run = chars[index...].prefix(while: isBlank)
+            let before = next > 0 ? snapped[next - 1].box : nil
+            let after = next < snapped.count ? snapped[next].box : nil
+            let neighbor = (before ?? after)!
+            let start = before.map { vertical ? $0.maxY : $0.maxX } ?? (vertical ? neighbor.minY : neighbor.minX)
+            let end = max(start, after.map { vertical ? $0.minY : $0.minX } ?? start)
+            let size = (end - start) / CGFloat(run.count)
+            for (offset, char) in run.enumerated() {
+                let a = start + CGFloat(offset) * size
+                let box = vertical
+                    ? CGRect(x: neighbor.minX, y: a, width: neighbor.width, height: size)
+                    : CGRect(x: a, y: neighbor.minY, width: size, height: neighbor.height)
+                result.append(Char(text: char.text, box: box))
+            }
+            index += run.count
+        }
+        return result
+    }
+
+    /// snapToGrid for characters without whitespace.
+    private static func snapVisible(_ chars: [Char], line: CGRect, vertical: Bool, image: GrayImage) -> [Char]? {
+        guard chars.count >= 3,
+              Double(chars.filter { isFullWidth($0.text) }.count) >= Double(chars.count) * 0.7 else { return nil }
 
         // Along the line (a) and across it (c), in pixels.
         let a0 = Int(vertical ? line.minY : line.minX), a1 = Int(vertical ? line.maxY : line.maxX)
@@ -180,7 +217,7 @@ enum OCRLayout {
         let half = best.pitch / 2
         let origin = Double(a0) + best.phase - best.pitch
         let units = Int(((length - best.phase) / best.pitch + 2).rounded(.up)) * 2
-        let widths = chars.map { isFullWidth($0.text) || $0.text.allSatisfy(\.isWhitespace) ? 2 : 1 }
+        let widths = chars.map { isFullWidth($0.text) ? 2 : 1 }
         let starts = chars.map { vertical ? Double($0.box.minY) : Double($0.box.minX) }
         let ends = chars.map { vertical ? Double($0.box.maxY) : Double($0.box.maxX) }
         let unitInk = (0..<units).map { unit -> Bool in
@@ -235,12 +272,11 @@ enum OCRLayout {
                 let first = items[i].lowerBound
                 // Full-width characters take whole cells, half-width ones half.
                 let step = widths[first]
-                let isBlank = chars[first].text.allSatisfy(\.isWhitespace)
                 for width in stride(from: step, through: step * items[i].count, by: step) {
                     for start in stride(from: 0, through: units - width, by: 1) {
                         let end = start + width
                         var place = abs(starts[first] - offset - (origin + Double(start) * half))
-                        if !isBlank, !(start..<(start + width)).contains(where: { unitInk[$0] }) {
+                        if !(start..<(start + width)).contains(where: { unitInk[$0] }) {
                             place += emptyCost
                         }
                         // How many cells a run takes is otherwise a tie when its cells look alike (e.g.

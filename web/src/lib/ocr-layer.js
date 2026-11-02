@@ -57,10 +57,15 @@ const isLookalike = (key) => LOOKALIKES.some(([, value]) => value === key);
  * punctuation) score 2, substitutions -1, and characters missing on either side -1 (whitespace in
  * `text` is free).
  *
+ * When the whole of `text` doesn't match, a part of it still can (see correctPart): games often show a
+ * long line a page at a time.
+ *
  * @param {OcrLine[]} lines
  * @param {string} text
- * @returns {{lines: OcrLine[], quality: number}} `quality` is the share of the letters and digits of
- *   `text` that matched exactly; below `minQuality` the lines are returned unchanged.
+ * @returns {{lines: OcrLine[], quality: number, missingEnd: number, partial?: boolean}} `quality` is the
+ *   share of the letters and digits of `text` that matched exactly, and `missingEnd` the characters at
+ *   its end that weren't found; `partial` is set when only a part of `text` matched. Without a match,
+ *   the lines are returned unchanged.
  */
 export function correctWithText(lines, text, minQuality = 0.6) {
 	// The text's units: characters, or runs of lookalike punctuation.
@@ -207,7 +212,10 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 	} else {
 		quality = exactOps.length / Math.max(1, significant - leadingMissing);
 	}
-	if (quality < minQuality) return { lines, quality, missingEnd };
+	if (quality < minQuality) {
+		const part = correctPart(lines, ocr, target, targetKeys, operations, minQuality);
+		return part ? { lines: part, quality, missingEnd, partial: true } : { lines, quality, missingEnd };
+	}
 
 	const trimmed = operations.filter((op, index) => {
 		if (op.type !== 'insert') return true;
@@ -216,6 +224,33 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 		return true;
 	});
 	return { lines: applyOperations(lines, ocr, target, trimmed), quality, missingEnd };
+}
+
+// The fewest letters and digits a part of the text must match exactly, so a word that the text shares
+// with other text (e.g. a menu item) doesn't count as the part.
+const MIN_PART_LETTERS = 5;
+
+/**
+ * Corrects the lines with the part of the text they show, e.g. one page of a long line, or a line that
+ * is still being drawn: what lies between the first and the last character that match exactly, if
+ * enough of both the text and the recognized characters in that span matched, and the lines it's in
+ * hold little else (another line that shares a phrase with the text goes on around it). Nothing outside
+ * the span changes. Null when no part matches.
+ */
+function correctPart(lines, ocr, target, targetKeys, operations, minQuality) {
+	const isExact = (op) => op.type === 'match' && targetKeys[op.target] === ocr[op.ocr].key && LETTER.test(target[op.target]);
+	const first = operations.findIndex(isExact);
+	if (first < 0) return null;
+	const span = operations.slice(first, operations.findLastIndex(isExact) + 1);
+	const exact = span.filter(isExact).length;
+	const targetLetters = target.slice(span[0].target, span.at(-1).target + 1).filter((unit) => LETTER.test(unit)).length;
+	const ocrLetters = ocr.slice(span[0].ocr, span.at(-1).ocr + 1).filter((entry) => LETTER.test(entry.key)).length;
+	if (exact < MIN_PART_LETTERS || exact / Math.max(targetLetters, ocrLetters) < minQuality) return null;
+	const [start, end] = [span[0].ocr, span.at(-1).ocr];
+	const [firstLine, lastLine] = [ocr[start].lineIndex, ocr[end].lineIndex];
+	const around = ocr.filter((entry, index) => (index < start || index > end) && entry.lineIndex >= firstLine && entry.lineIndex <= lastLine);
+	if (around.filter((entry) => LETTER.test(entry.key)).length > 2) return null;
+	return applyOperations(lines, ocr, target, span);
 }
 
 function applyOperations(lines, ocr, target, operations) {

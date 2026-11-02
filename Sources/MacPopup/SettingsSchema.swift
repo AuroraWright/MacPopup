@@ -262,7 +262,8 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "ocrLanguage", "Language", .select(ocrLanguages, match: matchLanguage),
-                        hint: "For Live Text: the languages it can read on this version of macOS. English is always read too."
+                        hint: "For Live Text: the languages it can read on this version of macOS. English is always read too.",
+                        showIf: { $0["ocrEngine"] as? String ?? "liveText" == "liveText" }
                     ),
                     SettingsField(
                         "ocrResolution", "Read at",
@@ -271,23 +272,33 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "ocrUseWebsocket", "Use WebSocket lines", .checkbox,
-                        hint: "New lines from the WebSocket trigger reading the window, and recognized text that matches the line is replaced by it."
+                        hint: "While a WebSocket is connected, its new lines also trigger reading the window, and recognized text that matches the line (or a part of it, e.g. a page of a long line) is replaced by it. Without a connection, the window is read as with this off."
+                    ),
+                    SettingsField(
+                        "ocrMatchThreshold", "Match lines from (%)", .number(min: 1, max: 100),
+                        hint: "The share of a WebSocket line’s letters and digits that must be recognized exactly for a reading to count as showing it (or a part of it), and be corrected with it. Lower corrects text that’s misread more, but may take other text for the line.",
+                        showIf: { $0["ocrUseWebsocket"] as? Bool ?? true }
+                    ),
+                    SettingsField(
+                        "ocrNewLineWait", "Wait for a new line to appear (in milliseconds)", .number(min: 0),
+                        hint: "After a new WebSocket line, the text on screen is the previous line’s until the window changes: it only counts as settled after a change, or after this long without one (the line may already be on screen). Raise it if a game starts drawing lines late and the previous line is shown again; lower it if lines already on screen show late.",
+                        showIf: { $0["ocrUseWebsocket"] as? Bool ?? true }
                     ),
                     SettingsField(
                         "ocrChangeThreshold", "Change threshold (%)", .number(min: 0, step: 0.1),
-                        hint: "The window is read again when this share of it (or of one of the chosen areas) changes (for the dialogue area while a WebSocket is connected, only briefly after each line)."
+                        hint: "The window is read again when this share of it (or of one of the chosen areas) changes."
                     ),
                     SettingsField(
                         "ocrPollInterval", "Check for changes every (in milliseconds)", .number(min: 50),
-                        hint: "How often the window is compared with the last reading to notice new text: all the time, or with “Watch after mouse use” only for a while after the mouse is used. Shorter notices changes sooner but uses more CPU. While a WebSocket is connected, its lines are the cue instead, and the window is only watched briefly after each one."
+                        hint: "How often the window is compared with the last reading to notice new text: all the time, or with “Watch after mouse use” only for a while after the mouse is used. Shorter notices changes sooner but uses more CPU. The dialogue is also watched for a while after each reading."
                     ),
                     SettingsField(
                         "ocrMouseWatch", "Watch after mouse use", .checkbox,
-                        hint: "Without a WebSocket (and for areas after the first, the dialogue, either way): only check for changes for a while after the mouse moves or clicks (e.g. to advance the text), instead of all the time, to save work while you read. Text that starts appearing in that time is read once it’s finished, however long that takes."
+                        hint: "Only check for changes for a while after the mouse moves or clicks (e.g. to advance the text), instead of all the time, to save work while you read. Text that starts appearing in that time is read once it’s finished, however long that takes."
                     ),
                     SettingsField(
                         "ocrMouseWatchTime", "Watch for (in milliseconds)", .number(min: 0),
-                        hint: "How long changes are checked for after the mouse moves or clicks. Raise it if a game shows its next line only after a longer transition (otherwise it’s only read once you move the mouse again); keep it well above “Check for changes every”, so it’s checked several times.",
+                        hint: "How long changes are checked for after the mouse moves or clicks, and the dialogue also after each reading of it, mouse used or not (e.g. a line that goes on being drawn after a pause, or a menu opened with the keyboard right after it). Raise it if a game shows its next line only after a longer transition (otherwise it’s only read once you move the mouse again); keep it well above “Check for changes every”, so it’s checked several times.",
                         showIf: { $0["ocrMouseWatch"] as? Bool ?? true }
                     ),
                     SettingsField(
@@ -296,7 +307,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "ocrMaxWait", "Read anyway after (in milliseconds)", .number(min: 100),
-                        hint: "If the recognized text keeps changing (e.g. very slow text), the latest reading is taken after this long anyway."
+                        hint: "If the recognized text keeps changing (e.g. very slow text), the latest reading is taken after this long anyway. Later changes are read as the window is watched."
                     ),
                     SettingsField(
                         "ocrShowBoxes", "Outline recognized text", .checkbox,

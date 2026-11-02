@@ -9,14 +9,14 @@ import UniformTypeIdentifiers
 /// the whole screen the overlay is on instead, apart from MacPopup's own windows; "window" below then
 /// means that screen.
 ///
-/// The window is captured with ScreenCaptureKit. With a WebSocket connected, each new line is the cue
-/// to read the window again; otherwise the window (or the chosen regions) is watched for changes. In
-/// both cases recognition waits until the picture has stopped changing, since games often draw text
-/// gradually after the hooked line arrives.
+/// The window is captured with ScreenCaptureKit and watched for changes (all the time, or with "Watch
+/// after mouse use" while the mouse is used and, for the dialogue, after each reading of it). With a WebSocket connected, each new line is also the
+/// cue to read the window again; it doesn't replace watching, since the dialogue can go away (e.g. a
+/// menu opened) or show the line in parts, a click at a time. Recognition waits until the picture has
+/// stopped changing, since games often draw text gradually after the hooked line arrives.
 ///
 /// With several regions, only the first is the dialogue that works that way. The others (e.g. menus or
-/// names) are assumed to appear at once: they're read as soon as they change, which is checked while
-/// the mouse is used (or all the time, without "Watch after mouse use"), WebSocket or not.
+/// names) are assumed to appear at once: they're read as soon as they change.
 @MainActor
 final class OCRController {
     struct Target {
@@ -46,23 +46,18 @@ final class OCRController {
     /// It's only read then; cues wait until it is.
     private var isWindowAvailable = false
     private var boundsChangedAt = Date.distantPast
-    /// A WebSocket is connected and its lines are used: they're the cue to read the window, so it's
-    /// only watched for changes briefly after each reading.
+    /// A WebSocket is connected and its lines are used: each is a cue to read the window.
     private var websocketConnected = false
-    /// While a WebSocket is connected, the window is watched until then (a line read as soon as it's
-    /// still may not have been finished being drawn).
+    /// The dialogue is watched until then, for "Watch for" after each reading of it, mouse used or not
+    /// (a line read as soon as it's still may not have been finished being drawn).
     private var watchUntil = Date.distantPast
     private var lastCursorPoint: CGPoint?
-    /// Without WebSocket lines, the window is only read until a while after the mouse was last used
+    /// With "Watch after mouse use", the window is only read until a while after the mouse was last used
     /// (moved or clicked), not while it rests.
     private var mouseActiveUntil = Date.distantPast
     /// The mouse started being used: check for changes right away.
     private var checkSoon = false
     private var waitingForMouse = false
-    /// When the page asked for the window to be read again (the text didn't match its line yet), and
-    /// when a reading of settled text was last taken: one taken since makes the request moot.
-    private var pageRetryAt: Date?
-    private var lastSettledReadingAt = Date.distantPast
     /// Per area, thumbnail blocks that were seen animating while the text stayed the same.
     private var animatedBlocks: [Set<Int>] = []
     /// Per area, the lines last read there: an area is read on its own, and sent with the others.
@@ -75,10 +70,15 @@ final class OCRController {
         Date() < mouseActiveUntil
     }
 
-    /// Without WebSocket lines, whether the window is watched for changes now: all the time, or (with
+    /// Whether the window is watched for changes now: all the time, or (with
     /// "Watch after mouse use") only for a while after the mouse was used.
     private var isWatching: Bool {
         !(settings["ocrMouseWatch"] as? Bool ?? true) || isCursorActive
+    }
+
+    /// The dialogue is also watched for a while after each reading of it.
+    private var isWatchingDialogue: Bool {
+        isWatching || Date() < watchUntil
     }
 
     func mouseClicked() {
@@ -131,7 +131,7 @@ final class OCRController {
     private enum Cue {
         /// A new line arrived over a WebSocket: the window is about to change.
         case newLine
-        /// The page wants another reading, e.g. because the text was still being drawn.
+        /// Read again, e.g. because the window was resized or came back from another space.
         case retry
         /// Read right away (e.g. after choosing the window).
         case immediate
@@ -353,11 +353,6 @@ final class OCRController {
             pendingCue = .newLine
         case "accept":
             acceptedReading = true
-        case "retry":
-            if pendingCue == nil {
-                pendingCue = .retry
-                pageRetryAt = Date()
-            }
         case "select":
             selectWindow()
         case "cancelSelect":
@@ -480,8 +475,6 @@ final class OCRController {
             log("available again")
             if pendingCue != .newLine { pendingCue = .retry }
             otherAreasOutdated = true
-            // The page checks the next reading against the last WebSocket line again.
-            send(["type": "returned"])
         }
         bounds = info.bounds
         isWindowAvailable = available
@@ -573,8 +566,9 @@ final class OCRController {
                 try? await Task.sleep(for: .milliseconds(200))
                 continue
             }
-            if !websocketConnected, !isWatching, pendingCue != .immediate {
-                // Without WebSocket lines, wait until the mouse is used. Readings that were asked for
+            if !websocketConnected, !isWatchingDialogue, pendingCue != .immediate {
+                // Without WebSocket lines, wait until the mouse is used (or the dialogue was read, which
+                // watches it for a while). Readings that were asked for
                 // (e.g. after coming back from another space) wait too, but not the first one of a newly
                 // chosen window or screen.
                 if !waitingForMouse {
@@ -587,18 +581,10 @@ final class OCRController {
             waitingForMouse = false
             if let cue = pendingCue {
                 pendingCue = nil
-                let retryAt = pageRetryAt
-                pageRetryAt = nil
-                if cue == .retry, let retryAt, lastSettledReadingAt > retryAt {
-                    log("already read again since the page asked")
-                    continue
-                }
                 await settleAndRecognize(cue: cue)
                 continue
             }
-            // With WebSocket lines, they're the cue for the dialogue, which is only watched briefly after
-            // each reading; the other areas are watched as without them.
-            let watchesDialogue = websocketConnected ? Date() < watchUntil : isWatching
+            let watchesDialogue = isWatchingDialogue
             let watchesOthers = areas.count > 1 && isWatching
             if !watchesDialogue && !watchesOthers {
                 try? await Task.sleep(for: .milliseconds(50))
@@ -609,7 +595,7 @@ final class OCRController {
             while pendingCue == nil, Date() < pollUntil, !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(50))
             }
-            guard pendingCue == nil, isWindowAvailable, websocketConnected || isWatching, let (_, frame) = await capture(scale: Self.comparisonScale) else { continue }
+            guard pendingCue == nil, isWindowAvailable, websocketConnected || isWatchingDialogue, let (_, frame) = await capture(scale: Self.comparisonScale) else { continue }
             if watchesDialogue, lastRecognizedFrame.map({ differs(frame, $0, only: [0]) }) ?? true {
                 log("window changed")
                 send(["type": "changing"])
@@ -632,14 +618,14 @@ final class OCRController {
     /// the picture to be still (which an animated background can keep it from being). Each reading goes
     /// to the page as provisional, which takes it as soon as it matches the WebSocket line.
     /// - Parameter cue: For a new line, the text only counts as settled once the picture changed, unless
-    ///   that doesn't happen within a moment (the line may already be on screen): until then it's the
-    ///   previous line's.
+    ///   that doesn't happen within "Wait for a new line to appear" (the line may already be on screen):
+    ///   until then it's the previous line's.
     private func settleAndRecognize(cue: Cue?) async {
         log("reading until settled for \(cue.map { "\($0)" } ?? "change")")
         if cue == .newLine || cue == .retry {
             send(["type": "changing"])
         }
-        let maxWait = number("ocrMaxWait", 4000) / 1000
+        let maxWait = number("ocrMaxWait", 8000) / 1000
         // The text has to stay the same for the settle time, as the picture does otherwise: text drawn a
         // character at a time looks the same between characters, and once read too early, the rest of
         // the line may change too little of the picture to be noticed.
@@ -677,7 +663,7 @@ final class OCRController {
                 if let last = lastRecognizedFrame, differs(frame, last, only: [0]) {
                     sawChange = true
                     previous = nil
-                } else if lastRecognizedFrame == nil || Date().timeIntervalSince(start) > 1.5 {
+                } else if lastRecognizedFrame == nil || Date().timeIntervalSince(start) > number("ocrNewLineWait", 1500) / 1000 {
                     sawChange = true
                 }
             }
@@ -701,7 +687,6 @@ final class OCRController {
                 // What changed while the text stayed the same (e.g. a blinking "next" icon) doesn't count as
                 // the window changing later.
                 learnAnimatedBlocks(from: frames)
-                lastSettledReadingAt = Date()
                 otherAreasOutdated = false
                 sendResult(frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started, extra: ["settled": true])
                 return
@@ -856,7 +841,7 @@ final class OCRController {
         if extra["provisional"] as? Bool == true { return }
         updateReference(frame, areas: indices)
         lastResult = result
-        if indices.contains(0) { watchUntil = Date().addingTimeInterval(1.5) }
+        if indices.contains(0) { watchUntil = Date().addingTimeInterval(number("ocrMouseWatchTime", 2000) / 1000) }
     }
 
     /// What reads the text (Settings → OCR Mode → Text recognition).
