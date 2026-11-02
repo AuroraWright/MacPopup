@@ -64,6 +64,8 @@ struct SettingsField: Identifiable {
         case ankiField
         /// Whether a macOS permission is granted, with buttons to ask for it (not a setting).
         case permission(Permission)
+        /// Whether Screen AI's models are loaded, with buttons to load and remove them (not a setting).
+        case screenAIModels
     }
 
     enum ConnectionTest {
@@ -243,8 +245,14 @@ enum SettingsSchema {
                 fields: [
                     SettingsField(
                         "ocrEngine", "Text recognition",
-                        .select([SettingsOption("liveText", "Live Text"), SettingsOption("meikiocr", "meikiocr")]),
-                        hint: "Live Text is Apple’s, as in Preview and Photos. meikiocr (by rtr46) is made for Japanese game text and reads only Japanese; it runs with Core ML."
+                        .select([SettingsOption("liveText", "Live Text"), SettingsOption("meikiocr", "meikiocr"), SettingsOption("screenai", "Screen AI")]),
+                        hint: "Live Text is Apple’s, as in Preview and Photos. meikiocr (by rtr46) is made for Japanese game text and reads only Japanese; it runs with Core ML. "
+                            + "Screen AI is Chrome’s OCR, run with Core ML; it reads most scripts and finds the language by itself, and needs its models loaded (below)."
+                    ),
+                    SettingsField(
+                        "screenAIModels", "Screen AI models", .screenAIModels,
+                        hint: "Google’s models can’t come with MacPopup: scripts/convert-screenai.py converts the ones Chrome downloads (its screen_ai folder) on this Mac into a zip, which Load reads.",
+                        showIf: { $0["ocrEngine"] as? String == "screenai" }
                     ),
                     SettingsField(
                         "ocrLanguage", "Language", .select(ocrLanguages, match: matchLanguage),

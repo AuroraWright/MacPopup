@@ -25,7 +25,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 selectOCRWindow: { [weak self] in self?.selectOCRWindow() },
                 importYomitan: { [weak self] in self?.importYomitan() },
                 importTexthooker: { [weak self] in self?.importTexthooker() },
-                resetAll: { [weak self] in self?.resetAll() }
+                resetAll: { [weak self] in self?.resetAll() },
+                loadScreenAIModels: { [weak self] in self?.loadScreenAIModels() },
+                removeScreenAIModels: { [weak self] in self?.removeScreenAIModels() }
             )
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 820, height: 640),
@@ -93,6 +95,47 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         if runModal(alert) == .alertFirstButtonReturn {
             window?.makeFirstResponder(nil)
             model.reset()
+        }
+    }
+
+    private func loadScreenAIModels() {
+        let panel = NSOpenPanel()
+        panel.message = "Choose the zip made by scripts/convert-screenai.py."
+        panel.allowedContentTypes = [.zip]
+        panel.canChooseDirectories = false
+        panel.level = NSWindow.Level(rawValue: (window?.level.rawValue ?? 0) + 1)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let models = ScreenAIModels.shared
+        models.busy = true
+        Task {
+            do {
+                try await ScreenAIOCR.shared.installModels(from: url)
+            } catch {
+                inform("Couldn’t load the models", detail: error.localizedDescription, style: .warning)
+            }
+            models.busy = false
+            models.refresh()
+        }
+    }
+
+    private func removeScreenAIModels() {
+        let alert = NSAlert()
+        alert.messageText = "Remove Screen AI’s models?"
+        alert.informativeText = "Screen AI can’t read text until they’re loaded again."
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].hasDestructiveAction = true
+        guard runModal(alert) == .alertFirstButtonReturn else { return }
+        let models = ScreenAIModels.shared
+        models.busy = true
+        Task {
+            do {
+                try await ScreenAIOCR.shared.removeModels()
+            } catch {
+                inform("Couldn’t remove the models", detail: error.localizedDescription, style: .warning)
+            }
+            models.busy = false
+            models.refresh()
         }
     }
 

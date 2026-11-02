@@ -863,6 +863,7 @@ final class OCRController {
     enum Engine: String {
         case liveText
         case meikiocr
+        case screenAI = "screenai"
     }
 
     /// The engine when OCR mode started or it last changed.
@@ -880,22 +881,29 @@ final class OCRController {
             }
         case .meikiocr:
             try await MeikiOCR.shared.recognize(image)
+        case .screenAI:
+            try await ScreenAIOCR.shared.recognize(image)
         }
     }
 
-    /// The first reading takes longer (Live Text's by about a second, meikiocr's loads its models), so the
-    /// engine is prepared before the window needs reading.
+    /// The first reading takes longer (Live Text's by about a second, meikiocr's and Screen AI's load their
+    /// models), so the engine is prepared before the window needs reading.
     private func warmUp() async {
         let started = Date()
+        func prepare(_ body: () async throws -> Void) async {
+            do {
+                try await body()
+            } catch {
+                send(["type": "error", "message": error.localizedDescription])
+            }
+        }
         switch engine {
         case .liveText:
             await warmUpLiveText()
         case .meikiocr:
-            do {
-                try await MeikiOCR.shared.prepare()
-            } catch {
-                send(["type": "error", "message": error.localizedDescription])
-            }
+            await prepare(MeikiOCR.shared.prepare)
+        case .screenAI:
+            await prepare(ScreenAIOCR.shared.prepare)
         }
         log("\(engine.rawValue) ready in \(String(format: "%.2f", Date().timeIntervalSince(started)))s")
     }
@@ -929,7 +937,7 @@ final class OCRController {
     }
 
     /// A line with one box per character. The engines give boxes per word (Live Text: single characters
-    /// for Japanese; meikiocr: always characters); longer words are divided evenly, and the spaces between
+    /// for Japanese; meikiocr and Screen AI: always characters); longer words are divided evenly, and the spaces between
     /// words fill the gaps. Lines of evenly spaced full-width text are then snapped to their cells (see
     /// OCRLayout).
     /// - Parameters:

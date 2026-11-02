@@ -7,8 +7,8 @@ Anki card creation. Lookups come from your installed Yomitan through the
 [Yomitan API](https://github.com/yomidevs/yomitan-api).
 
 In OCR mode, MacPopup instead reads another app's window (a game, say) with Apple's Live
-Text or [meikiocr](https://github.com/rtr46/meikiocr) and lets you hover the window's own text, with no
-text box at all.
+Text, [meikiocr](https://github.com/rtr46/meikiocr) or Chrome's Screen AI and lets you hover the window's
+own text, with no text box at all.
 
 ## Requirements
 
@@ -122,13 +122,20 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
   starts from it and its areas, so they can be added to or removed.
   The window is found again by its app and title the next time MacPopup starts. **Clear** in
   Settings goes back to the whole screen. The captured window is also what Anki screenshots show.
-- Text is recognized, horizontal or vertical, with Live Text or meikiocr (**Text recognition** in
-  Settings → OCR Mode):
+- Text is recognized, horizontal or vertical, with Live Text, meikiocr or Screen AI (**Text
+  recognition** in Settings → OCR Mode):
   - Live Text (the default) reads the language set in Settings → OCR Mode (Japanese by default; the
     menu lists every language Live Text supports on your version of macOS).
   - meikiocr's models, by rtr46, are trained on Japanese game text and read only Japanese. They run
     on this Mac with Core ML (converted by `scripts/convert-meikiocr.py`; see `vendor/meikiocr`).
     It's faster than Live Text and its character boxes fit the text more closely.
+  - Screen AI is the OCR Chrome uses, ported to Swift (`Sources/ScreenAI`) with its models run on
+    the GPU with Core ML. It reads most scripts, finds the language by itself and gives a box per
+    character. Google's models can't be distributed with MacPopup, so they're converted on your Mac
+    from the copy Chrome downloads (`~/Library/Application Support/Google/Chrome/screen_ai`):
+    run `scripts/convert-screenai.py` (its first lines say what it needs), then choose the zip it
+    makes with **Screen AI models → Load…** in Settings → OCR Mode. They're kept in
+    `~/Library/Application Support/MacPopup/ScreenAI`; **Remove** deletes them.
 
   The window is read right away and again until the text stops changing (for the settle time),
   instead of first waiting for the picture to be still, so a line usually shows in a fraction of a

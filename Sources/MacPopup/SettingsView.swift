@@ -9,6 +9,8 @@ struct SettingsActions {
     var importYomitan: () -> Void
     var importTexthooker: () -> Void
     var resetAll: () -> Void
+    var loadScreenAIModels: () -> Void
+    var removeScreenAIModels: () -> Void
 }
 
 struct SettingsView: View {
@@ -179,6 +181,12 @@ private struct FieldRow: View {
                     Spacer()
                     PermissionControl(permission: permission)
                 }
+            }
+        case .screenAIModels:
+            LabeledContent {
+                ScreenAIModelsControl(load: actions.loadScreenAIModels, remove: actions.removeScreenAIModels)
+            } label: {
+                FieldLabel(field: field)
             }
         case .ankiField:
             AnkiFieldPicker(name: value as? String ?? "", settings: model.values) { model.set(field.key, $0) } label: {
@@ -395,6 +403,31 @@ private struct PermissionControl: View {
             while !Task.isCancelled {
                 status = permission.status
                 try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+}
+
+/// Whether Screen AI's models are loaded (and when they were converted), with buttons to load and remove them.
+private struct ScreenAIModelsControl: View {
+    let load: () -> Void
+    let remove: () -> Void
+    @ObservedObject private var models = ScreenAIModels.shared
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if models.busy {
+                ProgressView().controlSize(.small)
+                Text("Loading…").foregroundStyle(.secondary)
+            } else if let converted = models.converted {
+                Label("Loaded", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    .help("Converted \(converted.formatted(date: .abbreviated, time: .shortened))")
+            } else {
+                Label("Not loaded", systemImage: "exclamationmark.circle.fill").foregroundStyle(.orange)
+            }
+            Button("Load…", action: load).disabled(models.busy)
+            if models.converted != nil {
+                Button("Remove", action: remove).disabled(models.busy)
             }
         }
     }
