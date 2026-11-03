@@ -254,6 +254,12 @@ enum SettingsSchema {
                         showIf: { $0["ocrEngine"] as? String == "oneocr" }
                     ),
                     SettingsField(
+                        "ocrCloudEngine", "Text recognition (cloud)",
+                        .select([SettingsOption("none", "None"), SettingsOption("googleLens", "Google Lens"), SettingsOption("bing", "Bing")]),
+                        hint: "Google Lens or Bing reads the dialogue once more when a new line has been read (its text settled or matched the WebSocket line), often more accurately, and its reading is shown (with lines only Text recognition found): Text recognition reads the text while it changes. "
+                            + "They’re online and often take a second or more, so a line shows that much later. A line that matched the WebSocket line keeps its text, in the boxes they find. The picture of the dialogue (the first area) is sent to Google or Microsoft."
+                    ),
+                    SettingsField(
                         "ocrResolution", "Read at",
                         .select([SettingsOption("auto", "Automatic"), SettingsOption("full", "Full resolution"), SettingsOption("1x", "1x")]),
                         hint: "Automatic reads windows drawn at 1x (e.g. a VM or a game that isn’t Retina aware, enlarged by macOS) at 1x, which is faster and loses nothing, and others at full Retina resolution. Choose one if text is misread: full resolution for small text, 1x if automatic picks full resolution for a window drawn at 1x."
@@ -309,7 +315,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "ocrShowBoxes", "Outline recognized text", .checkbox,
-                        hint: "For debugging: shows the recognized text and outlines its lines over the window, red for plain OCR text and green for lines corrected with WebSocket lines. Each reading (what was recognized, the lines left out as furigana or in another language, how it matched the WebSocket lines and what was shown) and each WebSocket line is also written to ocr-debug.jsonl in ~/Library/Application Support/MacPopup."
+                        hint: "For debugging: shows the recognized text and outlines its lines over the window, red for plain OCR text, green for lines corrected with WebSocket lines, orange for lines Google Lens or Bing read (Text recognition (cloud)) and dark green for those corrected with WebSocket lines. Each reading (what was recognized, the lines left out as furigana or in another language, how it matched the WebSocket lines and what was shown) and each WebSocket line is also written to ocr-debug.jsonl in ~/Library/Application Support/MacPopup."
                     ),
                 ]
             ),

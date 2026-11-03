@@ -12,18 +12,20 @@ const LETTER = /[\p{L}\p{N}]/u;
 
 /**
  * @typedef {{text: string, x: number, y: number, width: number, height: number, corrected?: boolean}} OcrChar
- * @typedef {{chars: OcrChar[], vertical: boolean, area: number, matched?: boolean}} OcrLine
+ * @typedef {{chars: OcrChar[], vertical: boolean, area: number, cloud: boolean, matched?: boolean}} OcrLine
  */
 
 /**
- * Lines from the native side: chars are [text, x, y, width, height] in window points, and `area` is
- * the chosen area they're in (0, the first, is the dialogue).
+ * Lines from the native side: chars are [text, x, y, width, height] in window points, `area` is the
+ * chosen area they're in (0, the first, is the dialogue), and `cloud` is set for a line the cloud
+ * engine read.
  */
 export function decodeLines(lines) {
 	return lines
 		.map((line) => ({
 			vertical: !!line.vertical,
 			area: line.area ?? 0,
+			cloud: !!line.cloud,
 			chars: line.chars.map(([text, x, y, width, height]) => ({ text, x, y, width, height })),
 		}))
 		.filter((line) => line.chars.some((char) => !SPACE.test(char.text)));
@@ -476,7 +478,7 @@ export function renderLines(container, lines) {
 		for (const line of paragraph) {
 			const box = bounds(line.chars);
 			const element = document.createElement('div');
-			element.className = line.matched ? 'ocr-line ocr-matched' : 'ocr-line';
+			element.className = ['ocr-line', line.matched && 'ocr-matched', line.cloud && 'ocr-cloud'].filter(Boolean).join(' ');
 			const style = element.style;
 			style.left = `${box.x}px`;
 			style.top = `${box.y}px`;

@@ -1043,6 +1043,8 @@ function showOcrResult(message) {
 	const debug = {
 		type: 'reading',
 		provisional: !!message.provisional,
+		// The cloud engine that read the dialogue, if one did.
+		cloud: message.cloud ?? null,
 		dialogue: readsDialogue,
 		awaitingLine: ocr.awaitingLine,
 		size: [message.width, message.height],
@@ -1065,6 +1067,12 @@ function showOcrResult(message) {
 			return;
 		}
 		nativeCall('ocr', { action: 'accept' }).catch(() => {});
+		// With a cloud engine, its reading of the dialogue is shown instead, once it answers.
+		const cloud = getSettings().ocrCloudEngine;
+		if (cloud && cloud !== 'none') {
+			logOcrDebug({ ...debug, match: matchSummary(result), outcome: 'taken, for the cloud engine' });
+			return;
+		}
 	}
 	if (usesLine) {
 		const result = correctWithText(dialogue, ocr.line, minQuality);

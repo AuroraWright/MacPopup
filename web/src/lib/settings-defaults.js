@@ -91,6 +91,9 @@ export const defaultSettings = {
 	// Areas of the window to read, normalized to it ({x, y, width, height} in 0-1). Empty: the whole window.
 	ocrRegions: [],
 	ocrEngine: 'liveText',
+	// Google Lens or Bing ('googleLens', 'bing') reads the dialogue once more for the reading that's shown (see
+	// OCRController.finishReading).
+	ocrCloudEngine: 'none',
 	ocrResolution: 'auto',
 	ocrStripFurigana: true,
 	// How many WebSocket lines before the last are matched too, for games that add a line at a time to a page.

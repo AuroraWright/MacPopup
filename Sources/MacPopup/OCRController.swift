@@ -166,13 +166,14 @@ final class OCRController {
             return
         }
         guard isEnabled, !isPicking else { return }
-        if engine != startedEngine || language != startedLanguage || stripsFurigana != startedStripsFurigana {
+        if engine != startedEngine || language != startedLanguage || stripsFurigana != startedStripsFurigana || cloudEngine != startedCloudEngine {
             if engine != startedEngine {
                 startedEngine = engine
                 Task { [weak self] in await self?.warmUp() }
             }
             startedLanguage = language
             startedStripsFurigana = stripsFurigana
+            startedCloudEngine = cloudEngine
             readAgain()
         }
         // The window or areas were changed elsewhere (e.g. the settings were reset or imported, or the
@@ -206,6 +207,7 @@ final class OCRController {
     }
 
     private func readAgain() {
+        forgetCloudReading()
         scWindow = nil
         scDisplay = nil
         readingScale = nil
@@ -261,6 +263,7 @@ final class OCRController {
         startedEngine = engine
         startedLanguage = language
         startedStripsFurigana = stripsFurigana
+        startedCloudEngine = cloudEngine
         loopTask = Task { [weak self] in
             await self?.warmUp()
             await self?.runLoop()
@@ -275,6 +278,7 @@ final class OCRController {
         trackTimer = nil
         loopTask?.cancel()
         loopTask = nil
+        forgetCloudReading()
         overlay.preferredScreen = nil
         lastRecognizedFrame = nil
         lastResult = nil
@@ -361,6 +365,7 @@ final class OCRController {
         case "cue":
             // Read when the window is available, which may be later (e.g. it's in another space).
             pendingCue = .newLine
+            dropCloudRequest()
         case "accept":
             acceptedReading = true
         case "select":
@@ -633,6 +638,7 @@ final class OCRController {
     ///   until then it's the previous line's.
     private func settleAndRecognize(cue: Cue?) async {
         log("reading until settled for \(cue.map { "\($0)" } ?? "change")")
+        dropCloudRequest()
         if cue == .newLine || cue == .retry {
             send(["type": "changing"])
         }
@@ -647,6 +653,8 @@ final class OCRController {
         // The images read since the text last changed, to learn animated spots from.
         var frames: [Frame] = []
         acceptedReading = false
+        // The picture of the latest reading, which the page may take.
+        var lastImage: CGImage?
         while !Task.isCancelled {
             guard isWindowAvailable else {
                 log("window left while reading")
@@ -666,7 +674,7 @@ final class OCRController {
             if acceptedReading {
                 log("the page took a reading")
                 otherAreasOutdated = false
-                sendResult(frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: Date(), extra: ["accepted": true])
+                finishReading(lastImage, frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: Date(), extra: ["accepted": true])
                 return
             }
             if !sawChange {
@@ -685,6 +693,7 @@ final class OCRController {
             let thumbnailAreas = thumbnailAreas(in: image)
             let thumbnailing = Task.detached { thumbnailAreas.flatMap { Self.thumbnails(of: image, areas: $0) } }
             guard await readAreas(image, areas: read) else { return }
+            lastImage = image
             let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
             if previous?.texts != texts {
                 previous = (texts, started)
@@ -699,17 +708,132 @@ final class OCRController {
                 // the window changing later.
                 learnAnimatedBlocks(from: frames)
                 otherAreasOutdated = false
-                sendResult(frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started, extra: ["settled": true])
+                finishReading(image, frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started, extra: ["settled": true])
                 return
             }
             if Date().timeIntervalSince(start) > maxWait {
                 log("still changing after \(String(format: "%.2f", maxWait))s")
                 otherAreasOutdated = false
-                sendResult(frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started)
+                finishReading(image, frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started)
                 return
             }
             sendResult(frame: nil, areas: read, started: started, extra: ["provisional": true])
         }
+    }
+
+    /// The cloud engine (Settings → OCR Mode → Text recognition (cloud)), if one is chosen.
+    private var cloudEngine: CloudOCR? {
+        CloudOCR(rawValue: settings["ocrCloudEngine"] as? String ?? "")
+    }
+
+    /// The cloud engine's last reading of the dialogue, with the local engine's text it replaced.
+    private var cloudReading: (engine: CloudOCR, localTexts: [String], lines: [[String: Any]], removed: [[String: Any]])?
+    private var cloudTask: Task<Void, Never>?
+    /// Counts the times the dialogue was read until settled: a cloud reading only replaces the one it was asked for.
+    private var dialogueReadings = 0
+
+    /// Sends the reading that ends settleAndRecognize: settled, taken by the page (it matched the WebSocket line), or
+    /// taken after "Read anyway after".
+    ///
+    /// With a cloud engine, that one reads the dialogue once more first, and its reading is sent instead: a request
+    /// often takes a second or more, too long for each reading while the text changes, which the local engine reads.
+    /// Nothing of the dialogue is shown meanwhile. The page corrects the cloud reading with the WebSocket line as it
+    /// would the local one, so the line's text gets the cloud reading's boxes. Lines the local engine read where the
+    /// cloud engine found nothing are kept. The local reading is sent when the cloud engine fails or reads nothing; neither is when the dialogue was read again since. A local reading with the text
+    /// of the one the last cloud reading replaced gets that one again right away.
+    private func finishReading(_ image: CGImage?, frame: Frame?, areas indices: [Int], started: Date, extra: [String: Any] = [:]) {
+        guard let engine = cloudEngine, let image, let frame, let bounds, let local = areaLines.first, !local.isEmpty,
+              let crop = image.cropping(to: pixelRect(of: areas[0], in: image)) else {
+            sendResult(frame: frame, areas: indices, started: started, extra: extra)
+            return
+        }
+        let localTexts = local.map { $0["text"] as? String ?? "" }
+        if let cloudReading, cloudReading.engine == engine, cloudReading.localTexts == localTexts {
+            areaLines[0] = cloudReading.lines
+            areaRemoved[0] = cloudReading.removed
+            sendResult(frame: frame, areas: indices, started: started, extra: extra.merging(["cloud": engine.rawValue]) { $1 })
+            return
+        }
+        let localRemoved = areaRemoved[0]
+        // Readings of the other areas meanwhile leave the dialogue out. The window is compared with what was read now
+        // (otherwise the text that's being read would count as a change).
+        areaLines[0] = []
+        areaRemoved[0] = []
+        noteReading(frame: frame, areas: indices)
+        let reading = dialogueReadings
+        let debugReading = debugReadings
+        let language = language
+        cloudTask?.cancel()
+        cloudTask = Task { [weak self] in
+            let requested = Date()
+            let result: Result<[RecognizedLine], Error>
+            do {
+                result = .success(try await engine.recognize(crop, language: language))
+            } catch {
+                result = .failure(error)
+            }
+            // The dialogue may have changed before that was noticed: a new line's cue waits for the run loop,
+            // and a change for its next check.
+            let isCurrent = { (self: OCRController) in
+                !Task.isCancelled && reading == self.dialogueReadings && self.pendingCue == nil && engine == self.cloudEngine
+                    && self.areaLines.count == self.areas.count
+            }
+            guard let self else { return }
+            guard isCurrent(self), let (_, now) = await self.capture(scale: Self.comparisonScale),
+                  isCurrent(self), !self.differs(now, frame, only: [0]) else {
+                self.log("\(engine.rawValue): dropped, the dialogue may have changed since")
+                return
+            }
+            var (lines, removed, extra) = (local, localRemoved, extra)
+            switch result {
+            case let .success(items):
+                self.log("\(engine.rawValue): \(String(format: "%.2f", Date().timeIntervalSince(requested)))s for \(crop.width)x\(crop.height)")
+                if debugReading == self.debugReadings { self.saveForDebugging(items, area: 0, engine: "-\(engine.rawValue)") }
+                let cloud = self.lines(from: items, in: crop, area: 0, bounds: bounds, ordered: false)
+                // It may miss text the local engine read, but not all of it.
+                if !cloud.lines.isEmpty {
+                    // Marked for the overlay's outlines (with Outline recognized text on).
+                    let cloudLines = cloud.lines.map { line in line.merging(["cloud": true]) { $1 } }
+                    (lines, removed) = (Self.adding(local, to: cloudLines), cloud.removed)
+                    self.cloudReading = (engine, localTexts, lines, removed)
+                    extra["cloud"] = engine.rawValue
+                }
+            case let .failure(error):
+                self.send(["type": "error", "message": error.localizedDescription])
+            }
+            self.areaLines[0] = lines
+            self.areaRemoved[0] = removed
+            self.sendResult(frame: nil, areas: indices, started: started, extra: extra)
+        }
+    }
+
+    /// The cloud engine's lines, with the local engine's lines where it found none, in reading order: it may leave out
+    /// some text (Google Lens misses white text with a dark outline on a pale picture, which Bing reads).
+    private static func adding(_ local: [[String: Any]], to cloud: [[String: Any]]) -> [[String: Any]] {
+        let cloudLines = cloud.map(decode)
+        let area = { (box: CGRect) in box.width * box.height }
+        let missing = local.filter { line in
+            let box = decode(line).box
+            return !cloudLines.contains { other in
+                let overlap = box.intersection(other.box)
+                return !overlap.isNull && area(overlap) >= min(area(box), area(other.box)) / 4
+            }
+        }
+        guard !missing.isEmpty else { return cloud }
+        return OCRLayout.inReadingOrder(cloud + missing, line: decode)
+    }
+
+    /// A cloud reading on its way is dropped, and the last one isn't reused.
+    private func forgetCloudReading() {
+        dropCloudRequest()
+        cloudReading = nil
+    }
+
+    /// The dialogue may change: a cloud reading on its way is dropped.
+    private func dropCloudRequest() {
+        cloudTask?.cancel()
+        cloudTask = nil
+        dialogueReadings += 1
     }
 
     /// Reads areas after the first right away, without waiting for them to be still.
@@ -807,57 +931,70 @@ final class OCRController {
                 send(["type": "error", "message": error.localizedDescription])
                 return false
             }
-            if let debugDirectory {
-                // What the engine read, before the layout: boxes normalized to the crop.
-                let rect = { (box: CGRect) in [box.minX, box.minY, box.width, box.height] }
-                let raw = items.map { ["text": $0.text, "box": rect($0.box), "words": $0.words.map { [$0.text] + rect($0.box).map { $0 as Any } }] as [String: Any] }
-                let url = URL(fileURLWithPath: debugDirectory).appendingPathComponent("read-\(debugReadings)-area\(index).json")
-                try? JSONSerialization.data(withJSONObject: raw).write(to: url)
-            }
-            // The boxes are normalized to the crop; convert them to window points.
-            let toWindow = { (box: CGRect) -> CGRect in
-                CGRect(
-                    x: (area.minX + box.minX * area.width) * bounds.width,
-                    y: (area.minY + box.minY * area.height) * bounds.height,
-                    width: box.width * area.width * bounds.width,
-                    height: box.height * area.height * bounds.height
-                )
-            }
+            saveForDebugging(items, area: index)
             let layoutStarted = Date()
-            let gray = GrayImage(crop)
-            let size = CGSize(width: crop.width, height: crop.height)
-            // The lines left out, for the page's debug log (with Outline recognized text on).
-            let recordsRemoved = settings["ocrShowBoxes"] as? Bool ?? false
-            var removed: [[String: Any]] = []
-            let box = { (box: CGRect) in [box.minX, box.minY, box.width, box.height] }
-            var kept: [RecognizedLine] = []
-            for item in items {
-                if OCRLanguage.contains(item.text, language: language) {
-                    kept.append(item)
-                } else if recordsRemoved {
-                    removed.append(["text": item.text, "box": box(toWindow(item.box)), "reason": "language", "area": index])
-                }
-            }
-            var lines = kept.map { OCRLayout.layOut($0, image: gray, size: size, toWindow: toWindow) }
-            if stripsFurigana {
-                let bases = OCRLayout.furigana(in: lines)
-                if recordsRemoved {
-                    removed += bases.sorted { $0.key < $1.key }.map { ruby, base in
-                        ["text": lines[ruby].text, "box": box(lines[ruby].box), "reason": "furigana", "base": lines[base].text, "area": index]
-                    }
-                }
-                lines = lines.indices.filter { bases[$0] == nil }.map { lines[$0] }
-            }
             // Screen AI's lines come in its own layout analysis' reading order (paragraphs and columns included).
-            areaLines[index] = (engine == .screenAI ? OCRLayout.keepingRowsTogether(lines) : OCRLayout.inReadingOrder(lines)).map {
-                var line = Self.encode($0)
-                line["area"] = index
-                return line
-            }
-            areaRemoved[index] = removed
+            (areaLines[index], areaRemoved[index]) = lines(from: items, in: crop, area: index, bounds: bounds, ordered: engine == .screenAI)
             log("layout: \(String(format: "%.2f", Date().timeIntervalSince(layoutStarted)))s")
         }
         return true
+    }
+
+    /// With MACPOPUP_DEBUG_OCR_DIR, what an engine read in an area, before the layout (boxes normalized to the crop).
+    private func saveForDebugging(_ items: [RecognizedLine], area index: Int, engine suffix: String = "") {
+        guard let debugDirectory else { return }
+        let rect = { (box: CGRect) in [box.minX, box.minY, box.width, box.height] }
+        let raw = items.map { ["text": $0.text, "box": rect($0.box), "words": $0.words.map { [$0.text] + rect($0.box).map { $0 as Any } }] as [String: Any] }
+        let url = URL(fileURLWithPath: debugDirectory).appendingPathComponent("read-\(debugReadings)-area\(index)\(suffix).json")
+        try? JSONSerialization.data(withJSONObject: raw).write(to: url)
+    }
+
+    /// The lines an engine read in an area's picture (`crop`), as the page gets them, and the lines left out (by the
+    /// language or as furigana) for its debug log.
+    /// - Parameter ordered: The engine gives the lines in reading order; otherwise they're put in it.
+    private func lines(
+        from items: [RecognizedLine], in crop: CGImage, area index: Int, bounds: CGRect, ordered: Bool
+    ) -> (lines: [[String: Any]], removed: [[String: Any]]) {
+        let area = areas[index]
+        // The boxes are normalized to the crop; convert them to window points.
+        let toWindow = { (box: CGRect) -> CGRect in
+            CGRect(
+                x: (area.minX + box.minX * area.width) * bounds.width,
+                y: (area.minY + box.minY * area.height) * bounds.height,
+                width: box.width * area.width * bounds.width,
+                height: box.height * area.height * bounds.height
+            )
+        }
+        let gray = GrayImage(crop)
+        let size = CGSize(width: crop.width, height: crop.height)
+        // The lines left out, for the page's debug log (with Outline recognized text on).
+        let recordsRemoved = settings["ocrShowBoxes"] as? Bool ?? false
+        var removed: [[String: Any]] = []
+        let box = { (box: CGRect) in [box.minX, box.minY, box.width, box.height] }
+        var kept: [RecognizedLine] = []
+        for item in items {
+            if OCRLanguage.contains(item.text, language: language) {
+                kept.append(item)
+            } else if recordsRemoved {
+                removed.append(["text": item.text, "box": box(toWindow(item.box)), "reason": "language", "area": index])
+            }
+        }
+        var lines = kept.map { OCRLayout.layOut($0, image: gray, size: size, toWindow: toWindow) }
+        if stripsFurigana {
+            let bases = OCRLayout.furigana(in: lines)
+            if recordsRemoved {
+                removed += bases.sorted { $0.key < $1.key }.map { ruby, base in
+                    ["text": lines[ruby].text, "box": box(lines[ruby].box), "reason": "furigana", "base": lines[base].text, "area": index]
+                }
+            }
+            lines = lines.indices.filter { bases[$0] == nil }.map { lines[$0] }
+        }
+        let encoded = (ordered ? OCRLayout.keepingRowsTogether(lines) : OCRLayout.inReadingOrder(lines)).map {
+            var line = Self.encode($0)
+            line["area"] = index
+            return line
+        }
+        return (encoded, removed)
     }
 
     /// Sends what `readAreas` read to the page.
@@ -883,8 +1020,13 @@ final class OCRController {
         log("read \(lines.count) lines in \(String(format: "%.2f", Date().timeIntervalSince(started)))s\(extra.isEmpty ? "" : " \(extra.keys.sorted())")")
         send(result)
         if extra["provisional"] as? Bool == true { return }
-        updateReference(frame, areas: indices)
         lastResult = result
+        noteReading(frame: frame, areas: indices)
+    }
+
+    /// The window is compared with `frame` for changes from now on, and the dialogue watched for a while if it was read.
+    private func noteReading(frame: Frame?, areas indices: [Int]) {
+        updateReference(frame, areas: indices)
         if indices.contains(0) { watchUntil = Date().addingTimeInterval(number("ocrMouseWatchTime", 2000) / 1000) }
     }
 
@@ -913,9 +1055,10 @@ final class OCRController {
         language == "ja" && settings["ocrStripFurigana"] as? Bool ?? true
     }
 
-    /// The language and stripsFurigana when OCR mode started or they last changed.
+    /// The language, stripsFurigana and cloud engine when OCR mode started or they last changed.
     private var startedLanguage: String?
     private var startedStripsFurigana: Bool?
+    private var startedCloudEngine: CloudOCR??
 
     private func recognizeText(_ image: CGImage) async throws -> [RecognizedLine] {
         switch engine {
@@ -988,6 +1131,21 @@ final class OCRController {
     }
 
     /// A line as the page gets it.
+    private static func decode(_ line: [String: Any]) -> OCRLayout.Line {
+        let rect = { (values: [Any]) in
+            let numbers = values.map { $0 as? CGFloat ?? 0 }
+            return CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3])
+        }
+        return OCRLayout.Line(
+            text: line["text"] as? String ?? "",
+            box: rect([line["x"] as Any, line["y"] as Any, line["width"] as Any, line["height"] as Any]),
+            vertical: line["vertical"] as? Bool ?? false,
+            chars: (line["chars"] as? [[Any]] ?? []).filter { $0.count == 5 }.map {
+                OCRLayout.Char(text: $0[0] as? String ?? "", box: rect(Array($0[1...])))
+            }
+        )
+    }
+
     private static func encode(_ line: OCRLayout.Line) -> [String: Any] {
         [
             "text": line.text,

@@ -97,11 +97,17 @@ enum OCRLayout {
     /// vertical columns from the left), and the page matches WebSocket lines through them in this order. Screen AI's
     /// lines keep the order its layout analysis gives them.
     static func inReadingOrder(_ lines: [Line]) -> [Line] {
-        let vertical = lines.filter(\.vertical).count * 2 > lines.count
+        inReadingOrder(lines) { $0 }
+    }
+
+    /// Items in the reading order of their lines (see above).
+    static func inReadingOrder<Item>(_ items: [Item], line: (Item) -> Line) -> [Item] {
+        let lines = items.map { (item: $0, box: line($0).box) }
+        let vertical = items.filter { line($0).vertical }.count * 2 > items.count
         // Across the rows (top to bottom, or right to left), and along them.
         let across = { (box: CGRect) in vertical ? (start: -box.maxX, end: -box.minX) : (start: box.minY, end: box.maxY) }
         let along = { (box: CGRect) in vertical ? box.minY : box.minX }
-        var rows: [(start: CGFloat, end: CGFloat, lines: [Line])] = []
+        var rows: [(start: CGFloat, end: CGFloat, lines: [(item: Item, box: CGRect)])] = []
         for line in lines.sorted(by: { across($0.box).start < across($1.box).start }) {
             let extent = across(line.box)
             // In the last row when that covers at least half of the line across.
@@ -112,7 +118,7 @@ enum OCRLayout {
                 rows.append((extent.start, extent.end, [line]))
             }
         }
-        return rows.flatMap { row in row.lines.sorted { along($0.box) < along($1.box) } }
+        return rows.flatMap { row in row.lines.sorted { along($0.box) < along($1.box) }.map(\.item) }
     }
 
     /// Screen AI's lines in its reading order, except that a line the engine split where it goes on along its row (e.g.

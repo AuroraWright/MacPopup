@@ -144,6 +144,17 @@ body {
 	color: rgb(40 200 90 / 0.8);
 }
 
+/* Read by the cloud engine (Text recognition (cloud)). */
+#ocr-layer.show-boxes .ocr-line.ocr-cloud {
+	outline-color: rgb(255 150 30 / 0.9);
+	color: rgb(255 150 30 / 0.8);
+}
+
+#ocr-layer.show-boxes .ocr-line.ocr-matched.ocr-cloud {
+	outline-color: rgb(20 130 60 / 0.95);
+	color: rgb(20 130 60 / 0.9);
+}
+
 /* The glyph in the middle of its box (see renderLines), without moving the text that's hovered. */
 #ocr-layer.show-boxes .ocr-char {
 	-webkit-text-fill-color: transparent;

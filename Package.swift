@@ -37,9 +37,15 @@ let package = Package(
             dependencies: ["OneOCR"],
             path: "Sources/OneOCRCLI"
         ),
+        // Browser-like HTTP requests for the cloud OCR engines, with libcurl-impersonate (loaded at runtime; scripts/build.sh
+        // puts it in the app).
+        .target(
+            name: "CurlImpersonate",
+            path: "Sources/CurlImpersonate"
+        ),
         .executableTarget(
             name: "MacPopup",
-            dependencies: ["LiveText", "ScreenAI", "OneOCR"],
+            dependencies: ["LiveText", "ScreenAI", "OneOCR", "CurlImpersonate"],
             path: "Sources/MacPopup"
         ),
     ]

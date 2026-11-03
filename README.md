@@ -7,8 +7,8 @@ Anki card creation. Lookups come from your installed Yomitan through the
 [Yomitan API](https://github.com/yomidevs/yomitan-api).
 
 In OCR mode, MacPopup instead reads another app's window (a game, say) with Apple's Live
-Text, [meikiocr](https://github.com/rtr46/meikiocr), Chrome's Screen AI or Windows' OneOCR and lets you
-hover the window's own text, with no text box at all.
+Text, [meikiocr](https://github.com/rtr46/meikiocr), Chrome's Screen AI or Windows' OneOCR (and, optionally,
+Google Lens or Bing online) and lets you hover the window's own text, with no text box at all.
 
 ## Requirements
 
@@ -145,6 +145,17 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
     converts the decrypted models (`config.json` and the `Model_Edge` folder) on your Mac into a zip,
     which **OneOCR models → Load…** in Settings → OCR Mode reads. They're kept in
     `~/Library/Application Support/MacPopup/OneOCR`.
+- **Text recognition (cloud)** (None by default) adds Google Lens or Bing, with the requests
+  [owocr](https://github.com/AuroraWright/owocr) makes, as Chrome makes them (down to its TLS and HTTP/2
+  fingerprints, with [curl-impersonate](https://github.com/lexiforest/curl-impersonate), which
+  `scripts/build.sh` downloads into the app): depending on the network, Bing refuses other clients.
+  They're online and often more accurate, but a
+  reading takes up to a second or more, so the local engine reads the text while it changes, and they
+  read the dialogue once more when a new line has been read (settled, matched the WebSocket line, or
+  taken after **Read anyway after**). Their reading is shown instead, that much later, along with lines
+  only the local engine found (Google Lens leaves out some text); a line that matched the WebSocket line
+  keeps the line's text, in the boxes they find. The dialogue's picture is sent to
+  Google or Microsoft then.
 
   The window is read right away and again until the text stops changing (for the settle time),
   instead of first waiting for the picture to be still, so a line usually shows in a fraction of a

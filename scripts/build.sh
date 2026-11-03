@@ -18,6 +18,30 @@ fi
 
 (cd web && { [[ -d node_modules ]] || npm install --no-fund --no-audit; } && node build.mjs)
 
+# libcurl-impersonate, for the cloud OCR engines' requests (Sources/CurlImpersonate): a release of
+# github.com/lexiforest/curl-impersonate, checked against its SHA-256.
+CURL_IMPERSONATE_VERSION="v2.2.3"
+case "$(uname -m)" in
+    arm64) CURL_IMPERSONATE_ARCH=arm64 CURL_IMPERSONATE_SHA256=16a73c8dfc55cb8c2354f93f43525529d0df6cbfc484fb7a4357b3891f9dbb6a ;;
+    *) CURL_IMPERSONATE_ARCH=x86_64 CURL_IMPERSONATE_SHA256=32634096e31e879d0a193f87e4a4083e2eb44b9b9318eb5b32f85f495104a049 ;;
+esac
+CURL_IMPERSONATE="build/cache/libcurl-impersonate-$CURL_IMPERSONATE_VERSION-$CURL_IMPERSONATE_ARCH"
+# (libcurl-impersonate.4.dylib is a link to the file with the full version.)
+if [[ ! -f "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" ]]; then
+    ARCHIVE="build/cache/libcurl-impersonate-$CURL_IMPERSONATE_VERSION.$CURL_IMPERSONATE_ARCH-macos.tar.gz"
+    mkdir -p build/cache
+    if curl -fsSL -o "$ARCHIVE" \
+        "https://github.com/lexiforest/curl-impersonate/releases/download/$CURL_IMPERSONATE_VERSION/libcurl-impersonate-$CURL_IMPERSONATE_VERSION.$CURL_IMPERSONATE_ARCH-macos.tar.gz" \
+        && [[ "$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1)" == "$CURL_IMPERSONATE_SHA256" ]]; then
+        rm -rf "$CURL_IMPERSONATE"
+        mkdir -p "$CURL_IMPERSONATE"
+        tar -xzf "$ARCHIVE" -C "$CURL_IMPERSONATE" 'libcurl-impersonate.4*.dylib' 'LICENSE*'
+    else
+        echo "warning: couldn't download libcurl-impersonate; Google Lens and Bing won't work"
+    fi
+    rm -f "$ARCHIVE"
+fi
+
 swift build -c "$CONFIGURATION"
 BIN="$(swift build -c "$CONFIGURATION" --show-bin-path)/MacPopup"
 
@@ -26,6 +50,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/MacPopup"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R build/web "$APP/Contents/Resources/web"
+if [[ -f "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" ]]; then
+    mkdir -p "$APP/Contents/Frameworks" "$APP/Contents/Resources/Licenses/curl-impersonate"
+    cp -L "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" "$APP/Contents/Frameworks/"
+    cp "$CURL_IMPERSONATE"/LICENSE* "$APP/Contents/Resources/Licenses/curl-impersonate/"
+fi
 # meikiocr's models (see vendor/meikiocr), compiled for Core ML.
 mkdir -p "$APP/Contents/Resources/Models"
 for model in vendor/meikiocr/*.mlpackage; do
@@ -38,6 +67,10 @@ IDENTITY="${MACPOPUP_SIGN_IDENTITY:-Apple Development: Your Name (TEAMID)}"
 if [[ "$IDENTITY" != "-" ]] && ! security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\""; then
     echo "warning: no code signing identity \"$IDENTITY\"; signing ad-hoc (permissions will be asked for again)"
     IDENTITY="-"
+fi
+# Nested code is signed first.
+if [[ -d "$APP/Contents/Frameworks" ]]; then
+    codesign --force --timestamp=none --sign "$IDENTITY" "$APP"/Contents/Frameworks/*.dylib >/dev/null
 fi
 codesign --force --timestamp=none --sign "$IDENTITY" "$APP" >/dev/null
 
