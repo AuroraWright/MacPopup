@@ -270,6 +270,9 @@ class SocketConnection {
 		this.closeRequested = false;
 		this.wasConnected = false;
 		this.retryTimer = null;
+		// Reconnecting by itself after the connection closed: the icon stays as it is meanwhile rather than flash
+		// between connecting and not connected at each try.
+		this.retrying = false;
 		this.element = document.createElement('div');
 		this.element.setAttribute('role', 'button');
 		this.element.className = 'mx-1 header-button';
@@ -277,11 +280,12 @@ class SocketConnection {
 		this.render();
 	}
 
-	connect() {
+	connect(retrying = false) {
 		if (this.socket && this.socket.readyState < 2) return;
 		clearTimeout(this.retryTimer);
 		this.retryTimer = null;
 		this.closeRequested = false;
+		this.retrying = retrying;
 		this.setState(0);
 		try {
 			const socket = new WebSocket(this.url);
@@ -324,7 +328,7 @@ class SocketConnection {
 		this.wasConnected = false;
 		this.setState(3);
 		if (!this.closeRequested && reconnects) {
-			this.retryTimer = setTimeout(() => this.connect(), 1000);
+			this.retryTimer = setTimeout(() => this.connect(true), 1000);
 		}
 	}
 
@@ -348,8 +352,14 @@ class SocketConnection {
 
 	render() {
 		const el = this.element;
-		el.title = this.state === 1 ? `Connected with ${this.url}` : `Not connected (${this.url})`;
-		if (this.state === 0) {
+		let address = this.url;
+		try {
+			address = new URL(this.url).host;
+		} catch (_) {
+			// Shown as given
+		}
+		el.dataset.tip = `WebSocket ${address}`;
+		if (this.state === 0 && !this.retrying) {
 			el.innerHTML = '<span class="animate-ping relative inline-flex rounded-full h-3 w-3 mx-1 bg-primary"></span>';
 			el.classList.remove('text-red-500', 'text-green-700');
 		} else {
@@ -855,6 +865,28 @@ function setPointerHover(x, y) {
 	}
 	for (const element of hovered) element.classList.add('pointer-hover');
 	pointerHovered = hovered;
+	showHeaderTip(target?.closest('#box-header .header-button') ?? null);
+}
+
+/**
+ * Shows what a header button does under it. Native tooltips (title) don't show: the overlay's app is never
+ * active.
+ */
+function showHeaderTip(button) {
+	const tip = $('#header-tip');
+	const text = button?.dataset.tip;
+	if (!text) {
+		tip.hidden = true;
+		return;
+	}
+	tip.textContent = text;
+	tip.hidden = false;
+	// Centered under the button, within the box.
+	const box = $('#box').getBoundingClientRect();
+	const rect = button.getBoundingClientRect();
+	const left = rect.left + rect.width / 2 - tip.offsetWidth / 2 - box.left;
+	tip.style.left = `${Math.max(4, Math.min(left, box.width - tip.offsetWidth - 4))}px`;
+	tip.style.top = `${rect.bottom - box.top + 2}px`;
 }
 
 // The cursor the app shows over the box and popups (null: whatever the app below shows).
@@ -1220,14 +1252,14 @@ function renderClipboardButton() {
 	const button = $('#clipboard-button');
 	const enabled = !!getSettings().clipboardMonitor;
 	button.innerHTML = icon(enabled ? mdiClipboardTextOutline : mdiClipboardOffOutline);
-	button.title = enabled ? 'Clipboard monitoring on: copied text is added as a line (click to turn off)' : 'Clipboard monitoring off (click to turn on)';
+	button.dataset.tip = 'Clipboard';
 	button.classList.toggle('text-green-700', enabled);
 }
 
 function renderPauseButton() {
 	const button = $('#pause-button');
 	button.innerHTML = icon(state.paused ? mdiPlay : mdiPause);
-	button.title = state.paused ? 'Resume (accept new lines)' : 'Pause (ignore new lines)';
+	button.dataset.tip = state.paused ? 'Resume' : 'Pause';
 	button.classList.toggle('text-warning', state.paused);
 }
 
