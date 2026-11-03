@@ -472,6 +472,7 @@ enum OCRLayout {
         // costs a little (lines without half-width characters stay on it). The grid fits most of the line,
         // so the characters off it before a half-width one are fewer than half of them.
         let offGridCost = best.pitch * 0.3
+        let widenCost = best.pitch * 0.1
         let inkSkipped = { (from: Int, to: Int) -> Double in
             from < to ? Double((from..<to).filter { unitInk[$0] }.count) / 2 * skipInkCost : 0
         }
@@ -493,14 +494,24 @@ enum OCRLayout {
             }
             for i in 0..<m {
                 let first = items[i].lowerBound
-                // Full-width characters take whole cells, half-width ones half.
+                // Full-width characters take whole cells, half-width ones half. A character read as half-width
+                // can also take a whole cell, as a full-width one: engines read full-width digits and letters
+                // (e.g. "２挺") as ASCII ones.
                 let step = widths[first]
-                for width in stride(from: step, through: step * items[i].count, by: step) {
+                let single = step == 1 && items[i].count == 1
+                let widthOptions = single ? [1, 2] : Array(stride(from: step, through: step * items[i].count, by: step))
+                for width in widthOptions {
+                    // Whether the item is placed as half-width characters.
+                    let kind = single ? width : step
                     for start in stride(from: 0, through: units - width, by: 1) {
                         let end = start + width
                         var place = abs(starts[first] - offset - (origin + Double(start) * half))
                         if !(start..<(start + width)).contains(where: { unitInk[$0] }) {
                             place += emptyCost
+                        }
+                        // Read as half-width, so it's more likely to be one.
+                        if kind != step {
+                            place += widenCost
                         }
                         // How many cells a run takes is otherwise a tie when its cells look alike (e.g.
                         // an ellipsis's dots are too thin to count as text): then it ends where it was read.
@@ -514,7 +525,7 @@ enum OCRLayout {
                                 from[i][state] = (previous, start)
                             }
                         }
-                        let offGrid = step == 2 && start % 2 == 1
+                        let offGrid = kind == 2 && start % 2 == 1
                         if i == 0 {
                             consider(place + inkSkipped(0, start) + (offGrid ? offGridCost : 0), offGrid ? 1 : 0, from: -1)
                             continue
@@ -528,7 +539,7 @@ enum OCRLayout {
                                 if !offGrid {
                                     // Back on the grid: off-grid characters before a half-width one need it
                                     // right after them.
-                                    if p == 0 || p == 2 && isMinority(i - 1, state) || p == 1 && step == 1 && adjacent && isMinority(i - 1, state) {
+                                    if p == 0 || p == 2 && isMinority(i - 1, state) || p == 1 && kind == 1 && adjacent && isMinority(i - 1, state) {
                                         consider(total, 0, from: state)
                                     }
                                 } else if p == 1 {
