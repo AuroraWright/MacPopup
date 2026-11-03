@@ -113,11 +113,11 @@ struct SettingsSection: Identifiable {
 @MainActor
 enum SettingsSchema {
     static let scanInputsHint =
-        "Scanning happens while every key or button of one entry is held. An empty entry scans on hover. "
-        + "Like in Yomitan, entries combine the modifier keys meta (Command), ctrl, alt (Option) and shift with the mouse buttons "
+        "Words are looked up while all the keys and buttons of one entry are held; an empty entry looks them up on hover. "
+        + "As in Yomitan, an entry combines the keys meta (Command), ctrl, alt (Option) and shift with the mouse buttons "
         + "mouse0 (left), mouse1 (right), mouse2 (middle), mouse3 (back), mouse4 (forward) and mouse5. "
-        + "A name with a leading - must not be held, like Yomitan’s “exclude”: “shift -mouse0” scans with shift, but not while the left button is held. "
-        + "Add terms or kanji to look up only terms or only kanji, like Yomitan’s “Search terms” and “Search kanji”: “alt kanji”."
+        + "A - in front of a name means it must not be held: “shift -mouse0” looks up with Shift, but not while the left button is down. "
+        + "Add terms or kanji to look up only words or only kanji, e.g. “alt kanji”."
 
     private static let scanModifierOptions = [
         SettingsOption("none", "No key"),
@@ -157,7 +157,7 @@ enum SettingsSchema {
                 SettingsField("ocrMode", "Mode", .toggleChoice(off: "Window Mode", on: "OCR Mode")),
                 SettingsField(
                     "language", "Language", .select(support.languages.map { SettingsOption($0.iso, $0.name) }),
-                    hint: "The language of your Yomitan profile, which Import → Yomitan Settings copies. Lookups use Yomitan’s own setting; this one sets the audio sources, how text is displayed, whether word scan resolution applies, and the language OCR mode reads: lines in other scripts are left out."
+                    hint: "The language of your Yomitan profile (Import → Yomitan Settings sets it). Lookups follow Yomitan’s own setting; this one picks the audio sources, how text is shown, and the language OCR Mode reads (text in other scripts is skipped)."
                 ),
                 SettingsField("displayIndex", "Display", .display),
                 SettingsField("windowLevel", "Window level", .select([
@@ -169,14 +169,14 @@ enum SettingsSchema {
                 ])),
                 SettingsField(
                     "ocrWindow", "Captured window", .ocrWindow,
-                    hint: "OCR mode reads this window, and Anki screenshots ({screenshot}) show only it. Without one, both use the whole screen the overlay is on."
+                    hint: "The window OCR Mode reads, and the one Anki screenshots ({screenshot}) show. Without one, both use the whole screen."
                 ),
             ]),
             SettingsSection(title: "WebSockets", symbol: "network", fields: [
                 SettingsField("websocketUrls", "WebSockets (one per line)", .lines),
                 SettingsField(
                     "continuousReconnect", "Continuous reconnect", .checkbox,
-                    hint: "For Window Mode. In OCR Mode with “Use WebSocket lines” on, WebSockets always reconnect."
+                    hint: "Keep trying to reconnect when a WebSocket drops, in Window Mode. In OCR Mode with “Use WebSocket lines” on, it always does."
                 ),
                 SettingsField("showConnectionErrors", "Show connection errors", .checkbox),
             ]),
@@ -184,11 +184,11 @@ enum SettingsSchema {
                 SettingsField("boxOpacity", "Background opacity", .percentSlider(step: 0.05)),
                 SettingsField(
                     "clipboardMonitor", "Enable background clipboard text monitoring", .checkbox,
-                    hint: "Text copied in any app is added to the text box as a line. Text that password managers mark as concealed is skipped."
+                    hint: "Text you copy in any app is added to the text box as a new line. Passwords copied from password managers are skipped."
                 ),
                 SettingsField(
                     "clipboardMaxLength", "Maximum clipboard text search length", .number(min: 1),
-                    hint: "Limit the number of characters used when searching clipboard text.",
+                    hint: "Longer copied text is cut to this many characters.",
                     showIf: { $0["clipboardMonitor"] as? Bool == true }
                 ),
                 SettingsField("theme", "Theme", .select(support.themes.map { SettingsOption($0) })),
@@ -215,107 +215,107 @@ enum SettingsSchema {
                         SettingsOption("romaji", "Romaji"),
                         SettingsOption("dictionary-reading", "Dictionary reading"),
                     ]),
-                    hint: "Change what type of furigana is displayed for parsed text: in the text box (with “Show furigana”) and in the sentence furigana of Anki cards ({sentence-furigana}; as in Yomitan, only hiragana and katakana change those)."
+                    hint: "The kind of furigana shown in the text box (with “Show furigana” on) and in the sentence furigana of Anki cards ({sentence-furigana}). As in Yomitan, cards only use the hiragana and katakana choices."
                 ),
                 SettingsField("termSpacing", "Show space between parsed words", .checkbox),
                 SettingsField(
                     "replacements", "Replacements", .replacements,
-                    hint: "Applied to each new line in order, before it’s shown. Patterns are JavaScript regular expressions; in the replacement, $1 inserts the first group, and \\n and \\t a newline and a tab."
+                    hint: "Applied in order to each new line before it’s shown. Patterns are regular expressions; in the replacement, $1 inserts the first group, \\n a line break and \\t a tab."
                 ),
                 SettingsField("customCSS", "Custom CSS (text box)", .textarea),
             ]),
             SettingsSection(
                 title: "OCR Mode", symbol: "text.viewfinder",
-                description: "Instead of the text box, read the captured window (Settings → General), or the whole screen without one, and show popups when hovering its text. "
+                description: "Instead of the text box, reads the text in the captured window (Settings → General), or on the whole screen if none is chosen, and shows popups when you hover it. "
                     + "Needs the Screen Recording permission.",
                 fields: [
                     SettingsField(
                         "ocrEngine", "Text recognition",
                         .select([SettingsOption("liveText", "Live Text"), SettingsOption("meikiocr", "meikiocr"), SettingsOption("screenai", "Screen AI"),
                                  SettingsOption("oneocr", "OneOCR")]),
-                        hint: "Live Text is Apple’s, as in Preview and Photos. meikiocr (by rtr46) is made for Japanese game text and reads only Japanese; it runs with Core ML. "
-                            + "Screen AI is Chrome’s OCR and OneOCR is Windows’ (as in the Snipping Tool), both run with Core ML; they read most scripts, find the language by themselves, and need their models loaded (below).",
+                        hint: "Live Text is Apple’s, as in Preview and Photos. meikiocr (by rtr46) is made for Japanese game text and reads only Japanese. "
+                            + "Screen AI (Chrome’s) and OneOCR (Windows’, as in the Snipping Tool) read most languages and detect the language themselves, but their models have to be loaded first (below).",
                         warning: { settings in
                             let language = settings["language"] as? String ?? "ja"
                             let engine = settings["ocrEngine"] as? String ?? "liveText"
                             guard !OCRLanguage.isRead(language, by: engine) else { return nil }
                             let name = support.languages.first { $0.iso == language }?.name ?? language
-                            return "\(name) (Settings → General) isn’t supported: " + (engine == "liveText" ? "Live Text reads English instead." : "meikiocr reads only Japanese.")
+                            return "\(name) (Settings → General) isn’t supported: " + (engine == "liveText" ? "Live Text will read English instead." : "meikiocr reads only Japanese.")
                         }
                     ),
                     SettingsField(
                         "screenAIModels", "Screen AI models", .convertedModels(.screenAI),
-                        hint: "Google’s models can’t come with MacPopup: scripts/convert-screenai.py converts the ones Chrome downloads (its screen_ai folder) on this Mac into a zip, which Load reads.",
+                        hint: "MacPopup can’t include Google’s models: run scripts/convert-screenai.py to turn the ones Chrome downloaded on this Mac into a zip, then load it here.",
                         showIf: { $0["ocrEngine"] as? String == "screenai" }
                     ),
                     SettingsField(
                         "oneOCRModels", "OneOCR models", .convertedModels(.oneOCR),
-                        hint: "Microsoft’s models can’t come with MacPopup: scripts/convert-oneocr.py converts those of the Snipping Tool (oneocr.onemodel) on this Mac into a zip, which Load reads.",
+                        hint: "MacPopup can’t include Microsoft’s models: run scripts/convert-oneocr.py to turn the Snipping Tool’s model file (oneocr.onemodel) into a zip, then load it here.",
                         showIf: { $0["ocrEngine"] as? String == "oneocr" }
                     ),
                     SettingsField(
                         "ocrCloudEngine", "Text recognition (cloud)",
                         .select([SettingsOption("none", "None"), SettingsOption("googleLens", "Google Lens"), SettingsOption("bing", "Bing")]),
-                        hint: "Google Lens or Bing reads the dialogue once more when a new line has been read (its text settled or matched the WebSocket line), often more accurately, and its reading is shown (with lines only Text recognition found): Text recognition reads the text while it changes. "
-                            + "They’re online and often take a second or more, so a line shows that much later. A line that matched the WebSocket line keeps its text, in the boxes they find. The picture of the dialogue (the first area) is sent to Google or Microsoft."
+                        hint: "Once a new line has been read, Google Lens or Bing reads the dialogue again, often more accurately, and its result is shown. "
+                            + "They’re online services that often take a second or more, so lines show up that much later. A line that matched the WebSocket line keeps its text. The image of the dialogue (the first area) is sent to Google or Microsoft."
                     ),
                     SettingsField(
                         "ocrResolution", "Read at",
                         .select([SettingsOption("auto", "Automatic"), SettingsOption("full", "Full resolution"), SettingsOption("1x", "1x")]),
-                        hint: "Automatic reads windows drawn at 1x (e.g. a VM or a game that isn’t Retina aware, enlarged by macOS) at 1x, which is faster and loses nothing, and others at full Retina resolution. Choose one if text is misread: full resolution for small text, 1x if automatic picks full resolution for a window drawn at 1x."
+                        hint: "Automatic reads windows drawn at 1x (e.g. a VM, or a game without Retina support that macOS scales up) at 1x, which is faster and just as accurate, and everything else at full Retina resolution. If text is misread, try Full resolution for small text, or 1x if Automatic picks full resolution for a window drawn at 1x."
                     ),
                     SettingsField(
                         "ocrStripFurigana", "Strip furigana", .checkbox,
-                        hint: "Leaves out the readings printed over kanji (to their right in vertical text), which are recognized as lines of their own: small text without kanji, right next to kanji in a larger line. Only for Japanese (Settings → General → Language).",
+                        hint: "Leaves out furigana, the small readings over kanji (beside them in vertical text), which would otherwise be read as lines of their own. Japanese only.",
                         showIf: { $0["language"] as? String ?? "ja" == "ja" }
                     ),
                     SettingsField(
                         "ocrUseWebsocket", "Use WebSocket lines", .checkbox,
-                        hint: "While a WebSocket is connected, its new lines also trigger reading the window, and recognized text that matches the line (or a part of it, e.g. a page of a long line) is replaced by it. Without a connection, the window is read as with this off."
+                        hint: "While a WebSocket is connected, each new line it sends also makes the window be read, and text on screen that matches the line (or part of it, such as one page of a long line) is replaced with the line’s exact text. Without a connection, this does nothing."
                     ),
                     SettingsField(
                         "ocrMatchThreshold", "Match lines from (%)", .number(min: 1, max: 100),
-                        hint: "The share of a WebSocket line’s letters and digits that must be recognized exactly for a reading to count as showing it (or a part of it), and be corrected with it. Lower corrects text that’s misread more, but may take other text for the line.",
+                        hint: "How much of a WebSocket line has to be read correctly for the text on screen to count as that line and be corrected with it. Lower values fix more badly misread text, but may mistake other text for the line.",
                         showIf: { $0["ocrUseWebsocket"] as? Bool ?? true }
                     ),
                     SettingsField(
                         "ocrEarlierLines", "Earlier lines on the page", .number(min: 0),
-                        hint: "Games often add a line at a time to a page of them (each click sends the next one). The WebSocket lines before the last are corrected too, up to this many, where one is shown whole. 0 corrects only the last line.",
+                        hint: "Many games add lines to a page one at a time. Up to this many earlier WebSocket lines are corrected too, when they’re fully on screen. 0 corrects only the latest line.",
                         showIf: { $0["ocrUseWebsocket"] as? Bool ?? true }
                     ),
                     SettingsField(
                         "ocrNewLineWait", "Wait for a new line to appear (in milliseconds)", .number(min: 0),
-                        hint: "After a new WebSocket line, the text on screen is the previous line’s until the window changes: it only counts as settled after a change, or after this long without one (the line may already be on screen). Raise it if a game starts drawing lines late and the previous line is shown again; lower it if lines already on screen show late.",
+                        hint: "After a new WebSocket line arrives, the screen still shows the previous one until the window changes, so the new line is read after that change, or after this long without one. Raise it if a game draws lines late and the previous line shows up again; lower it if lines already on screen show up late.",
                         showIf: { $0["ocrUseWebsocket"] as? Bool ?? true }
                     ),
                     SettingsField(
                         "ocrChangeThreshold", "Change threshold (%)", .number(min: 0, step: 0.1),
-                        hint: "The window is read again when this share of it (or of one of the chosen areas) changes."
+                        hint: "How much of the window (or of one of the chosen areas) has to change for it to be read again."
                     ),
                     SettingsField(
                         "ocrPollInterval", "Check for changes every (in milliseconds)", .number(min: 50),
-                        hint: "How often the window is compared with the last reading to notice new text: all the time, or with “Watch after mouse use” only for a while after the mouse is used. Shorter notices changes sooner but uses more CPU. The dialogue is also watched for a while after each reading."
+                        hint: "How often the window is checked for new text: all the time, or with “Watch after mouse use” only for a while after you use the mouse. Shorter catches new text sooner but uses more CPU."
                     ),
                     SettingsField(
                         "ocrMouseWatch", "Watch after mouse use", .checkbox,
-                        hint: "Only check for changes for a while after the mouse moves or clicks (e.g. to advance the text), instead of all the time, to save work while you read. Text that starts appearing in that time is read once it’s finished, however long that takes."
+                        hint: "Only check for changes for a while after you move or click the mouse (e.g. to advance the text), instead of all the time, to save CPU while you read. Text that starts appearing in that time is still read once it’s finished."
                     ),
                     SettingsField(
                         "ocrMouseWatchTime", "Watch for (in milliseconds)", .number(min: 0),
-                        hint: "How long changes are checked for after the mouse moves or clicks, and the dialogue also after each reading of it, mouse used or not (e.g. a line that goes on being drawn after a pause, or a menu opened with the keyboard right after it). Raise it if a game shows its next line only after a longer transition (otherwise it’s only read once you move the mouse again); keep it well above “Check for changes every”, so it’s checked several times.",
+                        hint: "How long to keep checking for changes after you move or click the mouse, and after each new line. Raise it if a game shows its next line after a long transition (otherwise it’s only read when you move the mouse again). Keep it well above “Check for changes every”.",
                         showIf: { $0["ocrMouseWatch"] as? Bool ?? true }
                     ),
                     SettingsField(
                         "ocrSettleTime", "Wait until unchanged for (in milliseconds)", .number(min: 0),
-                        hint: "The window is read right away and again until the recognized text stays the same for this long, so lines that are still being drawn aren’t taken half-finished (a reading that matches the WebSocket line is taken right away). With several areas, only the first (the dialogue) waits; the others are read as soon as they change."
+                        hint: "Text is read over and over until it stays the same for this long, so lines that are still being drawn aren’t caught half-finished. Text that matches the WebSocket line is used right away. Only the dialogue (the first area) waits; other areas are read as soon as they change."
                     ),
                     SettingsField(
                         "ocrMaxWait", "Read anyway after (in milliseconds)", .number(min: 100),
-                        hint: "If the recognized text keeps changing (e.g. very slow text), the latest reading is taken after this long anyway. Later changes are read as the window is watched."
+                        hint: "If the text keeps changing (e.g. very slow text), the latest reading is used after this long anyway, and later changes are still picked up."
                     ),
                     SettingsField(
                         "ocrShowBoxes", "Outline recognized text", .checkbox,
-                        hint: "For debugging: shows the recognized text and outlines its lines over the window, red for plain OCR text, green for lines corrected with WebSocket lines, orange for lines Google Lens or Bing read (Text recognition (cloud)) and dark green for those corrected with WebSocket lines. Each reading (what was recognized, the lines left out as furigana or in another language, how it matched the WebSocket lines and what was shown) and each WebSocket line is also written to ocr-debug.jsonl in ~/Library/Application Support/MacPopup."
+                        hint: "For troubleshooting: shows the recognized text over the window with each line outlined: red for plain OCR, orange for Google Lens or Bing, and green or dark green for lines corrected with a WebSocket line. Each reading is also logged to ocr-debug.jsonl in ~/Library/Application Support/MacPopup, which helps when reporting a problem."
                     ),
                 ]
             ),
@@ -327,30 +327,30 @@ enum SettingsSchema {
                 SettingsField("popupScanInputs", "Scanning inputs (popup)", .scanInputs, showIf: { $0["popupScanModifier"] as? String == "custom" }),
                 SettingsField(
                     "popupNestingMaxDepth", "Maximum number of child popups", .number(min: 0),
-                    hint: "Popups opened by scanning in popups. 0 turns them off."
+                    hint: "How many popups can open from inside other popups. 0 turns this off."
                 ),
                 SettingsField(
                     "popupSearchOnClick", "Search terms when clicking text from the results list", .checkbox,
-                    hint: "Clicking a word in a popup’s definitions looks it up in that popup; its back button returns to the previous results."
+                    hint: "Click a word in a popup’s definitions to look it up in the same popup; the back button returns to the previous results."
                 ),
                 SettingsField(
                     "popupScanExpressions", "Allow scanning popup source terms", .checkbox,
-                    hint: "Headwords and their readings in popups can be scanned too."
+                    hint: "Lets you look up the headwords and readings shown in popups too."
                 ),
                 SettingsField(
                     "preventBackForwardInPopups", "Prevent mouse back and forward buttons in popups", .checkbox,
-                    hint: "Off: the mouse’s back and forward buttons go through a popup’s history, as in Yomitan."
+                    hint: "When off, the mouse’s back and forward buttons go through a popup’s history, as in Yomitan."
                 ),
                 SettingsField("scanLength", "Text scan length", .number(min: 1)),
                 SettingsField(
                     "scanResolution", "Scan resolution",
                     .select([SettingsOption("character", "Character"), SettingsOption("word", "Word")]),
-                    hint: "Start the lookup scan at the word or character of the cursor position. As in Yomitan, words aren’t used when the language is Japanese, Chinese, Cantonese or Korean."
+                    hint: "Start the lookup at the word or at the character under the cursor. As in Yomitan, Japanese, Chinese, Cantonese and Korean always start at the character."
                 ),
                 SettingsField("scanDelay", "Scan delay (in milliseconds)", .number(min: 0)),
                 SettingsField(
                     "scanWithoutMousemove", "Scan without mouse move", .checkbox,
-                    hint: "Allow scanning words under the pointer without the pointer being in motion: pressing the scan key looks up the word under the resting pointer."
+                    hint: "Pressing the scan key looks up the word under the pointer, even when the pointer isn’t moving."
                 ),
                 SettingsField("selectMatchedText", "Select matched text", .checkbox, hint: "Highlights the text that was looked up."),
                 SettingsField("parser", "Parse sentences using", .select([SettingsOption("scanning-parser", "Yomitan's internal parser"), SettingsOption("mecab", "MeCab")])),
@@ -367,7 +367,7 @@ enum SettingsSchema {
                 ])),
                 SettingsField(
                     "sentenceTerminationCharacters", "Custom sentence termination characters", .terminationCharacters,
-                    hint: "Sentences are terminated by punctuation (terminators) and quotation marks (quotes). “Include character in sentence” keeps a terminator, or a quote’s first or second character, in the sentence.",
+                    hint: "Sentences end at punctuation (terminators) and quotation marks (quotes). “Include character in sentence” keeps a terminator, or a quote’s opening or closing mark, in the sentence.",
                     showIf: { ["custom", "custom-no-newlines"].contains($0["sentenceTerminationCharacterMode"] as? String ?? "custom") }
                 ),
             ]),
@@ -409,7 +409,7 @@ enum SettingsSchema {
                     SettingsField("compactTags", "Compact tags", .checkbox),
                     SettingsField(
                         "showSearchTags", "Show tags for expressions and their readings", .checkbox,
-                        hint: "These tags can be scanned if “Allow scanning popup source terms” is on."
+                        hint: "You can look these tags up when “Allow scanning popup source terms” is on."
                     ),
                     SettingsField("averageFrequency", "Average frequencies", .checkbox),
                     SettingsField("frequencyDisplayMode", "Frequency display style", .select([
@@ -453,7 +453,7 @@ enum SettingsSchema {
                             SettingsOption("force-collapsed", "Force collapsed"),
                             SettingsOption("force-expanded", "Force expanded"),
                         ]),
-                        hint: "For dictionaries without their own mode from Yomitan (below)."
+                        hint: "For dictionaries that don’t have their own setting from Yomitan (below)."
                     ),
                     SettingsField(
                         "dictionaryCollapsible", "Collapsible dictionaries (from Import Yomitan)",
@@ -466,11 +466,11 @@ enum SettingsSchema {
                                 collapseModes(values).map { "\($0.label): \($0.names.joined(separator: ", "))" }.joined(separator: "\n\n")
                             }
                         ),
-                        hint: "Each enabled dictionary’s mode in Yomitan’s “Configure collapsible dictionaries”."
+                        hint: "Each enabled dictionary’s setting in Yomitan’s “Configure collapsible dictionaries”."
                     ),
-                    SettingsField("audioEnabled", "Enable audio playback for terms", .checkbox, hint: "Show a clickable speaker icon next to search results."),
+                    SettingsField("audioEnabled", "Enable audio playback for terms", .checkbox, hint: "Show a speaker button next to search results."),
                     SettingsField("audioAutoPlay", "Auto-play search result audio", .checkbox),
-                    SettingsField("audioVolume", "Audio volume", .number(min: 0, max: 100), hint: "Adjust the volume audio is played at, in percent."),
+                    SettingsField("audioVolume", "Audio volume", .number(min: 0, max: 100), hint: "The volume audio plays at, in percent."),
                     SettingsField(
                         "audioFallbackSound", "Audio fallback sound", .select([
                             SettingsOption("none", "None"), SettingsOption("click", "Click"), SettingsOption("bloop", "Bloop"),
@@ -479,11 +479,11 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "audioSources", "Audio sources", .audioSources,
-                        hint: "Tried in order when a play button is clicked; right-click one to choose among the audio every source has, as in Yomitan. The audio played from that menu is also used for Anki cards. Without sources, the Yomitan API plays the audio from Yomitan’s own sources. Import → Yomitan Settings copies them."
+                        hint: "Tried in order when you click a play button. Right-click the button to choose from all the audio the sources have, as in Yomitan; what you pick there is also used for Anki cards. With no sources here, Yomitan’s own sources are used. Import → Yomitan Settings copies them."
                     ),
                     SettingsField(
                         "audioDefaultSources", "Enable default audio sources", .checkbox,
-                        hint: "Yomitan’s default sources (JapanesePod101, LanguagePod101 and Jisho.org) are tried after the ones above when they aren’t among them."
+                        hint: "Also try Yomitan’s default sources (JapanesePod101, LanguagePod101 and Jisho.org) after the ones above."
                     ),
                     SettingsField("customPopupCss", "Popup CSS", .textarea),
                     SettingsField("customPopupOuterCss", "Popup outer CSS", .textarea),
@@ -498,24 +498,24 @@ enum SettingsSchema {
             ),
             SettingsSection(
                 title: "Popup Shortcuts", symbol: "keyboard",
-                description: "Yomitan’s keyboard shortcuts for popups. They work while a popup shows, also when another app such as a game is in front; their keys go to the popup instead until it closes.",
+                description: "Yomitan’s keyboard shortcuts for popups. They work while a popup is open, even when another app such as a game is in front; until the popup closes, these keys go to it instead of the app.",
                 fields: [SettingsField("hotkeys", "", .hotkeys)]
             ),
             SettingsSection(
                 title: "Anki", symbol: "rectangle.stack.badge.plus",
-                description: "Card formats and handlebars come from the active Yomitan profile through the Yomitan API.",
+                description: "Card formats and templates come from your active Yomitan profile, through the Yomitan API.",
                 fields: [
                     SettingsField("ankiEnabled", "Enable Anki integration", .checkbox),
                     SettingsField("ankiConnectUrl", "AnkiConnect server address", .text(test: .anki)),
                     SettingsField("ankiConnectKey", "API key", .text()),
-                    SettingsField("ankiTags", "Card tags", .text(), hint: "Separated by spaces."),
+                    SettingsField("ankiTags", "Card tags", .text(), hint: "Separate tags with spaces."),
                     SettingsField(
                         "ankiRenderTemplatesLocally", "Render the field templates below instead of using the Yomitan API", .checkbox,
-                        hint: "Enable this to let templates use text selected in the popup (getMedia \"popupSelectionText\"), e.g. to pick a dictionary by selecting its name. The API can’t see the selection."
+                        hint: "Lets templates use text selected in the popup, e.g. to pick a dictionary by selecting its name (see the README). The Yomitan API can’t see the selection."
                     ),
                     SettingsField(
                         "yomitanAnkiTemplates", "Field templates (Yomitan “Configure Anki card templates”)", .ankiTemplates,
-                        hint: "Copied by Import Yomitan. Only used with the option above; otherwise the API uses the templates in Yomitan."
+                        hint: "Copied by Import → Yomitan Settings. Only used with the option above; otherwise Yomitan’s own templates are used."
                     ),
                     SettingsField("checkForDuplicates", "Check for card duplicates", .checkbox),
                     SettingsField("duplicateScope", "Duplicate card scope", .select([
@@ -527,22 +527,22 @@ enum SettingsSchema {
                     ])),
                     SettingsField(
                         "ankiNoteDupeCheckFirst", "Prioritize Anki note duplicate checks before note creation", .checkbox,
-                        hint: "Shows the note buttons early, disabled, from a quick duplicate check on the term alone, and enables them once the notes are made.",
+                        hint: "Shows the add buttons early, disabled, after a quick duplicate check on the word alone, and enables them once the notes are ready.",
                         showIf: { $0["checkForDuplicates"] as? Bool == true }
                     ),
                     SettingsField("ankiDisplayTagsAndFlags", "Show card tags and flags", .select([
                         SettingsOption("never", "Never"), SettingsOption("always", "Always"),
                         SettingsOption("non-standard", "Non-standard"), SettingsOption("custom", "Custom"),
-                    ]), hint: "For notes that already exist. Non-standard leaves out the card tags above; Custom shows only the target tags."),
+                    ]), hint: "For notes that already exist. Non-standard hides the card tags above; Custom shows only the target tags."),
                     SettingsField(
-                        "ankiTargetTags", "Target tags", .text(), hint: "List of space or comma separated tags.",
+                        "ankiTargetTags", "Target tags", .text(), hint: "Separate tags with spaces or commas.",
                         showIf: { $0["ankiDisplayTagsAndFlags"] as? String == "custom" }
                     ),
-                    SettingsField("ankiSuspendNewCards", "Suspend new cards", .checkbox, hint: "New cards will be suspended when a note is added."),
+                    SettingsField("ankiSuspendNewCards", "Suspend new cards", .checkbox, hint: "New cards are suspended when a note is added."),
                     SettingsField("ankiForceSync", "Force Anki sync on adding card", .checkbox),
                     SettingsField(
                         "ankiDownloadTimeout", "Idle download timeout (in milliseconds)", .number(min: 0),
-                        hint: "The maximum time before an idle download will be cancelled; 0 = no limit (at most a minute). For audio chosen in the play button menu; the Yomitan API downloads other audio with Yomitan’s own setting."
+                        hint: "An audio download that stalls for this long is canceled; 0 waits up to a minute. For audio picked from the play button’s menu; other audio uses Yomitan’s own setting."
                     ),
                     SettingsField("noteGuiMode", "Note viewer window", .select([SettingsOption("browse", "Card browser"), SettingsOption("edit", "Note editor")])),
                     SettingsField("screenshotFormat", "Screenshot format", .select([SettingsOption("png", "PNG"), SettingsOption("jpeg", "JPEG")])),
@@ -550,45 +550,45 @@ enum SettingsSchema {
                     SettingsField(
                         "screenshotResolution", "Screenshot resolution",
                         .select([SettingsOption("1x", "1x"), SettingsOption("full", "Full resolution")]),
-                        hint: "1x takes screenshots at one pixel per point, as large as they look on a display that isn’t Retina, which keeps them small. Full resolution takes them at the display’s Retina scale, twice as large in each direction."
+                        hint: "1x keeps screenshots small, the size they’d be on a non-Retina display. Full resolution uses the display’s Retina scale, twice as large in each direction."
                     ),
                 ]
             ),
             SettingsSection(
                 title: "Anki Sentence Audio", symbol: "waveform",
-                description: "A shortcut records the voice of the line just mined and adds it to the newest Anki cards with that sentence. It switches to the game, presses the keys that open its backlog (where the line can be replayed), records until the voice ends, and presses the keys that close the backlog. Recording asks for Microphone permission, and pressing keys for Accessibility.",
+                description: "A shortcut records the voice of the line you just mined and adds it to the newest Anki cards with that sentence. It switches to the game, presses the keys that open its backlog (where the line can be replayed), records until the voice ends, then presses the keys that close the backlog. Recording needs the Microphone permission, and pressing keys needs Accessibility.",
                 fields: [
                     SettingsField("sentenceAudioEnabled", "Enable sentence audio recording", .checkbox),
                     SettingsField(
                         "sentenceAudioShortcut", "Shortcut", .shortcut,
-                        hint: "Works in any app. Pressed while recording, it stops the recording and keeps it."
+                        hint: "Works in any app. Press it again while recording to stop and keep the recording."
                     ),
                     SettingsField(
                         "sentenceAudioDevice", "Audio input", .audioInput,
-                        hint: "What’s recorded: e.g. a virtual device (Loopback, BlackHole) that the game’s sound goes to."
+                        hint: "What to record, e.g. a virtual device such as Loopback or BlackHole that the game’s sound is sent to."
                     ),
                     SettingsField(
                         "sentenceAudioField", "Sentence audio field", .ankiField,
-                        hint: "The recording goes into this field of the newest card added today, and of the other cards added today with the same sentence, where it’s empty. Their sentence field is the one their Yomitan card format fills with {sentence}."
+                        hint: "The recording goes into this field, if it’s empty, on the newest card added today and on other cards added today with the same sentence (the field your Yomitan card format fills with {sentence})."
                     ),
                     SettingsField("sentenceAudioApp", "Switch to", .select([
                         SettingsOption("captured", "The captured window"),
                         SettingsOption("named", "Another app"),
                         SettingsOption("none", "Don’t switch apps"),
-                    ]), hint: "Before pressing keys, so the game gets them. The captured window is the one chosen in Settings → General, also outside OCR mode."),
+                    ]), hint: "The app to bring to the front so the game gets the keys. The captured window is the one chosen in Settings → General, even outside OCR Mode."),
                     SettingsField(
-                        "sentenceAudioAppName", "App name", .text(), hint: "As the Dock shows it, e.g. Parallels Desktop.",
+                        "sentenceAudioAppName", "App name", .text(), hint: "As shown in the Dock, e.g. Parallels Desktop.",
                         showIf: { $0["sentenceAudioApp"] as? String == "named" }
                     ),
-                    SettingsField("sentenceAudioOpenKeys", "Keys that open the backlog", .keySequence, hint: "Pressed in turn before recording, e.g. to open the backlog and replay the line’s voice."),
-                    SettingsField("sentenceAudioCloseKeys", "Keys that close the backlog", .keySequence, hint: "Pressed in turn after recording."),
-                    SettingsField("sentenceAudioKeyDelay", "Wait before pressing keys (in milliseconds)", .number(min: 0), hint: "After switching apps, until the game takes keys."),
+                    SettingsField("sentenceAudioOpenKeys", "Keys that open the backlog", .keySequence, hint: "Pressed one after another before recording, e.g. to open the backlog and replay the line’s voice."),
+                    SettingsField("sentenceAudioCloseKeys", "Keys that close the backlog", .keySequence, hint: "Pressed one after another after recording."),
+                    SettingsField("sentenceAudioKeyDelay", "Wait before pressing keys (in milliseconds)", .number(min: 0), hint: "Gives the game time to accept keys after switching to it."),
                     SettingsField("sentenceAudioKeyInterval", "Wait between keys (in milliseconds)", .number(min: 0)),
                     SettingsField("sentenceAudioKeyHold", "Hold each key for (in milliseconds)", .number(min: 0)),
-                    SettingsField("sentenceAudioRecordDelay", "Wait before recording (in milliseconds)", .number(min: 0), hint: "After the keys, e.g. until the backlog’s own sounds are over. Not used with “Detect when the voice starts and ends”, which waits for the voice instead."),
+                    SettingsField("sentenceAudioRecordDelay", "Wait before recording (in milliseconds)", .number(min: 0), hint: "After the keys, e.g. to skip the backlog’s own sounds. Not used with “Detect when the voice starts and ends”, which waits for the voice instead."),
                     SettingsField(
                         "sentenceAudioDetectVoice", "Detect when the voice starts and ends", .checkbox,
-                        hint: "Detects speech (not music or sound effects) with macOS’s sound classifier: recording stops when the voice ends, and only the voice is kept. Off: press the shortcut again to stop."
+                        hint: "Listens for speech (not music or sound effects): recording stops when the voice ends, and only the voice is kept. When off, press the shortcut again to stop."
                     ),
                     SettingsField(
                         "sentenceAudioVoiceWait", "Wait for the voice for (in seconds)", .number(min: 1),
@@ -597,12 +597,12 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "sentenceAudioPause", "The voice has ended after (in milliseconds)", .number(min: 100),
-                        hint: "Without speech: recording stops then (or after the padding below, if it’s longer). Raise it if lines are cut off at pauses.",
+                        hint: "How long a silence ends the voice. Raise it if lines get cut off at pauses.",
                         showIf: { $0["sentenceAudioDetectVoice"] as? Bool ?? true }
                     ),
                     SettingsField(
                         "sentenceAudioPadding", "Detected voice padding (in milliseconds)", .number(min: 0),
-                        hint: "Kept before the voice starts and after it ends.",
+                        hint: "Extra audio kept before the voice starts and after it ends.",
                         showIf: { $0["sentenceAudioDetectVoice"] as? Bool ?? true }
                     ),
                     SettingsField("sentenceAudioMaxLength", "Record at most (in seconds)", .number(min: 1)),
@@ -612,19 +612,19 @@ enum SettingsSchema {
             ),
             SettingsSection(
                 title: "Permissions", symbol: "lock.shield",
-                description: "What MacPopup needs macOS’s permission for. Each one is only asked for when it’s first needed, or here. A permission turned off in System Settings can only be turned on again there.",
+                description: "What MacPopup needs macOS’s permission for. Each one is asked for only when it’s first needed, or from here. A permission turned off in System Settings can only be turned back on there.",
                 fields: [
                     SettingsField(
                         "permission.screenRecording", "Screen Recording", .permission(.screenRecording),
-                        hint: "For OCR Mode (choosing and reading the captured window) and for screenshots on Anki cards ({screenshot}). macOS may ask to reopen MacPopup once it’s granted."
+                        hint: "For OCR Mode and for screenshots on Anki cards ({screenshot}). macOS may ask you to reopen MacPopup after granting it."
                     ),
                     SettingsField(
                         "permission.microphone", "Microphone", .permission(.microphone),
-                        hint: "For Anki Sentence Audio: recording its audio input, also a virtual device such as Loopback or BlackHole."
+                        hint: "For Anki Sentence Audio, to record its audio input."
                     ),
                     SettingsField(
                         "permission.accessibility", "Accessibility", .permission(.accessibility),
-                        hint: "For Anki Sentence Audio: pressing the keys that open and close the game’s backlog, and bringing the captured window to the front."
+                        hint: "For Anki Sentence Audio, to press the keys that open and close the game’s backlog and to bring the game to the front."
                     ),
                 ]
             ),

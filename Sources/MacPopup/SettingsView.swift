@@ -908,7 +908,7 @@ private struct ReplacementRow: View {
         ("i", "Ignore case"),
         ("m", "Multiline: ^ and $ match at line breaks"),
         ("s", "Dot all: . matches line breaks too"),
-        ("u", "Unicode: \\u{…}, \\p{…} and characters outside the BMP"),
+        ("u", "Unicode: enables \\u{…} and \\p{…}, and treats emoji as single characters"),
     ]
 
     let item: [String: Any]
@@ -1076,8 +1076,8 @@ private struct AudioSourceRow: View {
                         bordered: true
                     ) { change(.set("url", $0.trimmingCharacters(in: .whitespacesAndNewlines))) }
                     Text(type == "custom"
-                        ? "{term}, {reading} and {language} are replaced by the word, its reading and its language (ja)."
-                        : "{term}, {reading} and {language} are replaced as for Custom URL. The URL returns {\"type\": \"audioSourceList\", \"audioSources\": [{\"url\", \"name\"}]}, e.g. a local audio server.")
+                        ? "{term}, {reading} and {language} are replaced with the word, its reading and its language (e.g. ja)."
+                        : "{term}, {reading} and {language} are replaced as for Custom URL. The URL returns a list of audio files in Yomitan’s format, e.g. from a local audio server.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 case "text-to-speech", "text-to-speech-reading":
@@ -1087,7 +1087,7 @@ private struct AudioSourceRow: View {
                         ForEach(voices, id: \.value) { Text($0.label).tag($0.value) }
                     }
                     .fixedSize()
-                    Text("Not supported in Anki: text-to-speech can be played, but not added to cards.")
+                    Text("Text-to-speech can be played, but not added to Anki cards.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 default:
@@ -1440,7 +1440,7 @@ private struct HotkeyRow: View {
                     .help("Remove")
             }
             if isDuplicate {
-                Text("The same keys as a shortcut above, which is used instead.").font(.caption).foregroundStyle(.red)
+                Text("A shortcut above already uses these keys, and takes priority.").font(.caption).foregroundStyle(.red)
             } else if let combination, combination.keyCode == nil {
                 Text("\(combination.key) isn’t a key MacPopup can use.").font(.caption).foregroundStyle(.red)
             }

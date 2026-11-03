@@ -374,7 +374,7 @@ private final class PickerView: NSView {
             border.stroke()
             instructions = picker.regions.isEmpty
                 ? "Drag over the dialogue to read only the parts with text (optional), or click Done to read the whole window"
-                : "Drag over other parts with text (read as soon as they change, without the WebSocket line), or click Done"
+                : "Drag over other parts with text, such as menus (read as soon as they change), or click Done"
         }
 
         let menuBar = window?.screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0
