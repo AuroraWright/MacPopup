@@ -94,6 +94,7 @@ export const defaultSettings = {
 	ocrEngine: 'liveText',
 	ocrLanguage: 'ja-JP',
 	ocrResolution: 'auto',
+	ocrStripFurigana: true,
 	// Percentage of the watched area that has to change before the window is read again.
 	ocrChangeThreshold: 0.3,
 	ocrPollInterval: 500,

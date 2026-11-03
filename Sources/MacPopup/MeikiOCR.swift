@@ -2,14 +2,6 @@ import CoreGraphics
 import CoreML
 import Foundation
 
-/// A line of recognized text. Boxes are normalized to the image (0–1, origin at the top left).
-struct RecognizedLine {
-    var text: String
-    var box: CGRect
-    /// Its words in order (for Japanese, usually single characters).
-    var words: [(text: String, box: CGRect)]
-}
-
 /// Text recognition with meikiocr's models (https://github.com/rtr46/meikiocr), trained on Japanese game text and
 /// run with Core ML (converted by scripts/convert-meikiocr.py, see vendor/meikiocr). This follows meikiocr/ocr.py:
 /// a detector finds the lines, then a recognizer finds each line's characters (as boxes with a character code).

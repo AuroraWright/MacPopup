@@ -271,6 +271,10 @@ enum SettingsSchema {
                         hint: "Automatic reads windows drawn at 1x (e.g. a VM or a game that isn’t Retina aware, enlarged by macOS) at 1x, which is faster and loses nothing, and others at full Retina resolution. Choose one if text is misread: full resolution for small text, 1x if automatic picks full resolution for a window drawn at 1x."
                     ),
                     SettingsField(
+                        "ocrStripFurigana", "Strip furigana", .checkbox,
+                        hint: "Leaves out the readings printed over kanji (to their right in vertical text), which are recognized as lines of their own: small text without kanji, right next to kanji in a larger line."
+                    ),
+                    SettingsField(
                         "ocrUseWebsocket", "Use WebSocket lines", .checkbox,
                         hint: "While a WebSocket is connected, its new lines also trigger reading the window, and recognized text that matches the line (or a part of it, e.g. a page of a long line) is replaced by it. Without a connection, the window is read as with this off."
                     ),

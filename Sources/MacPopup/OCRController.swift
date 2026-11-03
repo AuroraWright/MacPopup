@@ -164,9 +164,12 @@ final class OCRController {
             return
         }
         guard isEnabled, !isPicking else { return }
-        if engine != startedEngine {
-            startedEngine = engine
-            Task { [weak self] in await self?.warmUp() }
+        if engine != startedEngine || stripsFurigana != startedStripsFurigana {
+            if engine != startedEngine {
+                startedEngine = engine
+                Task { [weak self] in await self?.warmUp() }
+            }
+            startedStripsFurigana = stripsFurigana
             readAgain()
         }
         // The window or areas were changed elsewhere (e.g. the settings were reset or imported, or the
@@ -252,6 +255,7 @@ final class OCRController {
         trackTimer = timer
         trackWindow()
         startedEngine = engine
+        startedStripsFurigana = stripsFurigana
         loopTask = Task { [weak self] in
             await self?.warmUp()
             await self?.runLoop()
@@ -795,6 +799,13 @@ final class OCRController {
                 send(["type": "error", "message": error.localizedDescription])
                 return false
             }
+            if let debugDirectory {
+                // What the engine read, before the layout: boxes normalized to the crop.
+                let rect = { (box: CGRect) in [box.minX, box.minY, box.width, box.height] }
+                let raw = items.map { ["text": $0.text, "box": rect($0.box), "words": $0.words.map { [$0.text] + rect($0.box).map { $0 as Any } }] as [String: Any] }
+                let url = URL(fileURLWithPath: debugDirectory).appendingPathComponent("read-\(debugReadings)-area\(index).json")
+                try? JSONSerialization.data(withJSONObject: raw).write(to: url)
+            }
             // The boxes are normalized to the crop; convert them to window points.
             let toWindow = { (box: CGRect) -> CGRect in
                 CGRect(
@@ -807,8 +818,10 @@ final class OCRController {
             let layoutStarted = Date()
             let gray = GrayImage(crop)
             let size = CGSize(width: crop.width, height: crop.height)
-            areaLines[index] = items.map {
-                var line = Self.encodeLine($0, image: gray, size: size, toWindow: toWindow)
+            var lines = items.map { OCRLayout.layOut($0, image: gray, size: size, toWindow: toWindow) }
+            if stripsFurigana { lines = OCRLayout.removingFurigana(lines) }
+            areaLines[index] = lines.map {
+                var line = Self.encode($0)
                 line["area"] = index
                 return line
             }
@@ -858,6 +871,14 @@ final class OCRController {
     private var engine: Engine {
         Engine(rawValue: settings["ocrEngine"] as? String ?? "") ?? .liveText
     }
+
+    /// Whether furigana are left out of readings (see OCRLayout.removingFurigana).
+    private var stripsFurigana: Bool {
+        settings["ocrStripFurigana"] as? Bool ?? true
+    }
+
+    /// stripsFurigana when OCR mode started or it last changed.
+    private var startedStripsFurigana: Bool?
 
     private func recognizeText(_ image: CGImage) async throws -> [RecognizedLine] {
         switch engine {
@@ -926,75 +947,13 @@ final class OCRController {
         }
     }
 
-    /// A line with one box per character. The engines give boxes per word (Live Text: single characters
-    /// for Japanese; meikiocr and Screen AI: always characters); longer words are divided evenly, and the spaces between
-    /// words fill the gaps. Lines of evenly spaced full-width text are then snapped to their cells (see
-    /// OCRLayout).
-    /// - Parameters:
-    ///   - image: The image that was read, whose pixels the line's normalized boxes refer to.
-    ///   - toWindow: Converts a box normalized to `image` to window points.
-    private static func encodeLine(_ line: RecognizedLine, image: GrayImage?, size: CGSize, toWindow: (CGRect) -> CGRect) -> [String: Any] {
-        // Work in image pixels, which keep the aspect ratio.
-        let toPixels = { (box: CGRect) in
-            CGRect(x: box.minX * size.width, y: box.minY * size.height, width: box.width * size.width, height: box.height * size.height)
-        }
-        let lineBox = toPixels(line.box)
-        let wordBoxes = line.words.map { toPixels($0.box) }
-        let isVertical: Bool = {
-            if let first = wordBoxes.first, let last = wordBoxes.last, wordBoxes.count > 1 {
-                return abs(last.midY - first.midY) > abs(last.midX - first.midX)
-            }
-            return lineBox.height > lineBox.width * 1.5
-        }()
-        var chars: [OCRLayout.Char] = []
-        func add(_ text: String, in box: CGRect) {
-            let characters = text.map(String.init)
-            guard !characters.isEmpty else { return }
-            let count = CGFloat(characters.count)
-            for (index, character) in characters.enumerated() {
-                let i = CGFloat(index)
-                let rect = isVertical
-                    ? CGRect(x: box.minX, y: box.minY + box.height * i / count, width: box.width, height: box.height / count)
-                    : CGRect(x: box.minX + box.width * i / count, y: box.minY, width: box.width / count, height: box.height)
-                chars.append(OCRLayout.Char(text: character, box: rect))
-            }
-        }
-        if line.words.isEmpty {
-            add(line.text, in: lineBox)
-        } else {
-            var remaining = Substring(line.text)
-            var previous: CGRect?
-            for (word, box) in zip(line.words, wordBoxes) {
-                if let range = remaining.range(of: word.text) {
-                    // Text between words (spaces) goes in the gap between their boxes.
-                    let between = String(remaining[remaining.startIndex..<range.lowerBound])
-                    if !between.isEmpty, let previous {
-                        let gap = isVertical
-                            ? CGRect(x: box.minX, y: previous.maxY, width: box.width, height: max(1, box.minY - previous.maxY))
-                            : CGRect(x: previous.maxX, y: box.minY, width: max(1, box.minX - previous.maxX), height: box.height)
-                        add(between, in: gap)
-                    }
-                    remaining = remaining[range.upperBound...]
-                }
-                add(word.text, in: box)
-                previous = box
-            }
-        }
-        if let image, let snapped = OCRLayout.snapToGrid(chars, line: lineBox, vertical: isVertical, image: image) {
-            chars = snapped
-        }
-        func toWindowFromPixels(_ box: CGRect) -> CGRect {
-            toWindow(CGRect(x: box.minX / size.width, y: box.minY / size.height, width: box.width / size.width, height: box.height / size.height))
-        }
-        let windowLine = toWindow(line.box)
-        return [
-            "text": chars.map(\.text).joined(),
-            "x": windowLine.minX, "y": windowLine.minY, "width": windowLine.width, "height": windowLine.height,
-            "vertical": isVertical,
-            "chars": chars.map { char -> [Any] in
-                let box = toWindowFromPixels(char.box)
-                return [char.text, box.minX, box.minY, box.width, box.height]
-            },
+    /// A line as the page gets it.
+    private static func encode(_ line: OCRLayout.Line) -> [String: Any] {
+        [
+            "text": line.text,
+            "x": line.box.minX, "y": line.box.minY, "width": line.box.width, "height": line.box.height,
+            "vertical": line.vertical,
+            "chars": line.chars.map { [$0.text, $0.box.minX, $0.box.minY, $0.box.width, $0.box.height] as [Any] },
         ]
     }
 

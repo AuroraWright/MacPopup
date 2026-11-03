@@ -1,6 +1,14 @@
 import CoreGraphics
 import Foundation
 
+/// A line of recognized text. Boxes are normalized to the image (0–1, origin at the top left).
+struct RecognizedLine {
+    var text: String
+    var box: CGRect
+    /// Its words in order (for Japanese, usually single characters).
+    var words: [(text: String, box: CGRect)]
+}
+
 /// A grayscale copy of a captured image, for measuring where text actually is.
 struct GrayImage {
     let width: Int
@@ -72,8 +80,84 @@ struct GrayImage {
 enum OCRLayout {
     struct Char {
         var text: String
-        /// In image pixels.
+        /// In image pixels, or window points in a Line.
         var box: CGRect
+    }
+
+    /// A recognized line, in window points.
+    struct Line {
+        var text: String
+        var box: CGRect
+        var vertical: Bool
+        var chars: [Char]
+    }
+
+    /// A line with one box per character, in window points. The engines give boxes per word (Live Text: single characters
+    /// for Japanese; meikiocr and Screen AI: always characters); longer words are divided evenly, and the spaces between
+    /// words fill the gaps. Lines of evenly spaced full-width text are then snapped to their cells (see
+    /// snapToGrid).
+    /// - Parameters:
+    ///   - image: The image that was read, whose pixels the line's normalized boxes refer to.
+    ///   - toWindow: Converts a box normalized to `image` to window points.
+    static func layOut(_ line: RecognizedLine, image: GrayImage?, size: CGSize, toWindow: (CGRect) -> CGRect) -> Line {
+        // Work in image pixels, which keep the aspect ratio.
+        let toPixels = { (box: CGRect) in
+            CGRect(x: box.minX * size.width, y: box.minY * size.height, width: box.width * size.width, height: box.height * size.height)
+        }
+        let lineBox = toPixels(line.box)
+        let wordBoxes = line.words.map { toPixels($0.box) }
+        let isVertical: Bool = {
+            if let first = wordBoxes.first, let last = wordBoxes.last, wordBoxes.count > 1 {
+                return abs(last.midY - first.midY) > abs(last.midX - first.midX)
+            }
+            return lineBox.height > lineBox.width * 1.5
+        }()
+        var chars: [Char] = []
+        func add(_ text: String, in box: CGRect) {
+            let characters = text.map(String.init)
+            guard !characters.isEmpty else { return }
+            let count = CGFloat(characters.count)
+            for (index, character) in characters.enumerated() {
+                let i = CGFloat(index)
+                let rect = isVertical
+                    ? CGRect(x: box.minX, y: box.minY + box.height * i / count, width: box.width, height: box.height / count)
+                    : CGRect(x: box.minX + box.width * i / count, y: box.minY, width: box.width / count, height: box.height)
+                chars.append(Char(text: character, box: rect))
+            }
+        }
+        if line.words.isEmpty {
+            add(line.text, in: lineBox)
+        } else {
+            var remaining = Substring(line.text)
+            var previous: CGRect?
+            for (word, box) in zip(line.words, wordBoxes) {
+                if let range = remaining.range(of: word.text) {
+                    // Text between words (spaces) goes in the gap between their boxes.
+                    let between = String(remaining[remaining.startIndex..<range.lowerBound])
+                    if !between.isEmpty, let previous {
+                        let gap = isVertical
+                            ? CGRect(x: box.minX, y: previous.maxY, width: box.width, height: max(1, box.minY - previous.maxY))
+                            : CGRect(x: previous.maxX, y: box.minY, width: max(1, box.minX - previous.maxX), height: box.height)
+                        add(between, in: gap)
+                    }
+                    remaining = remaining[range.upperBound...]
+                }
+                add(word.text, in: box)
+                previous = box
+            }
+        }
+        if let image, let snapped = snapToGrid(chars, line: lineBox, vertical: isVertical, image: image) {
+            chars = snapped
+        }
+        func toWindowFromPixels(_ box: CGRect) -> CGRect {
+            toWindow(CGRect(x: box.minX / size.width, y: box.minY / size.height, width: box.width / size.width, height: box.height / size.height))
+        }
+        return Line(
+            text: chars.map(\.text).joined(),
+            box: toWindow(line.box),
+            vertical: isVertical,
+            chars: chars.map { Char(text: $0.text, box: toWindowFromPixels($0.box)) }
+        )
     }
 
     static func isFullWidth(_ text: String) -> Bool {
@@ -81,8 +165,10 @@ enum OCRLayout {
         return scalar >= 0x2000 && !(0xFF61...0xFF9F).contains(scalar)
     }
 
-    /// Returns the characters moved to the line's cells, or nil if the line doesn't look like evenly
-    /// spaced full-width text (then Live Text's boxes are kept).
+    /// Returns the characters moved to the line's cells, or nil if the line doesn't look like full-width
+    /// text (then the engine's boxes are kept). When the cells can't be found (e.g. the glyphs are too
+    /// unevenly spaced, or the engine's line box takes in too much else), the boxes are only narrowed
+    /// across the line to where the text's strokes are.
     ///
     /// Whitespace takes no cell of its own: OCR puts spaces between words where the text has none (OneOCR
     /// around an ellipsis, e.g. "「 …… 厄介"), and a blank cell is skipped anyway. It goes in the gap
@@ -152,27 +238,73 @@ enum OCRLayout {
         }
         let levels = [percentile(0.98), percentile(0.02)]
 
-        // Where the text's strokes are across the line: Live Text's line box often reaches well past
-        // them (up to twice their thickness).
+        // Where the text's strokes are across the line: the engines' line boxes often reach well past
+        // them (Live Text's up to twice their thickness), and can take in the furigana over the line or
+        // what's next to it. Those are beyond a gap without ink, which the line's own glyphs together
+        // never leave, so the part with the most ink between such gaps is the line's.
         func strokes(level: Int) -> (first: Int, last: Int)? {
             let energy = (c0...c1).map { c in
                 stride(from: a0, through: a1, by: 2).reduce(0) { $0 + (abs(pixel($1, c) - level) <= 32 ? 1 : 0) }
             }
-            let peak = energy.max() ?? 0
-            guard peak > 0, let first = energy.firstIndex(where: { Double($0) > Double(peak) * 0.12 }),
-                  let last = energy.lastIndex(where: { Double($0) > Double(peak) * 0.12 }),
+            let peak = Double(energy.max() ?? 0)
+            guard peak > 0 else { return nil }
+            var parts: [ClosedRange<Int>] = []
+            var start: Int?
+            for (index, value) in energy.enumerated() {
+                if Double(value) > peak * 0.03 {
+                    if start == nil { start = index }
+                } else if let first = start {
+                    parts.append(first...(index - 1))
+                    start = nil
+                }
+            }
+            if let start { parts.append(start...(energy.count - 1)) }
+            let ink = { (part: ClosedRange<Int>) in part.reduce(0) { $0 + energy[$1] } }
+            guard let part = parts.max(by: { ink($0) < ink($1) }),
+                  let first = part.first(where: { Double(energy[$0]) > peak * 0.12 }),
+                  let last = part.last(where: { Double(energy[$0]) > peak * 0.12 }),
                   last - first >= crossSize / 3 else { return nil }
             return (c0 + first, c0 + last)
         }
 
+        // Without cells: the boxes across the line cover the strokes of the text's color, which is the one
+        // that doesn't fill the whole line box (the other one is the background's).
+        func narrowed() -> [Char]? {
+            guard let band = levels.compactMap({ strokes(level: $0) }).min(by: { $0.last - $0.first < $1.last - $1.first }),
+                  band.last - band.first < crossSize * 9 / 10 else { return nil }
+            return chars.map { char in
+                var box = char.box
+                if vertical {
+                    box.origin.x = CGFloat(band.first)
+                    box.size.width = CGFloat(band.last + 1 - band.first)
+                } else {
+                    box.origin.y = CGFloat(band.first)
+                    box.size.height = CGFloat(band.last + 1 - band.first)
+                }
+                return Char(text: char.text, box: box)
+            }
+        }
+
+        // How many cells the characters take at least (a run of dots, dashes or tildes one).
+        var cells = 0.0
+        for (index, char) in chars.enumerated() {
+            let kind = lookalikeKind(char.text)
+            if kind == nil || index == 0 || kind != lookalikeKind(chars[index - 1].text) { cells += isFullWidth(char.text) ? 1 : 0.5 }
+        }
+        // The line box only reaches the ink, which punctuation at either end has in a part of its cell.
+        let isPunctuation = { (char: Char) in char.text.unicodeScalars.allSatisfy { CharacterSet.punctuationCharacters.contains($0) } }
+        cells -= 0.7 * Double([chars.first, chars.last].compactMap { $0 }.filter(isPunctuation).count)
+
         var best: (score: Double, pitch: Double, phase: Double, level: Int)?
         for level in levels {
-            // Pixels of the text's color in each column across the line (rows for vertical text).
+            // Pixels of the text's color in each column across the line (rows for vertical text), only
+            // where its strokes are.
             let ink = { (a: Int, c: Int) in abs(pixel(a, c) - level) <= 32 }
+            let band = strokes(level: level).map { $0.first...$0.last } ?? c0...(c1 - 1)
             var raw = [Double](repeating: 0, count: a1 - a0 + 1)
             for a in a0...a1 {
                 var count = 0
-                for c in c0..<c1 where ink(a, c) { count += 1 }
+                for c in band where ink(a, c) { count += 1 }
                 raw[a - a0] = Double(count)
             }
             let energy = raw.indices.map { index in
@@ -183,11 +315,13 @@ enum OCRLayout {
             guard mean > 0 else { continue }
 
             // The cell size and offset whose boundaries fall in the gaps. Full-width cells are about
-            // as long as the text is thick.
+            // as long as the text is thick (kana and flat kanji like 一 less), and the line has at least
+            // about as many cells as characters (fewer only where a run of dots or dashes was read as
+            // more characters than are drawn): a size of several cells can fit the gaps too.
             let length = Double(a1 - a0)
-            let thickness = strokes(level: level).map { Double($0.last - $0.first + 1) } ?? Double(crossSize)
+            let thickness = Double(band.count)
             var pitch = thickness * 0.6
-            while pitch <= thickness * 1.3 {
+            while pitch <= min(thickness * 1.5, length / cells * 1.2) {
                 if length / pitch >= 2.5 {
                     var phase = 0.0
                     while phase < pitch {
@@ -206,7 +340,7 @@ enum OCRLayout {
                 pitch += max(0.25, pitch / 400)
             }
         }
-        guard let best, best.score < 0.25 else { return nil }
+        guard let best, best.score < 0.25 else { return narrowed() }
         let length = Double(a1 - a0)
 
         // Assign the characters to half-cells in order (a half-width character takes one, a full-width
@@ -220,16 +354,18 @@ enum OCRLayout {
         let widths = chars.map { isFullWidth($0.text) ? 2 : 1 }
         let starts = chars.map { vertical ? Double($0.box.minY) : Double($0.box.minX) }
         let ends = chars.map { vertical ? Double($0.box.maxY) : Double($0.box.maxX) }
+        let strokeBand = strokes(level: best.level)
+        let band = strokeBand.map { $0.first...$0.last } ?? c0...(c1 - 1)
         let unitInk = (0..<units).map { unit -> Bool in
             let start = max(Int(origin + Double(unit) * half), a0), end = max(min(Int(origin + Double(unit + 1) * half), a1), start)
             var count = 0
             for a in start..<end {
-                for c in stride(from: c0, to: c1, by: 2) where abs(pixel(a, c) - best.level) <= 32 { count += 1 }
+                for c in stride(from: band.lowerBound, through: band.upperBound, by: 2) where abs(pixel(a, c) - best.level) <= 32 { count += 1 }
             }
             // Thin glyphs (an ellipsis's dots, a closing bracket) have little ink in a half-cell.
-            return Double(count) > Double(crossSize) * 0.015 * half / 2
+            return Double(count) > Double(band.count) * 0.015 * half / 2
         }
-        guard !chars.isEmpty, units > 0 else { return nil }
+        guard !chars.isEmpty, units > 0 else { return narrowed() }
         // A run of dots, dashes or tildes is one item, which takes from one cell up to one per character:
         // Live Text often reads an ellipsis or a long dash as more characters than the cells it's drawn
         // in (e.g. "……" as seven "・"). As when matching WebSocket lines (see web/src/lib/ocr-layer.js).
@@ -346,11 +482,11 @@ enum OCRLayout {
                 assignment = candidate
             }
         }
-        guard let assignment else { return nil }
+        guard let assignment else { return narrowed() }
 
         // Across the line, keep only the part with strokes. Only ever shrink it: beyond it are the
         // neighboring lines.
-        let cross = strokes(level: best.level).map { (Double($0.first), Double($0.last + 1)) } ?? (Double(c0), Double(c1))
+        let cross = strokeBand.map { (Double($0.first), Double($0.last + 1)) } ?? (Double(c0), Double(c1))
 
         // The characters of a run share its cells evenly.
         var result: [Char] = []

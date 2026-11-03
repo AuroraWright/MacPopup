@@ -150,6 +150,9 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
   Only the chosen areas are captured, and a window drawn at 1x
   (e.g. a VM or a game that isn't Retina aware) is read at 1x, which is faster ("Read at" in
   Settings overrides this).
+- Furigana are left out of the recognized text (**Strip furigana**, on by default): lines of small
+  text without kanji right next to kanji in a larger line, above them (to their right in vertical
+  text). A speaker's name over the text is further away and kept.
 - MacPopup watches the window (or the chosen areas) and reads it again when
   more than the change threshold of it changes. Small changes like a blinking cursor stay under the
   threshold, and so do spots that changed while the text stayed the same (e.g. a blinking "next"
