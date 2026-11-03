@@ -103,8 +103,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         panel.message = "Choose the zip made by \(kind.script)."
         panel.allowedContentTypes = [.zip]
         panel.canChooseDirectories = false
-        panel.level = NSWindow.Level(rawValue: (window?.level.rawValue ?? 0) + 1)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard runModal(panel) == .OK, let url = panel.url else { return }
         let models = ConvertedModelsStatus.shared(kind)
         models.busy = true
         Task {
@@ -144,8 +143,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         panel.message = message
         panel.allowedContentTypes = [.json]
         panel.canChooseDirectories = false
-        panel.level = NSWindow.Level(rawValue: (window?.level.rawValue ?? 0) + 1)
-        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        guard runModal(panel) == .OK, let url = panel.url else { return nil }
         do {
             return try String(contentsOf: url, encoding: .utf8)
         } catch {
@@ -175,9 +173,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         _ = runModal(alert)
     }
 
-    /// Above the Settings window, which floats above the overlay.
+    /// As a sheet on the Settings window, which floats above the overlay: runModal puts alerts and file panels at
+    /// the modal panel level, under it.
     private func runModal(_ alert: NSAlert) -> NSApplication.ModalResponse {
-        alert.window.level = NSWindow.Level(rawValue: (window?.level.rawValue ?? 0) + 1)
-        return alert.runModal()
+        guard let window, window.isVisible else { return alert.runModal() }
+        alert.beginSheetModal(for: window) { NSApp.stopModal(withCode: $0) }
+        return NSApp.runModal(for: alert.window)
+    }
+
+    private func runModal(_ panel: NSOpenPanel) -> NSApplication.ModalResponse {
+        guard let window, window.isVisible else { return panel.runModal() }
+        panel.beginSheetModal(for: window) { NSApp.stopModal(withCode: $0) }
+        return NSApp.runModal(for: panel)
     }
 }
