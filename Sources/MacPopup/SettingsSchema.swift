@@ -607,7 +607,6 @@ enum SettingsSchema {
                     ),
                     SettingsField("sentenceAudioMaxLength", "Record at most (in seconds)", .number(min: 1)),
                     SettingsField("sentenceAudioPlay", "Play the recording after adding it", .checkbox),
-                    SettingsField("sentenceAudioBrowse", "Show the cards in Anki’s card browser", .checkbox),
                 ]
             ),
             SettingsSection(

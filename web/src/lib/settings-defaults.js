@@ -270,6 +270,4 @@ export const defaultSettings = {
 	// In seconds.
 	sentenceAudioMaxLength: 60,
 	sentenceAudioPlay: true,
-	// Show the cards in Anki's card browser afterwards.
-	sentenceAudioBrowse: true,
 };

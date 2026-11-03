@@ -267,8 +267,8 @@ shortcut that works in any app:
 4. The recording goes into the sentence audio field (chosen from your note types' fields) of the
    newest card added today, and of the other cards added today with the same sentence (ignoring
    formatting) whose field is empty. Their sentence is the field their Yomitan card format fills
-   with `{sentence}` (or the sentence with furigana, or a cloze). They're
-   shown in Anki's card browser, and the recording is played (both optional).
+   with `{sentence}` (or the sentence with furigana, or a cloze). The recording is then played
+   (optional).
 
 Recording needs Microphone permission, and pressing keys needs Accessibility permission (System
 Settings → Privacy & Security), which macOS asks for the first time.

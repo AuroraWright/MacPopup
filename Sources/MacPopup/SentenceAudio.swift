@@ -298,18 +298,10 @@ final class SentenceAudioController {
         let stored = try await AnkiConnect.invoke(
             "storeMediaFile", ["filename": url.lastPathComponent, "data": data.base64EncodedString()], settings: settings
         ) as? String ?? url.lastPathComponent
-        let browse = settings["sentenceAudioBrowse"] as? Bool ?? true
-        // A note shown in the browser's editor would keep its old fields (AnkiConnect's known issue),
-        // so the browser shows none while they change.
-        if browse { _ = try? await AnkiConnect.invoke("guiBrowse", ["query": "nid:1"], settings: settings) }
         for note in targets {
             _ = try await AnkiConnect.invoke(
                 "updateNoteFields", ["note": ["id": noteId(note), "fields": [audioField: "[sound:\(stored)]"]]], settings: settings
             )
-        }
-        if browse {
-            let query = "nid:" + targets.map { String(noteId($0)) }.joined(separator: ",")
-            _ = try? await AnkiConnect.invoke("guiBrowse", ["query": query], settings: settings)
         }
         return targets.count
     }
