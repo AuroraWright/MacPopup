@@ -225,6 +225,7 @@ export const defaultSettings = {
 	noteGuiMode: 'browse',
 	screenshotFormat: 'jpeg',
 	screenshotQuality: 92,
+	screenshotResolution: '1x',
 	ankiSuspendNewCards: false,
 	ankiForceSync: false,
 	// Tags and flags of existing notes, shown next to their buttons: 'never', 'always', 'non-standard'

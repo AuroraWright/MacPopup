@@ -1250,10 +1250,10 @@ final class OCRController {
         return try await ScreenCapture.image(filter: filter, configuration: configuration)
     }
 
-    /// The captured window (Settings → General), whole and at its display's resolution, for the
+    /// The captured window (Settings → General), whole, at its display's resolution or at 1x, for the
     /// `{screenshot}` Anki marker: only that window, without other windows in front of it or the overlay.
     /// Also when screen OCR mode is off. Nil when no window is set or it isn't on screen.
-    func windowScreenshot() async throws -> CGImage? {
+    func windowScreenshot(fullResolution: Bool) async throws -> CGImage? {
         guard let saved = settings["ocrWindow"] as? [String: Any], let ownerName = saved["ownerName"] as? String else { return nil }
         let title = saved["title"] as? String ?? ""
         let windows = Self.windows(onScreenOnly: true).filter { $0.ownerName == ownerName }
@@ -1262,7 +1262,8 @@ final class OCRController {
         let content = try await ScreenCapture.shareableContent(onScreenWindowsOnly: true)
         guard let window = content.windows.first(where: { $0.windowID == match.id }) else { return nil }
         let display = content.displays.first { $0.frame.contains(match.bounds) }
-        let scale = NSScreen.screens.first { $0.displayID == (display?.displayID ?? overlay.displayID) }?.backingScaleFactor ?? 2
+        let displayScale = NSScreen.screens.first { $0.displayID == (display?.displayID ?? overlay.displayID) }?.backingScaleFactor ?? 2
+        let scale = fullResolution ? displayScale : 1
         return try await Self.captureWindow(window, display: display, bounds: match.bounds, part: CGRect(x: 0, y: 0, width: 1, height: 1), scale: scale)
     }
 

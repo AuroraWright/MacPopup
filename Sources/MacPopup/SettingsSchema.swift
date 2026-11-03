@@ -547,6 +547,11 @@ enum SettingsSchema {
                     SettingsField("noteGuiMode", "Note viewer window", .select([SettingsOption("browse", "Card browser"), SettingsOption("edit", "Note editor")])),
                     SettingsField("screenshotFormat", "Screenshot format", .select([SettingsOption("png", "PNG"), SettingsOption("jpeg", "JPEG")])),
                     SettingsField("screenshotQuality", "Screenshot format (quality %)", .number(min: 0, max: 100)),
+                    SettingsField(
+                        "screenshotResolution", "Screenshot resolution",
+                        .select([SettingsOption("1x", "1x"), SettingsOption("full", "Full resolution")]),
+                        hint: "1x takes screenshots at one pixel per point, as large as they look on a display that isn’t Retina, which keeps them small. Full resolution takes them at the display’s Retina scale, twice as large in each direction."
+                    ),
                 ]
             ),
             SettingsSection(

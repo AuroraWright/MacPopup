@@ -51,7 +51,8 @@ enum ScreenCapture {
     }
 
     /// Captures the display behind the overlay, excluding this app's own windows.
-    static func capture(displayID: CGDirectDisplayID, format: String, quality: Double) async throws -> Data {
+    /// - Parameter fullResolution: At the display's scale, or else at 1x.
+    static func capture(displayID: CGDirectDisplayID, fullResolution: Bool, format: String, quality: Double) async throws -> Data {
         let content = try await shareableContent(onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
             throw BridgeError("Display not found")
@@ -59,7 +60,7 @@ enum ScreenCapture {
         let ownApps = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
         let filter = SCContentFilter(display: display, excludingApplications: ownApps, exceptingWindows: [])
 
-        let scale = NSScreen.screens.first(where: { $0.displayID == displayID })?.backingScaleFactor ?? 2
+        let scale = fullResolution ? NSScreen.screens.first(where: { $0.displayID == displayID })?.backingScaleFactor ?? 2 : 1
         let configuration = SCStreamConfiguration()
         configuration.width = Int(Double(display.width) * scale)
         configuration.height = Int(Double(display.height) * scale)

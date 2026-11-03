@@ -12,7 +12,8 @@ protocol BridgeHost: AnyObject {
     func setOverlayVisible(_ visible: Bool)
     func snapshotOverlay() async throws -> Data
     /// The window being read in screen OCR mode, or nil when there isn't one.
-    func ocrWindowScreenshot() async throws -> CGImage?
+    /// - Parameter fullResolution: At the display's scale, or else at 1x.
+    func ocrWindowScreenshot(fullResolution: Bool) async throws -> CGImage?
     func simulateMouse(x: Double, y: Double, shift: Bool)
     /// As if the sentence audio shortcut was pressed.
     func pressSentenceAudioShortcut()
@@ -72,12 +73,13 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "screenshot":
             let format = body["format"] as? String ?? "jpeg"
             let quality = (body["quality"] as? NSNumber)?.doubleValue ?? 92
+            let fullResolution = body["resolution"] as? String == "full"
             // In screen OCR mode, only the window being read; otherwise the display the overlay is on.
-            if let image = try await host?.ocrWindowScreenshot() {
+            if let image = try await host?.ocrWindowScreenshot(fullResolution: fullResolution) {
                 return try ScreenCapture.encode(image, format: format, quality: quality).base64EncodedString()
             }
             guard let displayID = host?.overlayDisplayID() else { throw BridgeError("No display") }
-            let data = try await ScreenCapture.capture(displayID: displayID, format: format, quality: quality)
+            let data = try await ScreenCapture.capture(displayID: displayID, fullResolution: fullResolution, format: format, quality: quality)
             return data.base64EncodedString()
         case "clipboard":
             let pasteboard = NSPasteboard.general

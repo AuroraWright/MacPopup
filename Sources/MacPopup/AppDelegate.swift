@@ -133,8 +133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         overlay.menuBarHeight
     }
 
-    func ocrWindowScreenshot() async throws -> CGImage? {
-        try await ocr.windowScreenshot()
+    func ocrWindowScreenshot(fullResolution: Bool) async throws -> CGImage? {
+        try await ocr.windowScreenshot(fullResolution: fullResolution)
     }
 
     func snapshotOverlay() async throws -> Data {

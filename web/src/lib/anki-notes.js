@@ -162,7 +162,7 @@ async function resolveLocalMarkers(markers, { dictionaryEntry, content, selectio
 				}
 				case 'screenshot': {
 					const format = settings.screenshotFormat === 'png' ? 'png' : 'jpeg';
-					const data = await nativeCall('screenshot', { format, quality: settings.screenshotQuality });
+					const data = await nativeCall('screenshot', { format, quality: settings.screenshotQuality, resolution: settings.screenshotResolution });
 					const filename = `yomitan_screenshot_${timestamp()}.${format === 'png' ? 'png' : 'jpg'}`;
 					media.push({ filename, data });
 					values.set(marker, `<img src="${filename}" />`);

@@ -231,7 +231,8 @@ markers the API can't know about from the overlay itself:
 - `{document-title}`: the name of the frontmost app
 - `{screenshot}`: the captured window (Settings → General), by itself (no other windows or overlay),
   also outside OCR mode; without one, or while it isn't on screen, the display the overlay is
-  on, without the overlay. This needs Screen Recording permission (System Settings → Privacy & Security).
+  on, without the overlay. At 1x, or at the display's Retina resolution with Screenshot resolution set to
+  Full resolution (Settings → Anki). This needs Screen Recording permission (System Settings → Privacy & Security).
 - `{clipboard-text}`, `{clipboard-image}`, `{popup-selection-text}`
 
 Templates can also read text selected in the popup (`getMedia "popupSelectionText"`), for example
