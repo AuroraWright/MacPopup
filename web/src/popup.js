@@ -412,16 +412,27 @@ class Popup {
 		this.setCurrentEntry(0);
 		document.querySelector('#content-scroll').scrollTop = 0;
 		// As in Yomitan's Display, the first entry is shown without waiting for the rest. The rest follow in
-		// parts of about 50 ms each (Yomitan adds each on its own, but a layout and paint for each one makes
-		// long popups take twice as long to finish here).
-		let sliceStart = 0;
+		// parts of about 30 ms each, counting their layout, which takes longer than making them: the
+		// overlay's pointer updates wait for each part, so leaving the popup for another word isn't held up
+		// until a long popup is done. A part has at most twice the entries of the one before, as an entry
+		// can take much longer than the ones before it. (Yomitan adds each on its own, but a layout and
+		// paint for each one makes long popups take twice as long to finish here.)
+		let partStart = performance.now();
+		let partFirst = 0;
+		let partEnd = 1;
 		for (let i = 0; i < dictionaryEntries.length; ++i) {
-			if (i === 1 || (i > 1 && performance.now() - sliceStart > 50)) {
+			if (i === partEnd) {
 				this.overflowController.flush();
+				// Lays the part out now, to time it.
+				void this.container.offsetHeight;
+				const count = i - partFirst;
+				const perEntry = (performance.now() - partStart) / count;
+				partFirst = i;
+				partEnd = i + Math.max(1, Math.min(2 * count, Math.floor(30 / perEntry)));
 				void this.contentManager.executeMediaRequests();
 				await afterNextPaint();
 				if (token !== this.renderToken) return;
-				sliceStart = performance.now();
+				partStart = performance.now();
 			}
 			const dictionaryEntry = dictionaryEntries[i];
 			const entry = dictionaryEntry.type === 'term'
@@ -442,6 +453,16 @@ class Popup {
 			void this.playAudio(0, 0);
 		}
 		await this.updateAnki(token);
+	}
+
+	/**
+	 * Stops rendering the content and loading its media and Anki notes, e.g. when the popup is hidden: the
+	 * page's other work, such as the next lookup, would wait for them. Showing the popup again sets its
+	 * content again.
+	 */
+	stopRendering() {
+		this.renderToken = null;
+		this.contentManager.unloadAll();
 	}
 
 	updateNavigation() {
@@ -881,7 +902,8 @@ class Popup {
 			if (settings.checkForDuplicates && settings.ankiNoteDupeCheckFirst) {
 				await this.showDuplicateIndicators(token, content, cardFormats, cardFormatIndices);
 			}
-			const notes = await buildFirstFieldNotes(content, cardFormats, cardFormatIndices);
+			const notes = await buildFirstFieldNotes(content, cardFormats, cardFormatIndices, () => token !== this.renderToken);
+			if (notes === null) return;
 			let noteIds;
 			if (settings.checkForDuplicates) {
 				noteIds = await findNoteIds(notes.map(({ note }) => note));

@@ -198,10 +198,13 @@ function getTags() {
 }
 
 /**
- * Renders the first field of each card format for every entry, for duplicate checks.
- * @returns {Promise<{entryIndex: number, cardFormatIndex: number, note: object}[]>}
+ * Renders the first field of each card format for every entry, for duplicate checks. Rendering the
+ * field templates takes up to tens of milliseconds an entry, so the page's other work gets turns in
+ * between, and it stops (null) once `isCanceled` says so.
+ * @param {() => boolean} [isCanceled]
+ * @returns {Promise<?{entryIndex: number, cardFormatIndex: number, note: object}[]>}
  */
-export async function buildFirstFieldNotes(content, cardFormats, cardFormatIndices) {
+export async function buildFirstFieldNotes(content, cardFormats, cardFormatIndices, isCanceled = () => false) {
 	const firstFields = cardFormatIndices.map((cardFormatIndex) => {
 		const cardFormat = cardFormats[cardFormatIndex];
 		const [name] = Object.keys(cardFormat.fields);
@@ -221,7 +224,13 @@ export async function buildFirstFieldNotes(content, cardFormats, cardFormatIndic
 		: { fields: [] };
 
 	const results = [];
+	let sliceStart = performance.now();
 	for (let entryIndex = 0; entryIndex < content.dictionaryEntries.length; ++entryIndex) {
+		if (performance.now() - sliceStart > 15) {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			sliceStart = performance.now();
+		}
+		if (isCanceled()) return null;
 		const { values } = await resolveLocalMarkers(
 			markers.filter((marker) => localMarkers.has(marker)),
 			{ dictionaryEntry: content.dictionaryEntries[entryIndex], content, deferred: false },

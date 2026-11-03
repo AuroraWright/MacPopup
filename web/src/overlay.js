@@ -603,6 +603,7 @@ class PopupManager {
 		popup.api?.stopAudio();
 		popup.api?.closeAudioMenus();
 		popup.api?.clearScan();
+		popup.api?.stopRendering();
 		popup.api?.setPointerHover(null, null);
 		updateHotkeys();
 		if (depth === 0) {
