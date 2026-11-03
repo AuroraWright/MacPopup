@@ -44,6 +44,7 @@ public final class ScreenAIEngine: @unchecked Sendable {
     private let resources: Resources
     private let detector: TextDetector
     private let recognizer: LineRecognizer
+    private let layoutModel: LayoutModel
     /// One OCR call at a time.
     private let lock = NSLock()
 
@@ -52,19 +53,42 @@ public final class ScreenAIEngine: @unchecked Sendable {
         resources = Resources(root: modelsDirectory)
         detector = try TextDetector(resources: resources)
         recognizer = try LineRecognizer(resources: resources)
+        layoutModel = try LayoutModel(resources: resources)
     }
 
     /// The layout after each stage, as goodoc.PageLayoutProto (named like the C++ port's SCREENAI_STAGE_DUMP files:
-    /// "001_rec_in" is the detector's output, "002_lay_in" the recognizer's; "002_filtered" is the recognizer's after
-    /// the layout analysis' first steps, as the C++ port's run_layout gives it with --step pre, ConfidenceFilter,
-    /// WordPruning, FillSymbolGaps, then CurvedOverlaps).
+    /// "001_rec_in" is the detector's output, "002_lay_in" the recognizer's). The layout analysis' steps follow, as
+    /// the C++ port's run_layout gives them one --step at a time: "002_filtered" after pre, ConfidenceFilter,
+    /// WordPruning, FillSymbolGaps and CurvedOverlaps; "003_sorted" after ClusterSort; "004_lines" after
+    /// EstimateLines and AnalyzerEnd. "003_features" holds ClusterSort's graph network inputs and outputs, as run_layout
+    /// --features writes them.
     public func stageDumps(_ image: CGImage) throws -> [String: [UInt8]] {
         try lock.withLock {
             let gray = try Self.gray(image)
             let (detected, pyramid) = try detector.detect(gray)
             let recognized = try recognizer.recognize(gray, detected, pyramid: pyramid)
-            return ["001_rec_in": detected.goodocProto(), "002_lay_in": recognized.goodocProto(),
-                    "002_filtered": Self.filtered(recognized).goodocProto()]
+            var layout = Self.filtered(recognized)
+            var dumps = ["001_rec_in": detected.goodocProto(), "002_lay_in": recognized.goodocProto(),
+                         "002_filtered": layout.goodocProto()]
+            let graph = layout.lineGraph()
+            let features = lineNodeFeatures(graph, scale: Float(layout.width))
+            var blob: [UInt8] = []
+            func append<T>(_ v: [T]) { v.withUnsafeBytes { blob += $0 } }
+            append([Int32(graph.lines.count), Int32(graph.edges.count)])
+            append(features)
+            append(graph.edges.map { Int64($0.a) })
+            append(graph.edges.map { Int64($0.b) })
+            if !graph.edges.isEmpty {
+                append(try layoutModel.nodeLogits(senders: graph.edges.map(\.a), receivers: graph.edges.map(\.b),
+                                                  features: features, lines: graph.lines.count))
+            }
+            dumps["003_features"] = blob
+            try layout.clusterSort(layoutModel)
+            dumps["003_sorted"] = layout.goodocProto()
+            layout.estimateLines()
+            layout.recomputeLineTexts()
+            dumps["004_lines"] = layout.goodocProto()
+            return dumps
         }
     }
 
@@ -78,13 +102,22 @@ public final class ScreenAIEngine: @unchecked Sendable {
         return layout
     }
 
-    /// The text lines of the image, in reading order of the detector's paragraphs.
+    /// The layout analysis: the steps above, then reading order and line merging.
+    private func analyzed(_ layout: PageLayout) throws -> PageLayout {
+        var layout = Self.filtered(layout)
+        try layout.clusterSort(layoutModel)
+        layout.estimateLines()
+        layout.recomputeLineTexts()
+        return layout
+    }
+
+    /// The text lines of the image, in reading order.
     public func recognize(_ image: CGImage) throws -> [Line] {
         let layout = try lock.withLock {
             try autoreleasepool {
                 let gray = try Self.gray(image)
                 let (detected, pyramid) = try detector.detect(gray)
-                return Self.filtered(try recognizer.recognize(gray, detected, pyramid: pyramid))
+                return try analyzed(try recognizer.recognize(gray, detected, pyramid: pyramid))
             }
         }
         func box(_ b: RotatedBox) -> Box { Box(left: b.left, top: b.top, width: b.width, height: b.height, angle: b.angle) }

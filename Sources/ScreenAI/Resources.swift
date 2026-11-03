@@ -2,7 +2,8 @@ import Foundation
 
 /// The files of an unpacked models archive (made by scripts/convert-screenai.py): the original's config, label map
 /// and language model files under their original paths (e.g. "gocr/gocr_models/..."), the compiled Core ML models
-/// under "coreml/", and the language identifier's weights under "langid/".
+/// under "coreml/", the language identifier's weights under "langid/" and the layout analysis' graph network under
+/// "layout/".
 struct Resources {
     let root: URL
 

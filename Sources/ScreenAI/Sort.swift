@@ -20,6 +20,38 @@ extension Array {
         }
     }
 
+    /// std::push_heap: the last element joins the heap in front of it (`c` is the heap's less-than).
+    mutating func libcxxPushHeap(by c: (Element, Element) -> Bool) {
+        withoutActuallyEscaping(c) { c in
+            withUnsafeMutableBufferPointer { buf in
+                guard let base = buf.baseAddress else { return }
+                LibcxxSorter(a: base, c: c).siftUp(0, buf.count, buf.count)
+            }
+        }
+    }
+
+    /// std::pop_heap, then removes the top (the greatest under `c`) and returns it.
+    mutating func libcxxPopHeap(by c: (Element, Element) -> Bool) -> Element {
+        withoutActuallyEscaping(c) { c in
+            withUnsafeMutableBufferPointer { buf in
+                guard let base = buf.baseAddress, buf.count > 1 else { return }
+                let s = LibcxxSorter(a: base, c: c)
+                let top = base[0]
+                var hole = s.floydSiftDown(0, buf.count)
+                let back = buf.count - 1
+                if hole == back {
+                    base[hole] = top
+                } else {
+                    base[hole] = base[back]
+                    hole += 1
+                    base[back] = top
+                    s.siftUp(0, hole, hole)
+                }
+            }
+        }
+        return removeLast()
+    }
+
     /// std::stable_sort.
     mutating func stableSort(by c: (Element, Element) -> Bool) {
         let order = indices.sorted { i, j in c(self[i], self[j]) || (!c(self[j], self[i]) && i < j) }

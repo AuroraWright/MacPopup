@@ -3,14 +3,17 @@ import Foundation
 // The first steps of the original's layout analysis (PageLayoutAnalysisMutator), which drop what the recognizer read
 // out of things that aren't text: the mutator's detection confidence pre-step, ConfidenceFilter (lines unlikely to be
 // text), RemoveOverlapsWordPruning (lines and words read again out of a part of another line), FillSymbolGaps (see
-// LayoutSymbolGaps.swift), then RemoveOverlappingWithCurvedBoxes (the same for curved lines). The rest of the
-// analysis (reading order, line merging) is left out; OCRLayout.swift arranges the lines.
+// LayoutSymbolGaps.swift), then RemoveOverlappingWithCurvedBoxes (the same for curved lines). The reading order and
+// line merging follow (LayoutClusterSort.swift, LayoutLines.swift).
 
 extension PageLayout {
     /// Each entity's children, in index order.
     func childLists() -> [[Int]] {
         var children = [[Int]](repeating: [], count: entities.count)
-        for (i, e) in entities.enumerated() where e.parent >= 0 && e.parent < entities.count { children[e.parent].append(i) }
+        for i in entities.indices {
+            let p = entities[i].parent
+            if p >= 0 && p < entities.count { children[p].append(i) }
+        }
         return children
     }
 
@@ -52,23 +55,55 @@ extension PageLayout {
         return String(decoding: bytes, as: UTF8.self)
     }
 
-    /// Removes the marked entities and everything below them, keeping the order of the rest (parents renumbered).
-    mutating func deleteWithDescendants(_ marked: [Bool]) {
+    /// Keeps the entities in `order` (each index once), with parents renumbered (-1 where the parent isn't kept).
+    /// Returns each old index's new one (-1 for those dropped).
+    @discardableResult
+    mutating func reorder(_ order: [Int]) -> [Int] {
+        var newIndex = [Int](repeating: -1, count: entities.count)
+        for (k, i) in order.enumerated() { newIndex[i] = k }
+        if order.count == entities.count {
+            // The same result, copying only the entities that move.
+            let moved = order.indices.filter { order[$0] != $0 }
+            let movers = moved.map { entities[order[$0]] }
+            for (k, i) in moved.enumerated() { entities[i] = movers[k] }
+            for i in entities.indices {
+                let p = entities[i].parent
+                if p < 0 { continue }
+                let q = p < newIndex.count ? newIndex[p] : -1
+                if q != p { entities[i].parent = q }
+            }
+            return newIndex
+        }
+        entities = order.map { i in
+            var e = entities[i]
+            if e.parent >= 0 { e.parent = e.parent < newIndex.count ? newIndex[e.parent] : -1 }
+            return e
+        }
+        return newIndex
+    }
+
+    /// Removes the marked entities and everything below them, keeping the order of the rest (see `reorder`).
+    @discardableResult
+    mutating func deleteWithDescendants(_ marked: [Bool]) -> [Int] {
         let children = childLists()
         var delete = marked
         for i in entities.indices where marked[i] {
             for d in descendants(of: i, children) { delete[d] = true }
         }
-        var newIndex = [Int](repeating: -1, count: entities.count)
-        var kept: [Entity] = []
-        for i in entities.indices where !delete[i] {
-            newIndex[i] = kept.count
-            kept.append(entities[i])
+        return reorder(entities.indices.filter { !delete[$0] })
+    }
+
+    /// ReorderUsingDFS: the roots and everything below them in preorder (children in index order).
+    @discardableResult
+    mutating func reorderUsingDfs() -> [Int] {
+        let children = childLists()
+        var order: [Int] = []
+        var stack = entities.indices.reversed().filter { entities[$0].parent < 0 || entities[$0].parent >= entities.count }
+        while let e = stack.popLast() {
+            order.append(e)
+            stack += children[e].reversed()
         }
-        for i in kept.indices where kept[i].parent >= 0 && kept[i].parent < entities.count {
-            kept[i].parent = newIndex[kept[i].parent]
-        }
-        entities = kept
+        return reorder(order)
     }
 
     /// The mutator's pre-step: a line's detection confidence is the mean score of the detector's raw boxes behind it
@@ -301,7 +336,8 @@ extension PageLayout {
     }
 
     /// DeleteTextEntitiesWithNoSymbols: bottom-up, text entities other than symbols left without children are deleted.
-    mutating func deleteTextEntitiesWithNoSymbols() {
+    @discardableResult
+    mutating func deleteTextEntitiesWithNoSymbols() -> [Int] {
         let children = childLists()
         var delete = [Bool](repeating: false, count: entities.count)
         for i in descendants(children).reversed() {
@@ -309,7 +345,7 @@ extension PageLayout {
             if (e.contentType ?? 0) > 1 || e.type.rawValue > 4 || e.type.rawValue == 1 { continue }
             if children[i].allSatisfy({ delete[$0] }) { delete[i] = true }
         }
-        deleteWithDescendants(delete)
+        return deleteWithDescendants(delete)
     }
 
     // MARK: RemoveOverlappingWithCurvedBoxes
@@ -425,19 +461,25 @@ extension PageLayout {
 
     /// goodoc::RecomputeConfidenceFromDescendants from the roots: each entity's confidence is the mean of the
     /// confidences of the leaves below it.
-    private mutating func recomputeConfidencesFromSymbols() {
+    mutating func recomputeConfidencesFromSymbols() {
         let children = childLists()
-        func recompute(_ e: Int) -> (count: Int, sum: Double) {
-            var n = 0, sum = 0.0
-            for c in children[e] {
-                let r = recompute(c)
-                n += r.count
-                sum = sum + r.sum
-            }
-            if n < 1 { return entities[e].confidence.map { (1, Double($0)) } ?? (0, 0) }
-            entities[e].confidence = Float(sum / Double(n))
-            return (n, sum)
+        for i in entities.indices where entities[i].parent < 0 || entities[i].parent >= entities.count {
+            recomputeConfidence(i, children)
         }
-        for i in entities.indices where entities[i].parent < 0 || entities[i].parent >= entities.count { _ = recompute(i) }
+    }
+
+    /// goodoc::RecomputeConfidenceFromDescendants(e): the mean of the leaves' confidences, set on `e` and the
+    /// entities below it. Returns the number of leaves with a confidence and their sum.
+    @discardableResult
+    mutating func recomputeConfidence(_ e: Int, _ children: [[Int]]) -> (count: Int, sum: Double) {
+        var n = 0, sum = 0.0
+        for c in children[e] {
+            let r = recomputeConfidence(c, children)
+            n += r.count
+            sum = sum + r.sum
+        }
+        if n < 1 { return entities[e].confidence.map { (1, Double($0)) } ?? (0, 0) }
+        entities[e].confidence = Float(sum / Double(n))
+        return (n, sum)
     }
 }

@@ -13,10 +13,10 @@ private let ignoredScripts: Set<String> = [
 /// FillSymbolGapsSpec.minimum_single_symbol_length_as_fraction_of_thickness.
 private let minSingleSymbolLength = 0.3
 
-private let layoutRadToDeg = Float(bitPattern: 0x4265_2EE0)  // 57.295776
+let layoutRadToDeg = Float(bitPattern: 0x4265_2EE0)  // 57.295776
 
 /// roundf, then clamped to the int range.
-private func roundToInt(_ v: Float) -> Int {
+func layoutRoundToInt(_ v: Float) -> Int {
     let r = v.rounded(.toNearestOrAwayFromZero)
     if r >= 2_147_483_648 { return Int(Int32.max) }
     if r <= -2_147_483_648 { return Int(Int32.min) }
@@ -90,8 +90,8 @@ private func resizeBox(_ dw: Int, _ dh: Int, _ b: inout RotatedBox) {
     let nt = Float(Double(b.top) - Double(dh) * 0.5)
     let r = sinCos(a * degToRad)
     let y = ((r.sin * (nl - l)) + t) + (r.cos * (nt - t))
-    b.left = roundToInt(((r.cos * (nl - l)) + l) - (r.sin * (nt - t)))
-    b.top = roundToInt(y)
+    b.left = layoutRoundToInt(((r.cos * (nl - l)) + l) - (r.sin * (nt - t)))
+    b.top = layoutRoundToInt(y)
 }
 
 /// box_util::RotateBoundingBox: rotates the origin corner about (cx, cy) by `a` degrees.
@@ -100,19 +100,19 @@ private func rotateBox(_ cx: Int, _ cy: Int, _ a: Float, _ b: inout RotatedBox) 
     let x = Float(b.left), y = Float(b.top)
     let fx = Float(cx), fy = Float(cy)
     let ny = ((r.sin * (x - fx)) + fy) + (r.cos * (y - fy))
-    b.left = roundToInt(((r.cos * (x - fx)) + fx) - (r.sin * (y - fy)))
-    b.top = roundToInt(ny)
+    b.left = layoutRoundToInt(((r.cos * (x - fx)) + fx) - (r.sin * (y - fy)))
+    b.top = layoutRoundToInt(ny)
     b.angle = normalizeAngle(a + b.angle)
 }
 
 /// A quarter turn clockwise (top-to-bottom text handled as left-to-right), and back.
-private func turnClockwise(_ b: inout RotatedBox) {
+func layoutTurnClockwise(_ b: inout RotatedBox) {
     let w = b.width
     swap(&b.width, &b.height)
     let r = sinCos(b.angle * degToRad)
     let ny = (r.sin * Float(w)) + Float(b.top)
-    b.left = roundToInt((r.cos * Float(w)) + Float(b.left))
-    b.top = roundToInt(ny)
+    b.left = layoutRoundToInt((r.cos * Float(w)) + Float(b.left))
+    b.top = layoutRoundToInt(ny)
     b.angle = normalizeAngle(b.angle + 90)
 }
 
@@ -121,8 +121,8 @@ private func turnCounterClockwise(_ b: inout RotatedBox) {
     swap(&b.width, &b.height)
     let r = sinCos(b.angle * degToRad)
     let ny = (r.cos * Float(h)) + Float(b.top)
-    b.left = roundToInt(Float(b.left) - (r.sin * Float(h)))
-    b.top = roundToInt(ny)
+    b.left = layoutRoundToInt(Float(b.left) - (r.sin * Float(h)))
+    b.top = layoutRoundToInt(ny)
     b.angle = normalizeAngle(b.angle + 270)
 }
 
@@ -184,7 +184,7 @@ extension PageLayout {
         let minLeft = Int(padStart + Float(frame.left))
         var b = symbols.map { entities[$0].box ?? RotatedBox() }
         for k in 0..<n {
-            if wd == 2 { turnClockwise(&b[k]) }
+            if wd == 2 { layoutTurnClockwise(&b[k]) }
             rotateBox(frame.left, frame.top, -frame.angle, &b[k])
         }
         func gap(_ a: Int, _ c: Int) -> Float {
@@ -234,7 +234,7 @@ extension PageLayout {
                 var padStart: Float = 0
                 if let d = line.detection {
                     var pads = [d.leftPadding, d.rightPadding]
-                    if writingDirection(i) == 2 { turnClockwise(&frame) }
+                    if writingDirection(i) == 2 { layoutTurnClockwise(&frame) }
                     if abs(abs(frame.angle - d.detectionBox.angle) + -180) < 0.01 { pads.swapAt(0, 1) }
                     padStart = pads[0]
                 }
@@ -248,16 +248,20 @@ extension PageLayout {
     /// goodoc::RecomputeBoxFromChildren bottom-up: each entity's box contains its children's boxes and break boxes.
     mutating func recomputeBoxesFromSymbols() {
         let children = childLists()
-        for e in descendants(children).reversed() {
-            var boxes: [RotatedBox] = []
-            for c in children[e] {
-                if let b = entities[c].box { boxes.append(b) }
-                if let b = entities[c].wordBreak?.box { boxes.append(b) }
-            }
-            if boxes.isEmpty { continue }
-            let curve = entities[e].box?.curve
-            entities[e].box = layoutContainingBox(boxes)
-            entities[e].box?.curve = curve
+        for e in descendants(children).reversed() { recomputeBoxFromChildren(e, children) }
+    }
+
+    /// goodoc::RecomputeBoxFromChildren: the box containing the children's boxes and break boxes (a curved entity
+    /// keeps its curve).
+    mutating func recomputeBoxFromChildren(_ e: Int, _ children: [[Int]]) {
+        var boxes: [RotatedBox] = []
+        for c in children[e] {
+            if let b = entities[c].box { boxes.append(b) }
+            if let b = entities[c].wordBreak?.box { boxes.append(b) }
         }
+        if boxes.isEmpty { return }
+        let curve = entities[e].box?.curve
+        entities[e].box = layoutContainingBox(boxes)
+        entities[e].box?.curve = curve
     }
 }

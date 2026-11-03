@@ -427,6 +427,74 @@ def export_langid(res, out):
     (out / "langid.json").write_text(json.dumps(manifest, indent=1))
 
 
+LAYOUT_MODEL = "gocr/layout/cluster_sort/model_v2.tflite"
+# The ops the layout model uses, with the options the app reads: (options class, {name: getter}).
+LAYOUT_OPS = {
+    "ADD": None, "SUB": None, "MUL": None, "DIV": None, "MAXIMUM": None, "MINIMUM": None, "EXP": None, "RSQRT": None,
+    "LESS": None, "LESS_EQUAL": None, "GREATER_EQUAL": None, "LOGICAL_AND": None, "SELECT": None, "CAST": None,
+    "SHAPE": None, "FILL": None, "RESHAPE": None, "EXPAND_DIMS": None, "TRANSPOSE": None, "BROADCAST_TO": None,
+    "SLICE": None, "GATHER_ND": None, "SCATTER_ND": None, "UNSORTED_SEGMENT_PROD": None, "FULLY_CONNECTED": None,
+    "CONCATENATION": (S.ConcatenationOptions, {"axis": "Axis"}),
+    "GATHER": (S.GatherOptions, {"axis": "Axis", "batch_dims": "BatchDims"}),
+    "SUM": (S.ReducerOptions, {"keep_dims": "KeepDims"}),
+    "REDUCE_ALL": (S.ReducerOptions, {"keep_dims": "KeepDims"}),
+    "STRIDED_SLICE": (S.StridedSliceOptions, {"begin_mask": "BeginMask", "end_mask": "EndMask",
+                                              "ellipsis_mask": "EllipsisMask", "new_axis_mask": "NewAxisMask",
+                                              "shrink_axis_mask": "ShrinkAxisMask", "offset": "Offset"}),
+}
+# Fused activations the app doesn't apply: they must be NONE.
+FUSED = {"ADD": S.AddOptions, "SUB": S.SubOptions, "MUL": S.MulOptions, "DIV": S.DivOptions,
+         "CONCATENATION": S.ConcatenationOptions, "FULLY_CONNECTED": S.FullyConnectedOptions}
+
+
+def export_layout(res, out):
+    """The layout analysis' graph network (line reading order), as its operators and constants: its dynamic shapes
+    don't convert to Core ML, so the app runs the graph itself (it is small)."""
+    path = res / LAYOUT_MODEL
+    if not path.is_file():
+        sys.exit(f"Can't find the layout model {path}")
+    model = S.Model.GetRootAsModel(path.read_bytes(), 0)
+    graph = model.Subgraphs(0)
+    tensors = [Tensor(model, graph, i) for i in range(graph.TensorsLength())]
+    blob = bytearray()
+    manifest = {"tensors": [], "operators": [], "inputs": [int(i) for i in graph.InputsAsNumpy()],
+                "outputs": [int(i) for i in graph.OutputsAsNumpy()]}
+    computed = set(manifest["inputs"])
+    for k in range(graph.OperatorsLength()):
+        computed.update(int(i) for i in graph.Operators(k).OutputsAsNumpy())
+    for t in tensors:
+        if t.type not in ("FLOAT32", "INT32", "INT64", "BOOL") or t.quantized:
+            sys.exit(f"Unexpected layout model tensor type {t.type}")
+        spec = {"type": t.type.lower(), "shape": t.shape}
+        if t.index not in computed:  # a constant (empty ones have no data)
+            data = t.data if t.data is not None else np.zeros(t.shape, dtype=NP.get(t.type, np.bool_))
+            while len(blob) % 8:
+                blob.append(0)
+            spec["offset"] = len(blob)
+            blob.extend(np.ascontiguousarray(data).astype(data.dtype.newbyteorder("<")).tobytes())
+        manifest["tensors"].append(spec)
+    for k in range(graph.OperatorsLength()):
+        op = graph.Operators(k)
+        oc = model.OperatorCodes(op.OpcodeIndex())
+        code = BUILTIN[max(oc.BuiltinCode(), oc.DeprecatedBuiltinCode())]
+        if code not in LAYOUT_OPS:
+            sys.exit(f"Unexpected layout model operator {code}")
+        entry = {"op": code, "inputs": [int(i) for i in op.InputsAsNumpy()],
+                 "outputs": [int(i) for i in op.OutputsAsNumpy()]}
+        if code in FUSED and options(op, FUSED[code]).FusedActivationFunction() != S.ActivationFunctionType.NONE:
+            sys.exit(f"Unexpected fused activation in the layout model's {code}")
+        if code == "FULLY_CONNECTED" and not options(op, S.FullyConnectedOptions).KeepNumDims():
+            sys.exit("Unexpected layout model FULLY_CONNECTED options")
+        if LAYOUT_OPS[code]:
+            cls, fields = LAYOUT_OPS[code]
+            o = options(op, cls)
+            entry["options"] = {name: int(getattr(o, getter)()) for name, getter in fields.items()}
+        manifest["operators"].append(entry)
+    out.mkdir(parents=True)
+    (out / "layout.bin").write_bytes(bytes(blob))
+    (out / "layout.json").write_text(json.dumps(manifest, separators=(",", ":")))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("resources", nargs="?",
@@ -446,6 +514,8 @@ def main():
         (root / "coreml" / "recognizers.json").write_text(json.dumps(quantization, indent=1))
         print("Language identifier", flush=True)
         export_langid(res, root / "langid")
+        print("Layout model", flush=True)
+        export_layout(res, root / "layout")
         # The configs, label maps and language models, under their original paths.
         for path in sorted((res / "gocr/gocr_models").rglob("*")):
             if path.is_file() and path.suffix != ".tflite":
