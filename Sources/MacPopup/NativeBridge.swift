@@ -154,6 +154,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "log":
             FileHandle.standardError.write("[web] \(body["message"] ?? "")\n".data(using: .utf8)!)
             return nil
+        case "ocrDebugLog":
+            if let json = body["json"] as? String { OCRDebugLog.append(json) }
+            return nil
         default:
             throw BridgeError("Unknown command \(cmd)")
         }

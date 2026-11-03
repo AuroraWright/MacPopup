@@ -68,9 +68,10 @@ hiding the overlay, moving it to another display, reloading, and quitting.
   but not while the left button is held. Add `terms` or `kanji` to look up only terms or only kanji,
   like Yomitan's per-input "Search terms" and "Search kanji": `alt kanji`.
 - Clicking anywhere outside the popups closes them.
-- Settings → Scanning → **Language** is your Yomitan profile's language (Import copies it). Lookups
+- Settings → General → **Language** is your Yomitan profile's language (Import copies it). Lookups
   use Yomitan's own setting; MacPopup uses this one for the audio sources, for marking text with the
-  language (so fonts use, say, Chinese rather than Japanese character forms), and for word scan resolution.
+  language (so fonts use, say, Chinese rather than Japanese character forms), for word scan resolution,
+  and for the language OCR mode reads.
 - Audio comes from the sources in Settings → Yomitan Popup → **Audio sources** (Yomitan's source types:
   JapanesePod101, Jisho.org, text-to-speech, a custom URL or a local audio server's JSON list, and so
   on), tried in order; Import → Yomitan Settings copies Yomitan's. As in Yomitan, "Enable default
@@ -123,14 +124,16 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
   Settings goes back to the whole screen. The captured window is also what Anki screenshots show.
 - Text is recognized, horizontal or vertical, with Live Text, meikiocr, Screen AI or OneOCR (**Text
   recognition** in Settings → OCR Mode):
-  - Live Text (the default) reads the language set in Settings → OCR Mode (Japanese by default; the
-    menu lists every language Live Text supports on your version of macOS).
+  - Live Text (the default) reads the language set in Settings → General (Japanese by default), and
+    English. For a language it doesn't read on your version of macOS, it reads only English, and
+    Settings → OCR Mode says so in red under Text recognition.
   - meikiocr's models, by rtr46, are trained on Japanese game text and read only Japanese. They run
     on this Mac with Core ML (converted by `scripts/convert-meikiocr.py`; see `vendor/meikiocr`).
     It's faster than Live Text and its character boxes fit the text more closely.
   - Screen AI is the OCR Chrome uses, ported to Swift (`Sources/ScreenAI`) with its models run on
     the GPU with Core ML. It reads most scripts, finds the language by itself and gives a box per
-    character. Google's models can't be distributed with MacPopup, so they're converted on your Mac
+    character, with the lines in the reading order of its layout analysis (whose small graph network
+    the port runs itself). Google's models can't be distributed with MacPopup, so they're converted on your Mac
     from the copy Chrome downloads (`~/Library/Application Support/Google/Chrome/screen_ai`):
     run `scripts/convert-screenai.py` (its first lines say what it needs), then choose the zip it
     makes with **Screen AI models → Load…** in Settings → OCR Mode. They're kept in
@@ -150,7 +153,10 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
   Only the chosen areas are captured, and a window drawn at 1x
   (e.g. a VM or a game that isn't Retina aware) is read at 1x, which is faster ("Read at" in
   Settings overrides this).
-- Furigana are left out of the recognized text (**Strip furigana**, on by default): lines of small
+- Only lines in the language are kept: lines with letters, none of them in the language's script
+  (for Japanese and Chinese, Yomitan's characters for them), are left out, e.g. an English menu in a
+  Japanese game.
+- In Japanese, furigana are left out of the recognized text (**Strip furigana**, on by default): lines of small
   text without kanji right next to kanji in a larger line, above them (to their right in vertical
   text). A speaker's name over the text is further away and kept.
 - MacPopup watches the window (or the chosen areas) and reads it again when
@@ -173,14 +179,20 @@ Screen Recording permission (System Settings → Privacy & Security), which macO
   passes without a change). Recognized text that matches the line (**Match lines from**, 60% of its
   letters and digits) is corrected with it (the WebSocket text wins), and a reading that matches is
   taken as soon as it does. Text that shows only a part of the line (e.g. a page of a long line) is
-  corrected with that part. Only letters and digits decide whether it matches, since punctuation is
+  corrected with that part. Games that add a line at a time to a page of them (each click sends the
+  next one) get the whole page corrected: the earlier lines still shown are matched too, in the text
+  the later ones left. Only letters and digits decide whether it matches, since punctuation is
   often misread, and punctuation that looks alike is lined up (e.g. "……" read as "・・・・・").
   Readings after switching to OCR mode are matched against the last line received in window mode
   the same way. Turn this off with **Use WebSocket lines**; while no WebSocket is connected, it works as if it
   were off, and readings aren't matched against the last line.
 - Words are only looked up while no other window covers the chosen one at the cursor.
 - **Outline recognized text** in Settings is for debugging: it shows what was recognized, red for
-  plain OCR text, green for lines corrected with the WebSocket line.
+  plain OCR text, green for lines corrected with WebSocket lines. It also writes each reading and
+  WebSocket line to `~/Library/Application Support/MacPopup/ocr-debug.jsonl`, one JSON object per
+  line: what was recognized (lines and character boxes), the lines left out as furigana or in
+  another language, how it matched the line and the earlier
+  ones, whether it was taken, and what was shown. Over 20 MB it's moved to `ocr-debug.old.jsonl`.
 
 How the readings and these settings work together is detailed in [docs/ocr-mode.md](docs/ocr-mode.md).
 

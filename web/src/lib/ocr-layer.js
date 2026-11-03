@@ -11,7 +11,7 @@ const SPACE = /\s/u;
 const LETTER = /[\p{L}\p{N}]/u;
 
 /**
- * @typedef {{text: string, x: number, y: number, width: number, height: number}} OcrChar
+ * @typedef {{text: string, x: number, y: number, width: number, height: number, corrected?: boolean}} OcrChar
  * @typedef {{chars: OcrChar[], vertical: boolean, area: number, matched?: boolean}} OcrLine
  */
 
@@ -60,6 +60,8 @@ const isLookalike = (key) => LOOKALIKES.some(([, value]) => value === key);
  * When the whole of `text` doesn't match, a part of it still can (see correctPart): games often show a
  * long line a page at a time.
  *
+ * Characters already corrected with another line (`corrected`) are left as they are and aren't matched.
+ *
  * @param {OcrLine[]} lines
  * @param {string} text
  * @returns {{lines: OcrLine[], quality: number, missingEnd: number, partial?: boolean}} `quality` is the
@@ -79,12 +81,13 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 			targetKeys.push(key);
 		}
 	}
-	// OCR characters without whitespace, which Live Text adds and removes freely. The rest of a run of
-	// lookalike punctuation is in `group` (their indexes in the line).
+	// OCR characters without whitespace, which Live Text adds and removes freely, and without those
+	// corrected with another line. The rest of a run of lookalike punctuation is in `group` (their
+	// indexes in the line).
 	const ocr = [];
 	lines.forEach((line, lineIndex) => {
 		line.chars.forEach((char, charIndex) => {
-			if (SPACE.test(char.text)) return;
+			if (SPACE.test(char.text) || char.corrected) return;
 			const key = normalize(char.text);
 			const previous = ocr.at(-1);
 			if (isLookalike(key) && previous?.key === key && previous.lineIndex === lineIndex) previous.group.push(charIndex);
@@ -293,7 +296,7 @@ function applyOperations(lines, ocr, target, operations) {
 
 		const chars = [];
 		line.chars.forEach((char, charIndex) => {
-			if (!inRegion(lineIndex, charIndex)) {
+			if (!inRegion(lineIndex, charIndex) || char.corrected) {
 				chars.push(char);
 				return;
 			}
@@ -338,7 +341,9 @@ function applyOperations(lines, ocr, target, operations) {
 			}
 			if (trailingSpaces.length > 0) chars.push(...divide(spaceAfter.get(lastIndex), trailingSpaces, line.vertical));
 		});
-		return { ...line, chars, matched: true };
+		// The characters in the region are new: they're the text's, and later lines leave them alone.
+		const recognized = new Set(line.chars);
+		return { ...line, chars: chars.map((char) => (recognized.has(char) ? char : { ...char, corrected: true })), matched: true };
 	});
 }
 

@@ -6,7 +6,7 @@ import { log, nativeCall } from './lib/native.js';
 import { getPopupPosition } from './lib/popup-position.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
 import { getTextSourceFromPoint, searchTextSource, setHighlight } from './lib/scanner.js';
-import { correctWithText, decodeLines, renderLines } from './lib/ocr-layer.js';
+import { correctWithText, decodeLines, lineText, renderLines } from './lib/ocr-layer.js';
 import { applyReplacements } from './lib/replacements.js';
 import { cursorAt } from './lib/cursor.js';
 import { getSettings, loadSettings, onSettingsChanged, saveSettings } from './lib/settings.js';
@@ -948,6 +948,9 @@ const ocr = {
 	// The latest WebSocket line, matched against what's read. It's kept outside OCR mode too, for the
 	// readings after switching to it.
 	line: null,
+	// The lines before it that may still be on screen, oldest first (at most "Earlier lines on the
+	// page"): games often add a line at a time to a page of them.
+	earlierLines: [],
 	// A new line arrived and the dialogue wasn't read since.
 	awaitingLine: false,
 	// The window is being read again: the text may be outdated, so it isn't scanned until the result.
@@ -988,6 +991,43 @@ function clearOcrText() {
 	$('#ocr-text').textContent = '';
 }
 
+/**
+ * Corrects the rest of the dialogue with the earlier lines (see ocr.earlierLines), latest first, each in
+ * the text no later line matched. They were drawn completely before the latest line, so only a whole
+ * line counts, with nothing missing at its end: a few of its words in other text (e.g. a name it starts
+ * with) don't.
+ *
+ * Lines that don't match are kept: a reading can miss one for a moment (e.g. while the game dims the
+ * page's earlier lines), and the next one shows it again.
+ */
+function correctWithEarlierLines(lines, minQuality, debug) {
+	// At most "Earlier lines on the page" (the setting may have been lowered since they were kept).
+	const count = Math.max(0, getSettings().ocrEarlierLines);
+	ocr.earlierLines = count > 0 ? ocr.earlierLines.slice(-count) : [];
+	for (const line of [...ocr.earlierLines].reverse()) {
+		const result = correctWithText(lines, line, minQuality);
+		const used = result.quality >= minQuality && result.missingEnd === 0 && !result.partial;
+		if (used) lines = result.lines;
+		debug?.push({ line, ...matchSummary(result), used });
+	}
+	return lines;
+}
+
+/** What correctWithText found, for the debug log. */
+function matchSummary(result) {
+	return { quality: Math.round(result.quality * 1000) / 1000, missingEnd: result.missingEnd, partial: !!result.partial };
+}
+
+/**
+ * With "Outline recognized text" on, writes `record` to the OCR debug log (ocr-debug.jsonl in
+ * Application Support/MacPopup; see OCRDebugLog.swift): each reading, what was done with it, and each
+ * WebSocket line.
+ */
+function logOcrDebug(record) {
+	if (!getSettings().ocrShowBoxes) return;
+	nativeCall('ocrDebugLog', { json: JSON.stringify({ time: new Date().toISOString(), ...record }) }).catch(() => {});
+}
+
 function showOcrResult(message) {
 	const decoded = decodeLines(message.lines);
 	// Only the first area is the dialogue: the WebSocket line is matched against it. A reading of
@@ -1000,16 +1040,37 @@ function showOcrResult(message) {
 	// readings are taken as they are, as with WebSocket lines off.
 	const usesLine = ocr.line !== null && !!ocr.websocketConnected;
 	const minQuality = getSettings().ocrMatchThreshold / 100;
+	const debug = {
+		type: 'reading',
+		provisional: !!message.provisional,
+		dialogue: readsDialogue,
+		awaitingLine: ocr.awaitingLine,
+		size: [message.width, message.height],
+		recognized: message.lines,
+		removed: message.removed ?? [],
+		line: usesLine ? ocr.line : null,
+		earlierLines: [],
+	};
 	// A reading while the text may still change (see settleAndRecognize in OCRController.swift) is only
 	// taken when it matches the WebSocket line completely, new or not (e.g. the dialogue shown again
 	// after a menu closed).
 	if (message.provisional) {
-		if (!readsDialogue || !usesLine) return;
-		const { quality, missingEnd } = correctWithText(dialogue, ocr.line, minQuality);
-		if (quality < minQuality || missingEnd > 0) return;
+		if (!readsDialogue || !usesLine) {
+			logOcrDebug({ ...debug, outcome: 'not taken' });
+			return;
+		}
+		const result = correctWithText(dialogue, ocr.line, minQuality);
+		if (result.quality < minQuality || result.missingEnd > 0) {
+			logOcrDebug({ ...debug, match: matchSummary(result), outcome: 'not taken' });
+			return;
+		}
 		nativeCall('ocr', { action: 'accept' }).catch(() => {});
 	}
-	if (usesLine) dialogue = correctWithText(dialogue, ocr.line, minQuality).lines;
+	if (usesLine) {
+		const result = correctWithText(dialogue, ocr.line, minQuality);
+		debug.match = matchSummary(result);
+		dialogue = correctWithEarlierLines(result.lines, minQuality, debug.earlierLines);
+	}
 	if (readsDialogue) {
 		ocr.awaitingLine = false;
 		ocr.stale = false;
@@ -1019,7 +1080,12 @@ function showOcrResult(message) {
 	const key = JSON.stringify([lines, size]);
 	// Unchanged (e.g. read again after coming back from another space): keep the hovered word and
 	// its highlight as they are.
-	if (key === ocr.key && $('#ocr-text').childElementCount > 0) return;
+	const shown = lines.map((line) => ({ text: lineText(line), area: line.area, matched: !!line.matched }));
+	if (key === ocr.key && $('#ocr-text').childElementCount > 0) {
+		logOcrDebug({ ...debug, shown, outcome: 'unchanged' });
+		return;
+	}
+	logOcrDebug({ ...debug, shown, outcome: 'shown' });
 	ocr.key = key;
 	ocr.size = size;
 	clearMainScan();
@@ -1072,6 +1138,8 @@ function ocrWebsocketLine(rawText) {
 	if (state.paused) return;
 	const text = ocrLineText(rawText);
 	if (text === null) return;
+	logOcrDebug({ type: 'line', text, received: rawText });
+	if (ocr.line !== null) ocr.earlierLines = [...ocr.earlierLines, ocr.line].slice(-Math.max(1, settings.ocrEarlierLines));
 	ocr.line = text;
 	if (!settings.ocrMode || !settings.ocrUseWebsocket) return;
 	ocr.awaitingLine = true;

@@ -62,6 +62,8 @@ final class OCRController {
     private var animatedBlocks: [Set<Int>] = []
     /// Per area, the lines last read there: an area is read on its own, and sent with the others.
     private var areaLines: [[[String: Any]]] = []
+    /// Per area, the lines last left out there (by the language or as furigana), for the page's debug log.
+    private var areaRemoved: [[[String: Any]]] = []
     /// The areas after the first may have changed unseen (e.g. while the window was away): read them
     /// with the next reading.
     private var otherAreasOutdated = false
@@ -164,11 +166,12 @@ final class OCRController {
             return
         }
         guard isEnabled, !isPicking else { return }
-        if engine != startedEngine || stripsFurigana != startedStripsFurigana {
+        if engine != startedEngine || language != startedLanguage || stripsFurigana != startedStripsFurigana {
             if engine != startedEngine {
                 startedEngine = engine
                 Task { [weak self] in await self?.warmUp() }
             }
+            startedLanguage = language
             startedStripsFurigana = stripsFurigana
             readAgain()
         }
@@ -208,6 +211,7 @@ final class OCRController {
         readingScale = nil
         animatedBlocks = []
         areaLines = []
+        areaRemoved = []
         lastRecognizedFrame = nil
         lastResult = nil
         lastSentWindowState = ""
@@ -255,6 +259,7 @@ final class OCRController {
         trackTimer = timer
         trackWindow()
         startedEngine = engine
+        startedLanguage = language
         startedStripsFurigana = stripsFurigana
         loopTask = Task { [weak self] in
             await self?.warmUp()
@@ -274,6 +279,7 @@ final class OCRController {
         lastRecognizedFrame = nil
         lastResult = nil
         areaLines = []
+        areaRemoved = []
         lastSentWindowState = ""
         send(["type": "window", "visible": false])
         send(["type": "changing"])
@@ -455,6 +461,7 @@ final class OCRController {
                     readingScale = nil
                     animatedBlocks = []
                     areaLines = []
+                    areaRemoved = []
                     lastRecognizedFrame = nil
                     pendingCue = .immediate
                 } else {
@@ -778,6 +785,7 @@ final class OCRController {
     private func readAreas(_ image: CGImage, areas indices: [Int]) async -> Bool {
         guard let bounds else { return false }
         if areaLines.count != areas.count { areaLines = areas.map { _ in [] } }
+        if areaRemoved.count != areas.count { areaRemoved = areas.map { _ in [] } }
         debugReadings += 1
         for index in indices {
             let area = areas[index]
@@ -818,13 +826,35 @@ final class OCRController {
             let layoutStarted = Date()
             let gray = GrayImage(crop)
             let size = CGSize(width: crop.width, height: crop.height)
-            var lines = items.map { OCRLayout.layOut($0, image: gray, size: size, toWindow: toWindow) }
-            if stripsFurigana { lines = OCRLayout.removingFurigana(lines) }
-            areaLines[index] = lines.map {
+            // The lines left out, for the page's debug log (with Outline recognized text on).
+            let recordsRemoved = settings["ocrShowBoxes"] as? Bool ?? false
+            var removed: [[String: Any]] = []
+            let box = { (box: CGRect) in [box.minX, box.minY, box.width, box.height] }
+            var kept: [RecognizedLine] = []
+            for item in items {
+                if OCRLanguage.contains(item.text, language: language) {
+                    kept.append(item)
+                } else if recordsRemoved {
+                    removed.append(["text": item.text, "box": box(toWindow(item.box)), "reason": "language", "area": index])
+                }
+            }
+            var lines = kept.map { OCRLayout.layOut($0, image: gray, size: size, toWindow: toWindow) }
+            if stripsFurigana {
+                let bases = OCRLayout.furigana(in: lines)
+                if recordsRemoved {
+                    removed += bases.sorted { $0.key < $1.key }.map { ruby, base in
+                        ["text": lines[ruby].text, "box": box(lines[ruby].box), "reason": "furigana", "base": lines[base].text, "area": index]
+                    }
+                }
+                lines = lines.indices.filter { bases[$0] == nil }.map { lines[$0] }
+            }
+            // Screen AI's lines come in its own layout analysis' reading order (paragraphs and columns included).
+            areaLines[index] = (engine == .screenAI ? OCRLayout.keepingRowsTogether(lines) : OCRLayout.inReadingOrder(lines)).map {
                 var line = Self.encode($0)
                 line["area"] = index
                 return line
             }
+            areaRemoved[index] = removed
             log("layout: \(String(format: "%.2f", Date().timeIntervalSince(layoutStarted)))s")
         }
         return true
@@ -842,6 +872,7 @@ final class OCRController {
         var result: [String: Any] = [
             "type": "result",
             "lines": lines,
+            "removed": areaRemoved.flatMap { $0 },
             // Whether the dialogue was read (the page checks it against the WebSocket line), or only others.
             "dialogue": indices.contains(0),
             "elapsed": Date().timeIntervalSince(started),
@@ -872,12 +903,18 @@ final class OCRController {
         Engine(rawValue: settings["ocrEngine"] as? String ?? "") ?? .liveText
     }
 
-    /// Whether furigana are left out of readings (see OCRLayout.removingFurigana).
-    private var stripsFurigana: Bool {
-        settings["ocrStripFurigana"] as? Bool ?? true
+    /// The language (Settings → General): lines in other languages are left out of readings (see OCRLanguage.contains).
+    private var language: String {
+        settings["language"] as? String ?? "ja"
     }
 
-    /// stripsFurigana when OCR mode started or it last changed.
+    /// Whether furigana are left out of readings (see OCRLayout.removingFurigana); only in Japanese.
+    private var stripsFurigana: Bool {
+        language == "ja" && settings["ocrStripFurigana"] as? Bool ?? true
+    }
+
+    /// The language and stripsFurigana when OCR mode started or they last changed.
+    private var startedLanguage: String?
     private var startedStripsFurigana: Bool?
 
     private func recognizeText(_ image: CGImage) async throws -> [RecognizedLine] {
@@ -931,8 +968,11 @@ final class OCRController {
         _ = try? await Self.recognizeText(image, locales: languages)
     }
 
+    /// Live Text's languages: the language's (Settings → General), or only English when it doesn't read it. English
+    /// is always read too.
     private var languages: [String] {
-        (settings["ocrLanguage"] as? String).map { [$0, "en"] } ?? ["ja", "en"]
+        let locales = OCRLanguage.liveTextLocales(for: language)
+        return locales.contains { $0.hasPrefix("en") } ? locales : locales + ["en"]
     }
 
     private static func recognizeText(_ image: CGImage, locales: [String]) async throws -> [MPLiveTextItem] {

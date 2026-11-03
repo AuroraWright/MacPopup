@@ -1,5 +1,4 @@
 import Foundation
-import VisionKit
 
 /// A choice in a menu: the stored value and its label.
 struct SettingsOption: Hashable {
@@ -22,9 +21,7 @@ struct SettingsField: Identifiable {
         case percentSlider(step: Double)
         /// A whole number in a range, shown as it is.
         case slider(min: Double, max: Double, step: Double)
-        /// - Parameter match: The option to show for a stored value that isn't one of them (e.g. one
-        ///   saved in an older format), if any.
-        case select([SettingsOption], match: ((String) -> String?)? = nil)
+        case select([SettingsOption])
         /// A menu of numbers (option values are the numbers as text).
         case numberSelect([SettingsOption])
         case text(test: ConnectionTest? = nil)
@@ -77,15 +74,21 @@ struct SettingsField: Identifiable {
     let kind: Kind
     var hint: String?
     var showIf: (([String: Any]) -> Bool)?
+    /// A problem with the settings, shown in red under the field, if any.
+    var warning: (([String: Any]) -> String?)?
 
     var id: String { key }
 
-    init(_ key: String, _ label: String, _ kind: Kind, hint: String? = nil, showIf: (([String: Any]) -> Bool)? = nil) {
+    init(
+        _ key: String, _ label: String, _ kind: Kind, hint: String? = nil, showIf: (([String: Any]) -> Bool)? = nil,
+        warning: (([String: Any]) -> String?)? = nil
+    ) {
         self.key = key
         self.label = label
         self.kind = kind
         self.hint = hint
         self.showIf = showIf
+        self.warning = warning
     }
 
     /// Shown across the whole width, below its label.
@@ -147,32 +150,15 @@ enum SettingsSchema {
         SettingsOption("site", "Auto (follows text box)"), SettingsOption("light", "Light"), SettingsOption("dark", "Dark"), SettingsOption("browser", "Browser (follows macOS)"),
     ]
 
-    /// The languages Live Text can read, as macOS reports them (they vary with its version), by name.
-    private static let ocrLanguages: [SettingsOption] = {
-        let english = Locale(identifier: "en")
-        return ImageAnalyzer.supportedTextRecognitionLanguages.map { identifier in
-            let name = english.localizedString(forIdentifier: identifier)
-                ?? Locale(identifier: identifier).language.languageCode.flatMap { english.localizedString(forLanguageCode: $0.identifier) }
-                ?? identifier
-            return SettingsOption(identifier, name)
-        }
-        .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
-    }()
-
-    /// The supported language a stored one stands for, e.g. "ja-JP" for "ja" (saved by older versions).
-    private static func matchLanguage(_ value: String) -> String? {
-        let language = Locale.Language(identifier: value)
-        return ocrLanguages.first {
-            let option = Locale.Language(identifier: $0.value)
-            return option.languageCode == language.languageCode && (language.script == nil || option.script == language.script)
-        }?.value
-    }
-
     static let sections: [SettingsSection] = {
         let support = SettingsSupport.shared
         return [
             SettingsSection(title: "General", symbol: "gearshape", fields: [
                 SettingsField("ocrMode", "Mode", .toggleChoice(off: "Window Mode", on: "OCR Mode")),
+                SettingsField(
+                    "language", "Language", .select(support.languages.map { SettingsOption($0.iso, $0.name) }),
+                    hint: "The language of your Yomitan profile, which Import → Yomitan Settings copies. Lookups use Yomitan’s own setting; this one sets the audio sources, how text is displayed, whether word scan resolution applies, and the language OCR mode reads: lines in other scripts are left out."
+                ),
                 SettingsField("displayIndex", "Display", .display),
                 SettingsField("windowLevel", "Window level", .select([
                     SettingsOption("floating", "Floating"),
@@ -248,7 +234,14 @@ enum SettingsSchema {
                         .select([SettingsOption("liveText", "Live Text"), SettingsOption("meikiocr", "meikiocr"), SettingsOption("screenai", "Screen AI"),
                                  SettingsOption("oneocr", "OneOCR")]),
                         hint: "Live Text is Apple’s, as in Preview and Photos. meikiocr (by rtr46) is made for Japanese game text and reads only Japanese; it runs with Core ML. "
-                            + "Screen AI is Chrome’s OCR and OneOCR is Windows’ (as in the Snipping Tool), both run with Core ML; they read most scripts, find the language by themselves, and need their models loaded (below)."
+                            + "Screen AI is Chrome’s OCR and OneOCR is Windows’ (as in the Snipping Tool), both run with Core ML; they read most scripts, find the language by themselves, and need their models loaded (below).",
+                        warning: { settings in
+                            let language = settings["language"] as? String ?? "ja"
+                            let engine = settings["ocrEngine"] as? String ?? "liveText"
+                            guard !OCRLanguage.isRead(language, by: engine) else { return nil }
+                            let name = support.languages.first { $0.iso == language }?.name ?? language
+                            return "\(name) (Settings → General) isn’t supported: " + (engine == "liveText" ? "Live Text reads English instead." : "meikiocr reads only Japanese.")
+                        }
                     ),
                     SettingsField(
                         "screenAIModels", "Screen AI models", .convertedModels(.screenAI),
@@ -261,18 +254,14 @@ enum SettingsSchema {
                         showIf: { $0["ocrEngine"] as? String == "oneocr" }
                     ),
                     SettingsField(
-                        "ocrLanguage", "Language", .select(ocrLanguages, match: matchLanguage),
-                        hint: "For Live Text: the languages it can read on this version of macOS. English is always read too.",
-                        showIf: { $0["ocrEngine"] as? String ?? "liveText" == "liveText" }
-                    ),
-                    SettingsField(
                         "ocrResolution", "Read at",
                         .select([SettingsOption("auto", "Automatic"), SettingsOption("full", "Full resolution"), SettingsOption("1x", "1x")]),
                         hint: "Automatic reads windows drawn at 1x (e.g. a VM or a game that isn’t Retina aware, enlarged by macOS) at 1x, which is faster and loses nothing, and others at full Retina resolution. Choose one if text is misread: full resolution for small text, 1x if automatic picks full resolution for a window drawn at 1x."
                     ),
                     SettingsField(
                         "ocrStripFurigana", "Strip furigana", .checkbox,
-                        hint: "Leaves out the readings printed over kanji (to their right in vertical text), which are recognized as lines of their own: small text without kanji, right next to kanji in a larger line."
+                        hint: "Leaves out the readings printed over kanji (to their right in vertical text), which are recognized as lines of their own: small text without kanji, right next to kanji in a larger line. Only for Japanese (Settings → General → Language).",
+                        showIf: { $0["language"] as? String ?? "ja" == "ja" }
                     ),
                     SettingsField(
                         "ocrUseWebsocket", "Use WebSocket lines", .checkbox,
@@ -281,6 +270,11 @@ enum SettingsSchema {
                     SettingsField(
                         "ocrMatchThreshold", "Match lines from (%)", .number(min: 1, max: 100),
                         hint: "The share of a WebSocket line’s letters and digits that must be recognized exactly for a reading to count as showing it (or a part of it), and be corrected with it. Lower corrects text that’s misread more, but may take other text for the line.",
+                        showIf: { $0["ocrUseWebsocket"] as? Bool ?? true }
+                    ),
+                    SettingsField(
+                        "ocrEarlierLines", "Earlier lines on the page", .number(min: 0),
+                        hint: "Games often add a line at a time to a page of them (each click sends the next one). The WebSocket lines before the last are corrected too, up to this many, where one is shown whole. 0 corrects only the last line.",
                         showIf: { $0["ocrUseWebsocket"] as? Bool ?? true }
                     ),
                     SettingsField(
@@ -315,16 +309,12 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "ocrShowBoxes", "Outline recognized text", .checkbox,
-                        hint: "For debugging: shows the recognized text and outlines its lines over the window, red for plain OCR text and green for lines corrected with the WebSocket line."
+                        hint: "For debugging: shows the recognized text and outlines its lines over the window, red for plain OCR text and green for lines corrected with WebSocket lines. Each reading (what was recognized, the lines left out as furigana or in another language, how it matched the WebSocket lines and what was shown) and each WebSocket line is also written to ocr-debug.jsonl in ~/Library/Application Support/MacPopup."
                     ),
                 ]
             ),
             SettingsSection(title: "Scanning", symbol: "cursorarrow.rays", fields: [
                 SettingsField("yomitanApiUrl", "Yomitan API URL", .text(test: .yomitan)),
-                SettingsField(
-                    "language", "Language", .select(support.languages.map { SettingsOption($0.iso, $0.name) }),
-                    hint: "The language of your Yomitan profile, which Import → Yomitan Settings copies. Lookups use Yomitan’s own setting; this one sets the audio sources, how text is displayed and whether word scan resolution applies."
-                ),
                 SettingsField("scanModifier", "Scan modifier key (text box)", .select(scanModifierOptions)),
                 SettingsField("scanInputs", "Scanning inputs (text box)", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
                 SettingsField("popupScanModifier", "Scan modifier key (popup, for nested lookups)", .select(scanModifierOptions)),

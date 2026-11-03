@@ -92,6 +92,61 @@ enum OCRLayout {
         var chars: [Char]
     }
 
+    /// The lines in reading order: rows from the top, each from the left, or in vertical text (most of the lines)
+    /// columns from the right, each from the top. Live Text and OneOCR don't always give them so (OneOCR lists
+    /// vertical columns from the left), and the page matches WebSocket lines through them in this order. Screen AI's
+    /// lines keep the order its layout analysis gives them.
+    static func inReadingOrder(_ lines: [Line]) -> [Line] {
+        let vertical = lines.filter(\.vertical).count * 2 > lines.count
+        // Across the rows (top to bottom, or right to left), and along them.
+        let across = { (box: CGRect) in vertical ? (start: -box.maxX, end: -box.minX) : (start: box.minY, end: box.maxY) }
+        let along = { (box: CGRect) in vertical ? box.minY : box.minX }
+        var rows: [(start: CGFloat, end: CGFloat, lines: [Line])] = []
+        for line in lines.sorted(by: { across($0.box).start < across($1.box).start }) {
+            let extent = across(line.box)
+            // In the last row when that covers at least half of the line across.
+            if let row = rows.last, min(extent.end, row.end) - max(extent.start, row.start) >= (extent.end - extent.start) / 2 {
+                rows[rows.count - 1].lines.append(line)
+                rows[rows.count - 1].end = max(row.end, extent.end)
+            } else {
+                rows.append((extent.start, extent.end, [line]))
+            }
+        }
+        return rows.flatMap { row in row.lines.sorted { along($0.box) < along($1.box) } }
+    }
+
+    /// Screen AI's lines in its reading order, except that a line the engine split where it goes on along its row (e.g.
+    /// "…分厚い、" and "絆創", whose furigana made it a block of its own) is kept together: the layout analysis sometimes
+    /// puts the second part after the lines below it, and the page matches WebSocket lines through the lines in order.
+    static func keepingRowsTogether(_ lines: [Line]) -> [Line] {
+        var rest = lines
+        var ordered: [Line] = []
+        while !rest.isEmpty {
+            var line = rest.removeFirst()
+            ordered.append(line)
+            while let next = rest.firstIndex(where: { continues($0, line) }) {
+                line = rest.remove(at: next)
+                ordered.append(line)
+            }
+        }
+        return ordered
+    }
+
+    /// Whether `next` starts where `line` ends, on the same row and at about the same size.
+    private static func continues(_ next: Line, _ line: Line) -> Bool {
+        guard next.vertical == line.vertical else { return false }
+        let vertical = line.vertical
+        let end = vertical ? line.box.maxY : line.box.maxX
+        let nextStart = vertical ? next.box.minY : next.box.minX
+        let across = { (box: CGRect) in vertical ? (box.minX, box.maxX) : (box.minY, box.maxY) }
+        let (near, far) = across(line.box), (nextNear, nextFar) = across(next.box)
+        let size = far - near, nextSize = nextFar - nextNear
+        guard size > 0, nextSize > 0 else { return false }
+        return min(far, nextFar) - max(near, nextNear) >= min(size, nextSize) / 2
+            && max(size, nextSize) <= min(size, nextSize) * 1.5
+            && nextStart >= end - size / 2 && nextStart <= end + size
+    }
+
     /// A line with one box per character, in window points. The engines give boxes per word (Live Text: single characters
     /// for Japanese; meikiocr and Screen AI: always characters); longer words are divided evenly, and the spaces between
     /// words fill the gaps. Lines of evenly spaced full-width text are then snapped to their cells (see
@@ -313,6 +368,32 @@ enum OCRLayout {
             }
             let mean = energy.reduce(0, +) / Double(energy.count)
             guard mean > 0 else { continue }
+            // The text's color is in every character that was read. Semi-transparent text takes on the
+            // brightness of what's behind it, so where that changes along the line, the color of some of its
+            // characters is only the background's elsewhere: their boxes have a glyph, of another color.
+            // Thin glyphs (ー, 。) have less of it than most characters, but not just stray pixels, and a
+            // character without it but without much of a glyph either is one whose box missed it.
+            let spans = chars.map { char -> ClosedRange<Int>? in
+                let start = max(Int(vertical ? char.box.minY : char.box.minX), a0)
+                let end = min(Int(vertical ? char.box.maxY : char.box.maxX), a1)
+                return start <= end ? start...end : nil
+            }
+            let amounts = spans.map { span in span.map { raw[($0.lowerBound - a0)...($0.upperBound - a0)].reduce(0, +) } ?? 0 }
+            let typical = amounts.sorted()[amounts.count / 2]
+            let missing = amounts.indices.filter { amounts[$0] <= typical * 0.05 }
+            guard Double(missing.count) <= Double(chars.count) * 0.1 else { continue }
+            if !missing.isEmpty {
+                // Pixels away from the brightness most of the box has.
+                let glyph = spans.map { span -> Double in
+                    guard let span else { return 0 }
+                    var values: [Int] = []
+                    for a in span { for c in band { values.append(pixel(a, c)) } }
+                    let median = values.sorted()[values.count / 2]
+                    return Double(values.filter { abs($0 - median) > 32 }.count)
+                }
+                let typicalGlyph = glyph.sorted()[glyph.count / 2]
+                guard !missing.contains(where: { glyph[$0] >= typicalGlyph * 0.5 }) else { continue }
+            }
 
             // The cell size and offset whose boundaries fall in the gaps. Full-width cells are about
             // as long as the text is thick (kana and flat kanji like 一 less), and the line has at least

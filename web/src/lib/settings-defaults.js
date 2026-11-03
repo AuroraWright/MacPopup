@@ -90,11 +90,11 @@ export const defaultSettings = {
 	ocrWindow: null,
 	// Areas of the window to read, normalized to it ({x, y, width, height} in 0-1). Empty: the whole window.
 	ocrRegions: [],
-	// A language Live Text supports (ImageAnalyzer.supportedTextRecognitionLanguages).
 	ocrEngine: 'liveText',
-	ocrLanguage: 'ja-JP',
 	ocrResolution: 'auto',
 	ocrStripFurigana: true,
+	// How many WebSocket lines before the last are matched too, for games that add a line at a time to a page.
+	ocrEarlierLines: 20,
 	// Percentage of the watched area that has to change before the window is read again.
 	ocrChangeThreshold: 0.3,
 	ocrPollInterval: 500,
@@ -152,7 +152,8 @@ export const defaultSettings = {
 	// Yomitan API
 	yomitanApiUrl: 'http://127.0.0.1:19633',
 	// The ISO code of the Yomitan profile's language (general.language; see lib/languages.js). Lookups
-	// use Yomitan's own; this one is for what MacPopup does itself: audio, text display, scan resolution.
+	// use Yomitan's own; this one is for what MacPopup does itself: audio, text display, scan resolution,
+	// and the language OCR mode reads (Live Text's, and which lines are kept; see OCRLanguage.swift).
 	language: 'ja',
 
 	// Popup appearance (Yomitan general options)

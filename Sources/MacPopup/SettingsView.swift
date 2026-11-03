@@ -102,6 +102,11 @@ private struct FieldRow: View {
                 if !field.label.isEmpty || field.hint != nil { FieldLabel(field: field) }
                 wideControl
             }
+        } else if let warning = field.warning?(model.values) {
+            VStack(alignment: .trailing, spacing: 4) {
+                control
+                Text(warning).font(.caption).foregroundStyle(.red).multilineTextAlignment(.trailing)
+            }
         } else {
             control
         }
@@ -192,9 +197,8 @@ private struct FieldRow: View {
             AnkiFieldPicker(name: value as? String ?? "", settings: model.values) { model.set(field.key, $0) } label: {
                 FieldLabel(field: field)
             }
-        case let .select(options, match):
-            let stored = value as? String ?? ""
-            let current = options.contains { $0.value == stored } ? stored : match?(stored) ?? stored
+        case let .select(options):
+            let current = value as? String ?? ""
             // A value the menu doesn't offer (e.g. imported) is shown rather than dropped.
             let shown = options.contains { $0.value == current } ? options : options + [SettingsOption(current)]
             Picker(selection: Binding(get: { current }, set: { model.set(field.key, $0) })) {
