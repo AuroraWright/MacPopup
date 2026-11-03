@@ -4,6 +4,8 @@ import WebKit
 // Private window server calls (see OverlayController.allowCursorInBackground).
 @_silgen_name("_CGSDefaultConnection") private func _CGSDefaultConnection() -> Int32
 @_silgen_name("CGSSetConnectionProperty") private func CGSSetConnectionProperty(_ cid: Int32, _ target: Int32, _ key: CFString, _ value: CFTypeRef) -> Int32
+/// Changes whenever any app sets the cursor (see OverlayController.watchCursor).
+@_silgen_name("CGSCurrentCursorSeed") private func CGSCurrentCursorSeed() -> Int32
 
 /// Borderless, transparent panel covering a whole display. It never becomes key, so the
 /// game (or whatever app is in front) keeps keyboard focus while the overlay is used with the mouse.
@@ -41,6 +43,15 @@ final class OverlayController: NSObject {
     private var simulatedMouseUntil = Date.distantPast
     /// The cursor the page asked for over the box or a popup (see web/src/lib/cursor.js), nil elsewhere.
     private var cursor: NSCursor?
+    /// A copy of `cursor`, set instead of it every other time (see restoreCursor).
+    private var cursorCopy: NSCursor?
+    /// The one of the two set last.
+    private weak var lastSetCursor: NSCursor?
+    /// Whether the pointer is over the box or a popup.
+    private var pointerInside = false
+    /// Watches for other apps setting the cursor while the pointer is over the box or a popup (see watchCursor).
+    private var cursorTimer: Timer?
+    private var cursorSeed: Int32 = 0
     private let hotkeys = HotkeyController()
     /// Called with the cursor position in global coordinates (origin at the top left of the main display).
     var onCursorMoved: ((CGPoint) -> Void)?
@@ -227,6 +238,8 @@ final class OverlayController: NSObject {
     private func stopTracking() {
         timer?.invalidate()
         timer = nil
+        pointerInside = false
+        watchCursor()
         if let globalMouseMonitor {
             NSEvent.removeMonitor(globalMouseMonitor)
         }
@@ -268,11 +281,14 @@ final class OverlayController: NSObject {
         if debugInput { logInput("cursor \(name ?? "nil")") }
         let previous = cursor
         cursor = name.map(Self.cursor(forCSS:))
+        cursorCopy = cursor.map { NSCursor(image: $0.image, hotSpot: $0.hotSpot) }
         if let cursor {
             cursor.set()
+            lastSetCursor = cursor
         } else if previous != nil {
             NSCursor.arrow.set()
         }
+        watchCursor()
     }
 
     /// Lets this app set the cursor while another app is active. Without it, the active app's cursor
@@ -284,11 +300,41 @@ final class OverlayController: NSObject {
     }()
 
     /// Sets `cursor` again if the system shows another. NSCursor.set() does nothing for the cursor this app
-    /// last set, even if another app changed it since, so a different one is set first.
-    private static func restore(_ cursor: NSCursor) {
-        guard let shown = NSCursor.currentSystem, shown.hotSpot != cursor.hotSpot || shown.image.size != cursor.image.size else { return }
-        (cursor == NSCursor.arrow ? NSCursor.iBeam : NSCursor.arrow).set()
-        cursor.set()
+    /// last set, even if another app changed it since, so it alternates with an identical copy (setting another
+    /// cursor in between would show that one for a moment).
+    private func restoreCursor() {
+        guard let cursor, let cursorCopy, let shown = NSCursor.currentSystem,
+              shown.hotSpot != cursor.hotSpot || shown.image.size != cursor.image.size else { return }
+        let next = lastSetCursor === cursor ? cursorCopy : cursor
+        next.set()
+        lastSetCursor = next
+    }
+
+    /// The active app below the overlay sets its cursor again now and then (Terminal about twice a second, as
+    /// its text cursor blinks), even while the pointer is over the box or a popup, and that cursor shows until
+    /// it's set back: within a frame or two at the polling rate, often enough to see it flash. So meanwhile the
+    /// window server's cursor seed, which changes whenever any app sets the cursor, is watched every 2 ms (reading
+    /// it costs next to nothing), and the cursor set back as soon as it changes.
+    private func watchCursor() {
+        let watching = pointerInside && cursor != nil
+        if watching == (cursorTimer != nil) { return }
+        if watching {
+            cursorSeed = CGSCurrentCursorSeed()
+            let timer = Timer(timeInterval: 0.002, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let seed = CGSCurrentCursorSeed()
+                    guard seed != self.cursorSeed else { return }
+                    self.cursorSeed = seed
+                    self.restoreCursor()
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            cursorTimer = timer
+        } else {
+            cursorTimer?.invalidate()
+            cursorTimer = nil
+        }
     }
 
     private static func cursor(forCSS name: String) -> NSCursor {
@@ -366,8 +412,12 @@ final class OverlayController: NSObject {
             logInput("pressed \(lastPressed) -> \(pressed) | \(buttonStateDescription())")
         }
         // The active app keeps setting the cursor for its window below the overlay, so it's set again
-        // while the pointer is over the box or a popup.
-        if inside, let cursor { Self.restore(cursor) }
+        // while the pointer is over the box or a popup (see watchCursor).
+        if inside != pointerInside {
+            pointerInside = inside
+            watchCursor()
+        }
+        if inside { restoreCursor() }
         guard force || location != lastMouseLocation || modifiers != lastModifiers || pressed != lastPressed else { return }
         lastMouseLocation = location
         lastModifiers = modifiers
