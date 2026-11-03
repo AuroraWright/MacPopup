@@ -994,7 +994,7 @@ final class OCRController {
         if readsScreen {
             if scDisplay == nil || scBounds != bounds {
                 if scBounds != bounds { readingScale = nil }
-                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                let content = try await ScreenCapture.shareableContent(onScreenWindowsOnly: true)
                 let displayID = (overlay.panel.screen ?? NSScreen.main)?.displayID
                 scDisplay = content.displays.first { $0.displayID == displayID }
                 scOwnApps = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
@@ -1008,12 +1008,12 @@ final class OCRController {
             configuration.width = max(1, Int(partRect.width * scale))
             configuration.height = max(1, Int(partRect.height * scale))
             configuration.showsCursor = false
-            return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+            return try await ScreenCapture.image(filter: filter, configuration: configuration)
         }
         guard let target else { return nil }
         if scWindow == nil || scBounds != bounds {
             if scBounds != bounds { readingScale = nil }
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+            let content = try await ScreenCapture.shareableContent(onScreenWindowsOnly: false)
             scWindow = content.windows.first { $0.windowID == target.windowID }
             scDisplay = content.displays.first { $0.frame.contains(bounds) }
             scBounds = bounds
@@ -1049,7 +1049,7 @@ final class OCRController {
         configuration.width = max(1, Int(partRect.width * scale))
         configuration.height = max(1, Int(partRect.height * scale))
         configuration.showsCursor = false
-        return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        return try await ScreenCapture.image(filter: filter, configuration: configuration)
     }
 
     /// The captured window (Settings → General), whole and at its display's resolution, for the
@@ -1061,7 +1061,7 @@ final class OCRController {
         let windows = Self.windows(onScreenOnly: true).filter { $0.ownerName == ownerName }
         let match = windows.first { $0.id == target?.windowID } ?? windows.first { $0.title == title } ?? windows.first
         guard let match else { return nil }
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let content = try await ScreenCapture.shareableContent(onScreenWindowsOnly: true)
         guard let window = content.windows.first(where: { $0.windowID == match.id }) else { return nil }
         let display = content.displays.first { $0.frame.contains(match.bounds) }
         let scale = NSScreen.screens.first { $0.displayID == (display?.displayID ?? overlay.displayID) }?.backingScaleFactor ?? 2
