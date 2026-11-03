@@ -318,6 +318,12 @@ private final class ScriptRecognizer {
             }
             if labels[id] == nil { labels[id] = name }
         }
+        // Every shipped model has labels 0..C-2 plus the CTC blank (C = decode_logits classes, checked when it's
+        // run). A label map that doesn't (truncated or corrupt file) fails the OCR call like the original does,
+        // instead of decoding to labels that don't exist.
+        guard lr.ok, !labels.isEmpty, labels.keys.min() == 0, labels.keys.max() == labels.count - 1 else {
+            throw ScreenAIError("Label map \(cfg.labelMapPath) doesn't match the model")
+        }
         self.labels = labels
         if cfg.hasCtcDecoder {
             let file = configFile.firstIndex(of: "/").map { String(configFile[configFile.index(after: $0)...]) }
@@ -406,6 +412,7 @@ private final class ScriptRecognizer {
         guard let logitsQ = quantization["decode_logits"], let C = shapes["decode_logits"]?.last else {
             throw ScreenAIError("The recognizer has no decode_logits output")
         }
+        guard labels.count == C - 1 else { throw ScreenAIError("Label map \(config.labelMapPath) doesn't match the model") }
         var b0 = 0
         while b0 < chunkData.count {
             defer { b0 += batchSize }
@@ -554,8 +561,9 @@ private func argmax(_ v: [Float], _ n: Int) -> Int {
     return best
 }
 
-/// RotateOrientationClockwise<Box<float>> + BoundingBoxToBoundingPolygon (rounded). A curved box keeps its curve:
-/// each quadrant clears top_to_bottom if set, else reverses the mid-line points and sets it.
+/// RotateOrientationClockwise<Box<float>> + BoundingBoxToBoundingPolygon (rounded). A curved box keeps its curve,
+/// with points and thickness rounded to float by the Box<float> round trip: each quadrant clears top_to_bottom if
+/// set, else reverses the mid-line points and sets it.
 private func rotateClockwise(_ b: RotatedBox, _ quadrants: Int) -> RotatedBox {
     let q = quadrants & 3
     if q == 0 { return b }
@@ -583,6 +591,8 @@ private func rotateClockwise(_ b: RotatedBox, _ quadrants: Int) -> RotatedBox {
     out.height = q & 1 != 0 ? b.width : b.height
     out.angle = a
     if var curve = b.curve {
+        curve.points = curve.points.map { (Double(Float($0.0)), Double(Float($0.1))) }
+        curve.thickness = Double(Float(curve.thickness))
         if curve.points.count >= 2 {
             var ttb = curve.topToBottom ?? false
             for _ in 0..<q {
@@ -755,7 +765,8 @@ final class LineRecognizer {
     private var configFiles: [String: String] = [:]
     private var defaultKey = ""
     private var maximumIterations = 0
-    private let langid: LanguageIdentifier
+    /// Optional, as in the original: without a loadable model, lines get no language from it.
+    private let langid: LanguageIdentifier?
     private var recognizers: [String: ScriptRecognizer] = [:]
     private let quantization: [String: [String: OutputQuantization]]
 
@@ -794,7 +805,7 @@ final class LineRecognizer {
         }
         guard configFiles[defaultKey] != nil else { throw ScreenAIError("Unexpected recognizer config") }
         quantization = try Self.readQuantization(resources)
-        langid = try LanguageIdentifier(resources: resources)
+        langid = try? LanguageIdentifier(resources: resources)
         _ = try recognizer(defaultKey)
     }
 
@@ -959,9 +970,9 @@ final class LineRecognizer {
                     let s = argmax(L.script, L.script.count)
                     let name = s < cfg.scriptNames.count ? cfg.scriptNames[s] : ""
                     predictedScript = name
-                    language = cfg.supportedScripts.contains(name) ? langid.identify(decode.text) : name
+                    language = cfg.supportedScripts.contains(name) ? langid?.identify(decode.text) ?? "" : name
                 } else {
-                    language = langid.identify(decode.text)
+                    language = langid?.identify(decode.text) ?? ""
                 }
                 e.confidence = decode.confidence
                 e.languages = [language]
@@ -978,7 +989,7 @@ final class LineRecognizer {
                 layout.entities[ei] = e
                 var words = buildWords(decode.symbols, decode.text)
                 if !rtl {
-                    recomputeSpaceWordBreakBoxes(decode.symbols, &words)
+                    recomputeSpaceWordBreakBoxes(decode.symbols, vertical: e.writingDirection == 2, &words)
                     estimateWordColors(images[k], decode.symbols, &words)
                 }
                 if state[w].boxScale != 1 { scaleLineBoxes(state[w].boxScale, &decode.symbols, &words) }
@@ -1043,10 +1054,12 @@ final class LineRecognizer {
             // of the line and its descendants are turned upright again (RotateOrientationClockwise by 3 quadrants).
             let vertical = line.writingDirection == 2
             func upright(_ b: RotatedBox) -> RotatedBox { vertical ? rotateClockwise(b, 3) : b }
-            // Vertical lines map their boxes from the upright line box turned back by one quadrant: the angle round
-            // trip moves the page angle of every symbol by an ulp, which shows in the averaged word angles.
+            // Vertical lines re-recognized in a later pass map their boxes from the upright line box of the first
+            // pass turned back by one quadrant: the angle round trip moves the page angle of every symbol by an ulp,
+            // which shows in the averaged word angles. Lines kept from the first pass map from their box as
+            // recognized. For curved lines the round trip rounds the curve to float.
             var lb = line.box ?? RotatedBox()
-            if vertical && lb.curve == nil { lb = rotateClockwise(rotateClockwise(lb, 3), 1) }
+            if vertical && state[k].key != defaultKey { lb = rotateClockwise(rotateClockwise(lb, 3), 1) }
             // Curved lines: line-image boxes follow the mid-line curve back onto the page.
             let mapper = lb.curve.map { CurveMapper($0) }
             func page(_ rel: RotatedBox) -> RotatedBox { mapper.map { curveToPage($0, rel) } ?? toPage(lb, rel) }

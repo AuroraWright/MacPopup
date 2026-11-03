@@ -282,8 +282,9 @@ func buildWords(_ symbols: [RecSymbol], _ lineText: String) -> [RecWord] {
     return words
 }
 
-/// RecomputeSpaceWordBreakBoxes for horizontal (angle 0, line-relative) words.
-func recomputeSpaceWordBreakBoxes(_ symbols: [RecSymbol], _ words: inout [RecWord]) {
+/// RecomputeSpaceWordBreakBoxes(words, layout, true) for angle-0 line-relative words; `vertical`: the line is written
+/// top-to-bottom.
+func recomputeSpaceWordBreakBoxes(_ symbols: [RecSymbol], vertical: Bool, _ words: inout [RecWord]) {
     for i in 0..<max(words.count - 1, 0) {
         let b = words[i + 1]
         guard let brk = words[i].brk, brk.type == 2 || brk.type == 3, brk.box != nil, !words[i].symbols.isEmpty,
@@ -294,9 +295,17 @@ func recomputeSpaceWordBreakBoxes(_ symbols: [RecSymbol], _ words: inout [RecWor
         var u = unionStart(la)
         expandBoxToContainBox(la, &u)
         expandBoxToContainBox(fb, &u)
-        let gap = max(0, Float(u.width - la.width - fb.width))
-        words[i].brk!.box!.left = words[i].box.left + words[i].box.width
-        words[i].brk!.box!.width = max(1, Int(ceilf(gap)))
+        // LineLength along the writing direction of the line (top-to-bottom lines measure heights, although their
+        // line-relative boxes are horizontal here).
+        let gap = vertical ? u.height - la.height - fb.height : u.width - la.width - fb.width
+        let len = max(1, max(0, gap))
+        if vertical {
+            words[i].brk!.box!.top = words[i].box.top + words[i].box.height
+            words[i].brk!.box!.height = len
+        } else {
+            words[i].brk!.box!.left = words[i].box.left + words[i].box.width
+            words[i].brk!.box!.width = len
+        }
     }
 }
 

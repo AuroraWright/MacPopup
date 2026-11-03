@@ -304,6 +304,10 @@ final class CTCBeamDecoder {
             }
             if labels[id] == nil { labels[id] = name }
         }
+        // ids must be 0..n-1 (n entries): anything else is a corrupt file.
+        guard lr.ok, !labels.isEmpty, labels.keys.min() == 0, labels.keys.max() == labels.count - 1 else {
+            throw ScreenAIError("Corrupt label map \(labelMapPath)")
+        }
         blank = labels.count
         // Log priors: encoded_prior or prior_path (tensorflow.TensorProto, num_classes + 1 values).
         guard let priorBytes = encodedPrior.isEmpty ? resources.read(dir + priorPath) : encodedPrior,

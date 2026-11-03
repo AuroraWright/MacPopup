@@ -273,12 +273,18 @@ final class CharLanguageModel {
     /// labels: class id -> label (the recognizer's label map, without the CTC blank).
     init(fst file: [UInt8], symbols symsFile: [UInt8], labels: [(Int, [UInt8])]) throws {
         fst = try CompactLmFst(file)
-        for line0 in symsFile.split(separator: 0x0A, omittingEmptySubsequences: false) {
-            var line = line0
-            if line.last == 0x0D { line = line.dropLast() }
-            guard !line.isEmpty, let tab = line.lastIndex(where: { $0 == 0x09 || $0 == 0x20 }) else { continue }
-            let key = Array(line[..<tab])
-            if symbols[key] == nil { symbols[key] = Int(atoi(String(decoding: line[(tab + 1)...], as: UTF8.self))) }
+        // fst::SymbolTable::ReadText: fields split on tabs and spaces (empty ones skipped); a line must have no fields
+        // or exactly "symbol key" with a non-negative integer key, otherwise the table (and the recognizer) fails to
+        // load.
+        for line in symsFile.split(separator: 0x0A, omittingEmptySubsequences: false) {
+            let cols = line.split(whereSeparator: { $0 == 0x09 || $0 == 0x20 })
+            if cols.isEmpty { continue }
+            guard cols.count == 2, let id = Int(String(decoding: cols[1], as: UTF8.self)), id >= 0, id <= Int(Int32.max)
+            else {
+                throw ScreenAIError("Bad LM symbol table line: \(String(decoding: line.prefix(80), as: UTF8.self))")
+            }
+            let key = Array(cols[0])
+            if symbols[key] == nil { symbols[key] = id }
         }
         var maxId = 0
         var eos: Int?
