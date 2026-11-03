@@ -102,6 +102,12 @@ final class OverlayController: NSObject {
             name: NSApplication.didChangeScreenParametersNotification,
             object: nil
         )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(activeSpaceChanged),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil
+        )
 
         webView.load(URLRequest(url: WebViewFactory.url(for: "overlay.html")))
     }
@@ -197,6 +203,11 @@ final class OverlayController: NSObject {
 
     @objc private func screenParametersChanged() {
         applySettings()
+    }
+
+    /// The overlay shows on every space, but its popups belong to what was looked up on the space left.
+    @objc private func activeSpaceChanged() {
+        webView.evaluateJavaScript("window.__macpopupSpaceChanged?.()")
     }
 
     // MARK: Mouse tracking

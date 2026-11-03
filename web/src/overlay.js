@@ -964,6 +964,8 @@ window.__macpopupPointer = (x, y, shift, ctrl, alt, meta, pressed = []) => {
 };
 
 window.__macpopupOutsideClick = () => popupManager.closeAll();
+// Popups close when switching spaces, in Window mode too (the box shows on every space).
+window.__macpopupSpaceChanged = () => popupManager.closeAll();
 
 // Copied text, with "Enable background clipboard text monitoring" (see ClipboardMonitor.swift).
 window.__macpopupClipboard = (text) => {
@@ -996,9 +998,12 @@ const ocr = {
 
 function setOcrWindow(message) {
 	const layer = $('#ocr-layer');
+	const wasShown = !layer.hidden;
 	ocr.window = message.visible ? message : null;
 	layer.hidden = !ocr.window || !getSettings().ocrMode;
 	if (layer.hidden) {
+		// E.g. the window is on another space now: its popups go with its text.
+		if (wasShown) popupManager.closeAll();
 		clearMainScan();
 		return;
 	}
