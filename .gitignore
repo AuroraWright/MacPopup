@@ -4,3 +4,4 @@ web/node_modules/
 .DS_Store
 .claude/
 .swiftpm/
+test-corpus/
