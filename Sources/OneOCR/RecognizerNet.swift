@@ -1,3 +1,4 @@
+import Accelerate
 import CoreML
 import Foundation
 import OneOCRKernels
@@ -100,6 +101,39 @@ private struct U8Matrix {
         for r in 0..<rows { out(r, Int(dot[r]) + corr - zp * sums[r]) }
     }
 
+    /// y[t * rows + r] = Float(acc) mul[r] + bias[r], acc the products for every code vector t of `count` (kp apart, sums
+    /// qsums) and every row r: a block of rows at a time (their weights stay in the cache while all the vectors go by,
+    /// four at a time), the blocks on all cores.
+    func affine(_ q: UnsafePointer<UInt8>, count: Int, zp: Int, qsums: [Int], mul: UnsafePointer<Float>,
+                bias: UnsafePointer<Float>, into y: UnsafeMutablePointer<Float>) {
+        let blockRows = 256, blocks = (rows + blockRows - 1) / blockRows
+        // In 32 bits, which hold every term (|acc| < 2^26), so the loop below vectorizes.
+        let corrs = qsums.map { Int32(-128 * $0 + 128 * zp * k) }, zsums = sums.map { Int32(zp * $0) }
+        data.withUnsafeBufferPointer { w in zsums.withUnsafeBufferPointer { zsums in
+            let (w, zsums) = (w.baseAddress!, zsums.baseAddress!)
+            DispatchQueue.concurrentPerform(iterations: blocks) { b in
+                let r0 = b * blockRows, n = min(rows, r0 + blockRows) - r0
+                let dot = UnsafeMutablePointer<UInt32>.allocate(capacity: 4 * n)
+                defer { dot.deallocate() }
+                var t = 0
+                while t < count {
+                    let frames = min(4, count - t)
+                    if frames == 4 {
+                        oneocr_dot_u8_rows4(q + t * kp, w + r0 * kp, Int32(n), Int32(kp), dot)
+                    } else {
+                        for j in 0..<frames { oneocr_dot_u8_rows(q + (t + j) * kp, w + r0 * kp, Int32(n), Int32(kp), dot + j * n) }
+                    }
+                    for j in 0..<frames {
+                        let corr = corrs[t + j], d = dot + j * n
+                        let (row, m, b, z) = (y + (t + j) * rows + r0, mul + r0, bias + r0, zsums + r0)
+                        for r in 0..<n { row[r] = Float(Int32(bitPattern: d[r]) &+ corr &- z[r]) * m[r] + b[r] }
+                    }
+                    t += 4
+                }
+            }
+        } }
+    }
+
     /// The same for four code vectors kp apart; dot holds 4 * rows.
     @inline(__always) func products4(_ q: UnsafePointer<UInt8>, zp: Int, qsums: (Int, Int, Int, Int),
                                      _ dot: UnsafeMutablePointer<UInt32>, _ out: (Int, Int, Int) -> Void) {
@@ -141,18 +175,36 @@ private struct LSTMLayer {
     return p * normal
 }
 
+/// The same for four lanes (the same operations in each).
+@inline(__always) private func mlasSumExp(_ x: SIMD4<Float>, _ negMax: Float) -> SIMD4<Float> {
+    typealias V4 = SIMD4<Float>
+    var v = simd_max(V4(repeating: -88.3762626647949), x + negMax)
+    let bias = V4(repeating: 12_582_912)
+    let biased = bias.addingProduct(v, V4(repeating: 1.44269504088896341))
+    let m = biased - bias
+    v = v.addingProduct(m, V4(repeating: -6.93145752e-1))
+    v = v.addingProduct(m, V4(repeating: -1.42860677e-6))
+    let normal = unsafeBitCast((unsafeBitCast(biased, to: SIMD4<UInt32>.self) &<< 23) &+ 0x3F80_0000, to: V4.self)
+    var p = V4(repeating: 0x1.694000p-10)
+    p = V4(repeating: 0x1.125edcp-7).addingProduct(p, v)
+    p = V4(repeating: 0x1.555b5ap-5).addingProduct(p, v)
+    p = V4(repeating: 0x1.555450p-3).addingProduct(p, v)
+    p = V4(repeating: 0x1.fffff6p-2).addingProduct(p, v)
+    p = V4(repeating: 1).addingProduct(p, v)
+    p = V4(repeating: 1).addingProduct(p, v)
+    return p * normal
+}
+
 /// MlasComputeSumExpF32Kernel: (sum, exps).
 private func mlasSumExp(_ x: UnsafeBufferPointer<Float>, _ negMax: Float, _ out: UnsafeMutablePointer<Float>?) -> Float {
     var n = x.count, i = 0
     var acc: Float = 0
     if n >= 4 {
         var a = SIMD4<Float>(repeating: 0)
+        let lanes = UnsafeRawPointer(x.baseAddress!)
+        func load(_ i: Int) -> SIMD4<Float> { lanes.loadUnaligned(fromByteOffset: 4 * i, as: SIMD4<Float>.self) }
         while n >= 8 {
-            var v0 = SIMD4<Float>(), v1 = SIMD4<Float>()
-            for l in 0..<4 {
-                v0[l] = mlasSumExp(x[i + l], negMax)
-                v1[l] = mlasSumExp(x[i + 4 + l], negMax)
-            }
+            let v0 = mlasSumExp(load(i), negMax), v1 = mlasSumExp(load(i + 4), negMax)
             a = a + v0
             a = a + v1
             if let o = out { for l in 0..<4 { o[i + l] = v0[l]; o[i + 4 + l] = v1[l] } }
@@ -160,8 +212,7 @@ private func mlasSumExp(_ x: UnsafeBufferPointer<Float>, _ negMax: Float, _ out:
             n -= 8
         }
         while n >= 4 {
-            var v = SIMD4<Float>()
-            for l in 0..<4 { v[l] = mlasSumExp(x[i + l], negMax) }
+            let v = mlasSumExp(load(i), negMax)
             a = a + v
             if let o = out { for l in 0..<4 { o[i + l] = v[l] } }
             i += 4
@@ -180,20 +231,24 @@ private func mlasSumExp(_ x: UnsafeBufferPointer<Float>, _ negMax: Float, _ out:
 }
 
 private func mlasMax(_ x: UnsafeBufferPointer<Float>) -> Float {
-    var m = -Float.greatestFiniteMagnitude
-    for v in x { m = max(m, v) }
-    return m
+    guard !x.isEmpty else { return -Float.greatestFiniteMagnitude }
+    var m: Float = 0
+    vDSP_maxv(x.baseAddress!, 1, &m, vDSP_Length(x.count))
+    return max(m, -Float.greatestFiniteMagnitude)
 }
 
 enum MLAS {
     /// LogSoftmax over each row of length d (in place).
     static func logSoftmax(_ x: inout [Float], _ d: Int) {
         x.withUnsafeMutableBufferPointer { buf in
-            for r in 0..<(buf.count / d) {
-                let row = UnsafeBufferPointer(rebasing: buf[(r * d)..<(r * d + d)])
-                let negMax = -mlasMax(row)
-                let lg = logf(mlasSumExp(row, negMax, nil))
-                for i in 0..<d { buf[r * d + i] = (buf[r * d + i] + negMax) - lg }
+            let p = buf.baseAddress!
+            forEachRange(buf.count / d, size: d) { rows in
+                for r in rows {
+                    let row = p + r * d
+                    let negMax = -mlasMax(UnsafeBufferPointer(start: row, count: d))
+                    let lg = logf(mlasSumExp(UnsafeBufferPointer(start: row, count: d), negMax, nil))
+                    for i in 0..<d { row[i] = (row[i] + negMax) - lg }
+                }
             }
         }
     }
@@ -359,13 +414,13 @@ final class CharNet: @unchecked Sendable {
             x = out
         }
         let K = linB.k, kp = linB.kp
-        var y = [Float](repeating: 0, count: T * classes)
-        let q = UnsafeMutablePointer<UInt8>.allocate(capacity: kp)
-        defer { q.deallocate() }
-        let dot = UnsafeMutablePointer<UInt32>.allocate(capacity: classes)
-        defer { dot.deallocate() }
+        var y = [Float](unsafeUninitializedCapacity: T * classes) { _, count in count = T * classes }
+        let codes = UnsafeMutablePointer<UInt8>.allocate(capacity: T * kp)
+        defer { codes.deallocate() }
+        var qsums = [Int](repeating: 0, count: T)
         let z = Float(linZero)
         for t in 0..<T {
+            let q = codes + t * kp
             var qsum = 0
             for k in 0..<K {
                 let v = UInt8(min(max(x[t * K + k] / linScale, -z), 255 - z).rounded(.toNearestOrEven) + z)
@@ -373,7 +428,13 @@ final class CharNet: @unchecked Sendable {
                 qsum += Int(v)
             }
             for k in K..<kp { q[k] = 0 }
-            linB.products(q, zp: linZero, qsum: qsum, dot) { n, acc in y[t * classes + n] = Float(acc) * linMul[n] + linBias[n] }
+            qsums[t] = qsum
+        }
+        y.withUnsafeMutableBufferPointer { yb in
+            linMul.withUnsafeBufferPointer { mul in linBias.withUnsafeBufferPointer { bias in
+                linB.affine(codes, count: T, zp: linZero, qsums: qsums, mul: mul.baseAddress!, bias: bias.baseAddress!,
+                            into: yb.baseAddress!)
+            } }
         }
         MLAS.logSoftmax(&y, classes)
         return y

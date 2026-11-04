@@ -309,14 +309,17 @@ final class TextRecognizer: @unchecked Sendable {
     // MARK: XnnResult
 
     private static func sparse(_ cfg: CharModelConfig, _ blank: Int, _ logp: [Float], _ T: Int, _ C: Int) -> [Col] {
-        (0..<T).map { t in
-            var col = Col()
-            for i in 0..<C where logp[t * C + i] > cfg.logMinProb {
-                col.keys.append(i)
-                col.vals.append(logp[t * C + i])
+        logp.withUnsafeBufferPointer { logp in
+            (0..<T).map { t in
+                var col = Col()
+                let row = logp.baseAddress! + t * C, threshold = cfg.logMinProb
+                for i in 0..<C where row[i] > threshold {
+                    col.keys.append(i)
+                    col.vals.append(row[i])
+                }
+                if col.isEmpty { col.set(blank, cfg.logMinProb) }
+                return col
             }
-            if col.isEmpty { col.set(blank, cfg.logMinProb) }
-            return col
         }
     }
 

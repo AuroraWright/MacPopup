@@ -1,3 +1,4 @@
+import Accelerate
 import CoreGraphics
 import Foundation
 
@@ -70,10 +71,15 @@ public final class OneOCREngine: @unchecked Sendable {
         }
         guard drawn else { throw OneOCRError("Can't read the image") }
         var out = ImageU8(width: w, height: h, channels: 3)
-        for i in 0..<(w * h) {
-            out.data[3 * i] = rgba[4 * i + 2]
-            out.data[3 * i + 1] = rgba[4 * i + 1]
-            out.data[3 * i + 2] = rgba[4 * i]
+        rgba.withUnsafeMutableBytes { rgba in
+            out.data.withUnsafeMutableBytes { bgr in
+                let (height, width) = (vImagePixelCount(h), vImagePixelCount(w))
+                var source = vImage_Buffer(data: rgba.baseAddress, height: height, width: width, rowBytes: 4 * w)
+                var destination = vImage_Buffer(data: bgr.baseAddress, height: height, width: width, rowBytes: 3 * w)
+                // RGBA to BGRA in place, then without the alpha.
+                vImagePermuteChannels_ARGB8888(&source, &source, [2, 1, 0, 3], vImage_Flags(kvImageNoFlags))
+                vImageConvert_RGBA8888toRGB888(&source, &destination, vImage_Flags(kvImageNoFlags))
+            }
         }
         return out
     }

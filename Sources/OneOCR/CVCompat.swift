@@ -1,3 +1,4 @@
+import Accelerate
 import Foundation
 
 /// An interleaved 8-bit image (rows of width × channels bytes), BGR when it has 3 channels.
@@ -61,8 +62,23 @@ struct ImageF32 {
     }
 
     init(_ u: ImageU8) {
-        self.init(width: u.width, height: u.height, channels: u.channels, data: u.data.map { Float($0) })
+        var data = [Float](repeating: 0, count: u.data.count)
+        u.data.withUnsafeBufferPointer { s in
+            data.withUnsafeMutableBufferPointer { d in vDSP_vfltu8(s.baseAddress!, 1, d.baseAddress!, 1, vDSP_Length(s.count)) }
+        }
+        self.init(width: u.width, height: u.height, channels: u.channels, data: data)
     }
+}
+
+/// body over 0..<count, split into ranges run on all cores when there are more than `work` values in all (each of the
+/// count items has `size` values); otherwise in one go.
+func forEachRange(_ count: Int, size: Int, work: Int = 1 << 16, _ body: (Range<Int>) -> Void) {
+    let parts = count * size > work ? min(count, ProcessInfo.processInfo.activeProcessorCount * 2) : 1
+    if parts <= 1 {
+        body(0..<count)
+        return
+    }
+    DispatchQueue.concurrentPerform(iterations: parts) { part in body(count * part / parts..<count * (part + 1) / parts) }
 }
 
 /// Python's floor division and modulo (rounding toward -inf).
@@ -107,24 +123,54 @@ enum CV {
         return (sx, a0, a1)
     }
 
-    /// cv::resize(INTER_LINEAR) of a float image, unfused: (src[x0] a0 + src[x1] a1) per row, then the same down.
+    /// cv::resize(INTER_LINEAR) of a float image, unfused: (src[x0] a0 + src[x1] a1) per row, then the same down. Only
+    /// the source rows used are resized across.
     static func resizeLinear(_ src: ImageF32, _ width: Int, _ height: Int) -> ImageF32 {
         let (x0, a0, a1) = linearCoeffs(src.width, width, clamp: true)
         let (y0, b0, b1) = linearCoeffs(src.height, height, clamp: true)
-        let c = src.channels, w = src.width
-        var rows = [Float](repeating: 0, count: src.height * width * c)
-        src.data.withUnsafeBufferPointer { s in
-            for y in 0..<src.height {
-                for x in 0..<width {
-                    let p0 = (y * w + x0[x]) * c, p1 = (y * w + min(x0[x] + 1, w - 1)) * c
-                    for k in 0..<c { rows[(y * width + x) * c + k] = s[p0 + k] * a0[x] + s[p1 + k] * a1[x] }
-                }
+        let c = src.channels, w = src.width, h = src.height, length = width * c
+        // Per value of a row: the offsets of its two source values in their row, and their weights.
+        var offsets0 = [Int](repeating: 0, count: length), offsets1 = [Int](repeating: 0, count: length)
+        var weights0 = [Float](repeating: 0, count: length), weights1 = [Float](repeating: 0, count: length)
+        for x in 0..<width {
+            for k in 0..<c {
+                offsets0[x * c + k] = x0[x] * c + k
+                offsets1[x * c + k] = min(x0[x] + 1, w - 1) * c + k
+                weights0[x * c + k] = a0[x]
+                weights1[x * c + k] = a1[x]
             }
         }
-        var out = ImageF32(width: width, height: height, channels: c)
+        var used = [Bool](repeating: false, count: h)
         for y in 0..<height {
-            let r0 = y0[y] * width * c, r1 = min(y0[y] + 1, src.height - 1) * width * c
-            for i in 0..<(width * c) { out.data[y * width * c + i] = rows[r0 + i] * b0[y] + rows[r1 + i] * b1[y] }
+            used[y0[y]] = true
+            used[min(y0[y] + 1, h - 1)] = true
+        }
+        var rows = [Float](repeating: 0, count: h * length)
+        var out = ImageF32(width: width, height: height, channels: c)
+        src.data.withUnsafeBufferPointer { s in
+            rows.withUnsafeMutableBufferPointer { r in
+                let (s, r) = (s.baseAddress!, r.baseAddress!)
+                offsets0.withUnsafeBufferPointer { o0 in offsets1.withUnsafeBufferPointer { o1 in
+                    weights0.withUnsafeBufferPointer { w0 in weights1.withUnsafeBufferPointer { w1 in
+                        forEachRange(h, size: length) { ys in
+                            for y in ys where used[y] {
+                                let line = s + y * w * c, row = r + y * length
+                                for i in 0..<length { row[i] = line[o0[i]] * w0[i] + line[o1[i]] * w1[i] }
+                            }
+                        }
+                    } }
+                } }
+                out.data.withUnsafeMutableBufferPointer { o in
+                    let o = o.baseAddress!
+                    forEachRange(height, size: length) { ys in
+                        for y in ys {
+                            let row0 = r + y0[y] * length, row1 = r + min(y0[y] + 1, h - 1) * length, row = o + y * length
+                            let (wt0, wt1) = (b0[y], b1[y])
+                            for i in 0..<length { row[i] = row0[i] * wt0 + row1[i] * wt1 }
+                        }
+                    }
+                }
+            }
         }
         return out
     }

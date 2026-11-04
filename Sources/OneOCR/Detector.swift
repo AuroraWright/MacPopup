@@ -786,12 +786,15 @@ final class TextDetector: @unchecked Sendable {
         let input = try makeInput(nh, nw) { dst in
             let plane = nh * nw
             img.data.withUnsafeBufferPointer { src in
-                for c in 0..<3 {
-                    let m = mean[c], s = std[c], sc = scale, zp = zeroPoint
-                    for i in 0..<plane {
-                        let x = (src[i * 3 + c] - m) / s
-                        let q = (x / sc).rounded(.toNearestOrEven) + zp
-                        dst[c * plane + i] = min(max(q, 0), 255)
+                let src = src.baseAddress!
+                forEachRange(nh, size: nw * 3) { rows in
+                    for c in 0..<3 {
+                        let m = mean[c], s = std[c], sc = scale, zp = zeroPoint
+                        for i in rows.lowerBound * nw..<rows.upperBound * nw {
+                            let x = (src[i * 3 + c] - m) / s
+                            let q = (x / sc).rounded(.toNearestOrEven) + zp
+                            dst[c * plane + i] = min(max(q, 0), 255)
+                        }
                     }
                 }
             }
