@@ -1,6 +1,6 @@
 import Foundation
 
-/// With "Outline recognized text" on, the page writes each OCR reading and WebSocket line here, one JSON object per
+/// With "Highlight recognized text boxes (debug)" on, the page writes each OCR reading and WebSocket line here, one JSON object per
 /// line (see logOcrDebug in web/src/overlay.js): Application Support/MacPopup/ocr-debug.jsonl, or the folder in
 /// MACPOPUP_DEBUG_OCR_DIR. Over 20 MB, it's moved to ocr-debug.old.jsonl and a new one is started.
 enum OCRDebugLog {

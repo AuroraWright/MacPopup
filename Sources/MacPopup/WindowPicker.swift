@@ -373,8 +373,8 @@ private final class PickerView: NSView {
             border.setLineDash([6, 4], count: 2, phase: 0)
             border.stroke()
             instructions = picker.regions.isEmpty
-                ? "Drag over the dialogue to read only the parts with text (optional), or click Done to read the whole window"
-                : "Drag over other parts with text, such as menus (read as soon as they change), or click Done"
+                ? "Drag over the dialogue/main text area, or click Done to read the whole window"
+                : "Drag over other text areas, such as menus, or click Done"
         }
 
         let menuBar = window?.screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0

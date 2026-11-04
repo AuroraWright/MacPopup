@@ -17,7 +17,7 @@ enum OCRLanguage {
         }
     }
 
-    /// Whether the engine (Settings → OCR Mode → Text recognition) reads `language`. Screen AI and OneOCR read most
+    /// Whether the engine (Settings → OCR Mode → Text recognition engine) reads `language`. Screen AI and OneOCR read most
     /// scripts.
     @MainActor static func isRead(_ language: String, by engine: String) -> Bool {
         switch engine {

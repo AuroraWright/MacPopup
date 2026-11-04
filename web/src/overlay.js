@@ -967,7 +967,7 @@ window.__macpopupOutsideClick = () => popupManager.closeAll();
 // Popups close when switching spaces, in Window mode too (the box shows on every space).
 window.__macpopupSpaceChanged = () => popupManager.closeAll();
 
-// Copied text, with "Enable background clipboard text monitoring" (see ClipboardMonitor.swift).
+// Copied text, with "Read copied text from clipboard" (see ClipboardMonitor.swift).
 window.__macpopupClipboard = (text) => {
 	const max = getSettings().clipboardMaxLength;
 	addLine(Number.isFinite(max) && max > 0 && text.length > max ? text.slice(0, max) : text);
@@ -1039,7 +1039,7 @@ function clearOcrText() {
  * page's earlier lines), and the next one shows it again.
  */
 function correctWithEarlierLines(lines, minQuality, debug) {
-	// At most "Earlier lines on the page" (the setting may have been lowered since they were kept).
+	// At most "Previous WebSocket lines to match" (the setting may have been lowered since they were kept).
 	const count = Math.max(0, getSettings().ocrEarlierLines);
 	ocr.earlierLines = count > 0 ? ocr.earlierLines.slice(-count) : [];
 	for (const line of [...ocr.earlierLines].reverse()) {
@@ -1057,7 +1057,7 @@ function matchSummary(result) {
 }
 
 /**
- * With "Outline recognized text" on, writes `record` to the OCR debug log (ocr-debug.jsonl in
+ * With "Highlight recognized text boxes (debug)" on, writes `record` to the OCR debug log (ocr-debug.jsonl in
  * Application Support/MacPopup; see OCRDebugLog.swift): each reading, what was done with it, and each
  * WebSocket line.
  */

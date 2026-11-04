@@ -521,7 +521,7 @@ export function renderLines(container, lines) {
 
 	// Stretch each glyph along the line to the width of its box (letter-spacing counts as part of the
 	// character's rect). Measured all at once so layout happens only once. The spacing goes after the
-	// glyph, so where the text is shown (Outline recognized text), it's drawn shifted to the middle.
+	// glyph, so where the text is shown (Highlight recognized text boxes), it's drawn shifted to the middle.
 	const range = document.createRange();
 	const lengths = spans.map(({ span, vertical }) => {
 		range.selectNodeContents(span.firstChild);

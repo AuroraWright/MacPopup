@@ -157,7 +157,7 @@ body {
 	color: rgb(40 200 90 / 0.8);
 }
 
-/* Read by the cloud engine (Text recognition (cloud)). */
+/* Read by the cloud engine (Cloud recognition). */
 #ocr-layer.show-boxes .ocr-line.ocr-cloud {
 	outline-color: rgb(255 150 30 / 0.9);
 	color: rgb(255 150 30 / 0.8);

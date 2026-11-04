@@ -52,7 +52,7 @@ final class OCRController {
     /// (a line read as soon as it's still may not have been finished being drawn).
     private var watchUntil = Date.distantPast
     private var lastCursorPoint: CGPoint?
-    /// With "Watch after mouse use", the window is only read until a while after the mouse was last used
+    /// With "Only check for changes after mouse activity", the window is only read until a while after the mouse was last used
     /// (moved or clicked), not while it rests.
     private var mouseActiveUntil = Date.distantPast
     /// The mouse started being used: check for changes right away.
@@ -73,7 +73,7 @@ final class OCRController {
     }
 
     /// Whether the window is watched for changes now: all the time, or (with
-    /// "Watch after mouse use") only for a while after the mouse was used.
+    /// "Only check for changes after mouse activity") only for a while after the mouse was used.
     private var isWatching: Bool {
         !(settings["ocrMouseWatch"] as? Bool ?? true) || isCursorActive
     }
@@ -721,7 +721,7 @@ final class OCRController {
         }
     }
 
-    /// The cloud engine (Settings → OCR Mode → Text recognition (cloud)), if one is chosen.
+    /// The cloud engine (Settings → OCR Mode → Cloud recognition (second pass)), if one is chosen.
     private var cloudEngine: CloudOCR? {
         CloudOCR(rawValue: settings["ocrCloudEngine"] as? String ?? "")
     }
@@ -733,7 +733,7 @@ final class OCRController {
     private var dialogueReadings = 0
 
     /// Sends the reading that ends settleAndRecognize: settled, taken by the page (it matched the WebSocket line), or
-    /// taken after "Read anyway after".
+    /// taken after "Show reading anyway after".
     ///
     /// With a cloud engine, that one reads the dialogue once more first, and its reading is sent instead: a request
     /// often takes a second or more, too long for each reading while the text changes, which the local engine reads.
@@ -792,7 +792,7 @@ final class OCRController {
                 let cloud = self.lines(from: items, in: crop, area: 0, bounds: bounds, ordered: false)
                 // It may miss text the local engine read, but not all of it.
                 if !cloud.lines.isEmpty {
-                    // Marked for the overlay's outlines (with Outline recognized text on).
+                    // Marked for the overlay's outlines (with Highlight recognized text boxes on).
                     let cloudLines = cloud.lines.map { line in line.merging(["cloud": true]) { $1 } }
                     (lines, removed) = (Self.adding(local, to: cloudLines), cloud.removed)
                     self.cloudReading = (engine, localTexts, lines, removed)
@@ -967,7 +967,7 @@ final class OCRController {
         }
         let gray = GrayImage(crop)
         let size = CGSize(width: crop.width, height: crop.height)
-        // The lines left out, for the page's debug log (with Outline recognized text on).
+        // The lines left out, for the page's debug log (with Highlight recognized text boxes on).
         let recordsRemoved = settings["ocrShowBoxes"] as? Bool ?? false
         var removed: [[String: Any]] = []
         let box = { (box: CGRect) in [box.minX, box.minY, box.width, box.height] }
@@ -1030,7 +1030,7 @@ final class OCRController {
         if indices.contains(0) { watchUntil = Date().addingTimeInterval(number("ocrMouseWatchTime", 2000) / 1000) }
     }
 
-    /// What reads the text (Settings → OCR Mode → Text recognition).
+    /// What reads the text (Settings → OCR Mode → Text recognition engine).
     enum Engine: String {
         case liveText
         case meikiocr

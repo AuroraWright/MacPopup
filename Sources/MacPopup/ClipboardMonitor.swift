@@ -1,6 +1,6 @@
 import AppKit
 
-/// Settings → Window Mode → "Enable background clipboard text monitoring" (as in Yomitan, which opens its
+/// Settings → Window Mode → "Read copied text from clipboard" (as in Yomitan, which opens its
 /// search page instead): while it's on, text copied in any app is sent to the page as a new line.
 @MainActor
 final class ClipboardMonitor {

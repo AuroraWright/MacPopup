@@ -259,7 +259,7 @@ export const defaultSettings = {
 	sentenceAudioKeyHold: 100,
 	// In ms, after the keys, before recording (without voice detection, which waits for the voice).
 	sentenceAudioRecordDelay: 500,
-	// Detect when the voice starts and ends; otherwise the shortcut starts and stops the recording.
+	// Automatically detect start and end of speech; otherwise the shortcut starts and stops the recording.
 	sentenceAudioDetectVoice: true,
 	// In seconds: how long to wait for the voice to start.
 	sentenceAudioVoiceWait: 10,

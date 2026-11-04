@@ -31,7 +31,7 @@ struct SettingsView: View {
                         Button("Yomitan Settings…", action: actions.importYomitan)
                         Button("texthooker-ui Settings…", action: actions.importTexthooker)
                     }
-                    .help("Yomitan: Settings → Backup → Export Settings. texthooker-ui: its settings export.")
+                    .help("Import a settings backup file from Yomitan (Settings → Backup → Export Settings) or texthooker-ui.")
                     Button("Reset All…", role: .destructive, action: actions.resetAll)
                 }
                 .padding(12)
@@ -218,13 +218,13 @@ private struct FieldRow: View {
             } label: {
                 FieldLabel(field: field)
             }
-        case let .imported(describe, emptyText, details):
+        case let .imported(describe, emptyText, details, isList):
             let items = value as? [Any] ?? []
             LabeledContent {
                 HStack {
                     Text(items.isEmpty ? emptyText : describe(items))
-                        .foregroundStyle(.secondary).multilineTextAlignment(.trailing).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .foregroundStyle(.secondary).multilineTextAlignment(isList ? .leading : .trailing).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: isList ? .leading : .trailing)
                         .help(items.isEmpty ? "" : details?(items) ?? "")
                     if !items.isEmpty {
                         Button("Clear") { model.set(field.key, [Any]()) }
@@ -240,7 +240,7 @@ private struct FieldRow: View {
                     Button("Select…", action: actions.selectOCRWindow)
                     Button("Clear") { model.merge(["ocrWindow": NSNull(), "ocrRegions": [Any]()]) }
                         .disabled(!(value is [String: Any]))
-                        .help("Use the whole screen")
+                        .help("Use the entire screen instead of a single window")
                 }
             } label: {
                 FieldLabel(field: field)
@@ -278,11 +278,11 @@ private struct FieldRow: View {
     }
 
     private var ocrWindowDescription: String {
-        guard let window = value as? [String: Any], let owner = window["ownerName"] as? String else { return "None (whole screen)" }
+        guard let window = value as? [String: Any], let owner = window["ownerName"] as? String else { return "None (entire screen)" }
         let title = window["title"] as? String ?? ""
         let name = title.isEmpty ? owner : "\(owner) — \(title)"
         let regions = (model["ocrRegions"] as? [Any] ?? []).count
-        return "\(name) (\(regions == 0 ? "whole window" : "\(regions) area\(regions == 1 ? "" : "s")"))"
+        return "\(name) (\(regions == 0 ? "entire window" : "\(regions) area\(regions == 1 ? "" : "s")"))"
     }
 }
 
@@ -328,7 +328,7 @@ private struct DisplayPicker<Label: View>: View {
         NSScreen.screens.enumerated().map { offset, screen in
             let size = screen.frame.size
             let name = "\(screen.localizedName) (\(Int(size.width))×\(Int(size.height)))"
-            return offset == 0 ? "\(name), main" : name
+            return offset == 0 ? "\(name) — Main" : name
         }
     }
 
@@ -337,7 +337,7 @@ private struct DisplayPicker<Label: View>: View {
             ForEach(displays.indices, id: \.self) { Text(displays[$0]).tag($0) }
             // Kept until another is chosen: the overlay goes back to it when it's connected again.
             if !displays.indices.contains(index) {
-                Text("Display \(index + 1) (not connected)").tag(index)
+                Text("Display \(index + 1) (disconnected)").tag(index)
             }
         } label: {
             label
@@ -365,7 +365,7 @@ private struct AudioInputPicker<Label: View>: View {
             ForEach(inputs, id: \.self) { Text($0).tag($0) }
             // Kept until another is chosen: it's used again when it's connected.
             if !name.isEmpty && !inputs.contains(name) {
-                Text("\(name) (not connected)").tag(name)
+                Text("\(name) (disconnected)").tag(name)
             }
         } label: {
             label
@@ -487,7 +487,7 @@ private struct AnkiFieldPicker<Label: View>: View {
         do {
             fields = try await AnkiConnect.fieldNames(settings: settings)
         } catch {
-            self.error = "Couldn’t list the fields: \(error.localizedDescription)"
+            self.error = "Couldn’t load Anki fields: \(error.localizedDescription)"
         }
     }
 }
@@ -515,7 +515,7 @@ private struct ShortcutControl: View {
             } label: {
                 Text(isActive ? "Press keys…" : keyCombination(value)?.displayName ?? "Record Shortcut").frame(minWidth: 90)
             }
-            .help(isActive ? "Click to cancel" : "Click, then press the shortcut")
+            .help(isActive ? "Click to cancel" : "Click, then press a key combination")
             Button("Clear") { commit(nil) }.disabled(value == nil)
         }
         .onDisappear { recorder.cancel() }
@@ -556,7 +556,7 @@ private struct KeySequenceControl: View {
                     recorder.start(index: 0) { commit(items + [["key": $0.key, "modifiers": $0.modifiers]]) }
                 }
             }
-            .help(isActive ? "Click to cancel" : "Click, then press the key (with any modifier keys)")
+            .help(isActive ? "Click to cancel" : "Click, then press a key (with any modifier keys)")
         }
         .onDisappear { recorder.cancel() }
     }
@@ -721,7 +721,7 @@ private struct JSONEditor: View {
                     error = nil
                     commit(array)
                 } else {
-                    error = "Not saved: this isn’t a valid JSON array."
+                    error = "Changes not saved: please enter a valid JSON array."
                 }
             }
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
@@ -810,7 +810,7 @@ private struct ScanInputRow: View {
                 .help("Remove")
             }
             if !invalid.isEmpty {
-                Text("Not supported by Yomitan scan inputs: \(invalid.joined(separator: ", "))").font(.caption).foregroundStyle(.red)
+                Text("Unrecognized input: \(invalid.joined(separator: ", "))").font(.caption).foregroundStyle(.red)
             }
         }
     }
@@ -833,12 +833,12 @@ private struct RecordButton: View {
                 }
             }
         } label: {
-            Text(isActive ? (recorder.recorded.isEmpty ? "Press modifiers or buttons…" : ScanInput.format(recorder.recorded)) : title)
+            Text(isActive ? (recorder.recorded.isEmpty ? "Hold keys or mouse buttons…" : ScanInput.format(recorder.recorded)) : title)
                 .frame(minWidth: 60)
         }
         .buttonStyle(.bordered)
         .tint(isActive ? .accentColor : nil)
-        .help(isActive ? "Hold the keys and buttons, then release one. Esc cancels." : "")
+        .help(isActive ? "Hold the keys and mouse buttons you want to use, then release one. Press Esc to cancel." : "")
     }
 }
 
@@ -877,14 +877,14 @@ private struct ReplacementsControl: View {
                 JSONEditor(value: items) { model.set(key, $0) }
             }
             VStack(alignment: .leading, spacing: 4) {
-                TextField("Try a line", text: $sample, prompt: Text("Try a line"))
+                TextField("Test replacements on sample text…", text: $sample, prompt: Text("Test replacements on sample text…"))
                     .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                 if !sample.isEmpty {
                     let result = SettingsSupport.shared.previewReplacements(sample, replacements: items)
                     HStack(alignment: .firstTextBaseline) {
                         Image(systemName: "arrow.turn.down.right").foregroundStyle(.secondary)
-                        Text(result.isEmpty ? "(empty: the line isn’t shown)" : result)
+                        Text(result.isEmpty ? "(Empty result — this line will be hidden)" : result)
                             .font(.body.monospaced())
                             .foregroundStyle(result.isEmpty ? .secondary : .primary)
                             .textSelection(.enabled)
@@ -904,11 +904,11 @@ private struct ReplacementRow: View {
 
     /// Regular expression flags, as in JavaScript.
     private static let flags: [(name: String, help: String)] = [
-        ("g", "Global: replace every match, not just the first"),
-        ("i", "Ignore case"),
-        ("m", "Multiline: ^ and $ match at line breaks"),
-        ("s", "Dot all: . matches line breaks too"),
-        ("u", "Unicode: enables \\u{…} and \\p{…}, and treats emoji as single characters"),
+        ("g", "Global: replace all matches in the line, not just the first"),
+        ("i", "Case-insensitive: ignore uppercase/lowercase differences"),
+        ("m", "Multiline: ^ and $ match the start and end of each line"),
+        ("s", "Dot matches all: allow . to match line breaks"),
+        ("u", "Unicode: support \\u{…} and \\p{…} patterns, and treat emoji as single characters"),
     ]
 
     let item: [String: Any]
@@ -929,7 +929,7 @@ private struct ReplacementRow: View {
                 .padding(.top, 4)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    CommitTextField(value: pattern, placeholder: "Pattern", monospaced: true, bordered: true) { change(.set("pattern", $0)) }
+                    CommitTextField(value: pattern, placeholder: "Find (regex pattern)", monospaced: true, bordered: true) { change(.set("pattern", $0)) }
                     Image(systemName: "arrow.right").foregroundStyle(.secondary)
                     CommitTextField(value: item["replaces"] as? String ?? "", placeholder: "Replace with", monospaced: true, bordered: true) {
                         change(.set("replaces", $0))
@@ -959,7 +959,7 @@ private struct ReplacementRow: View {
                     .buttonStyle(.borderless)
                 }
                 if let error = SettingsSupport.shared.patternError(pattern, flags: flags) {
-                    Text("Skipped: \(error)").font(.caption).foregroundStyle(.red)
+                    Text("Invalid pattern (skipped): \(error)").font(.caption).foregroundStyle(.red)
                 }
             }
             .opacity(isEnabled ? 1 : 0.5)
@@ -981,8 +981,8 @@ private struct AudioSourcesControl: View {
         SettingsOption("jisho", "Jisho.org"),
         SettingsOption("lingua-libre", "(Commons) Lingua Libre"),
         SettingsOption("wiktionary", "(Commons) Wiktionary"),
-        SettingsOption("text-to-speech", "Text-to-speech ⚠️"),
-        SettingsOption("text-to-speech-reading", "Text-to-speech (Kana reading) ⚠️"),
+        SettingsOption("text-to-speech", "Text-to-speech"),
+        SettingsOption("text-to-speech-reading", "Text-to-speech (Kana reading)"),
         SettingsOption("custom", "Custom URL"),
         SettingsOption("custom-json", "Custom URL (JSON)"),
     ]
@@ -1071,13 +1071,13 @@ private struct AudioSourceRow: View {
                 case "custom", "custom-json":
                     CommitTextField(
                         value: item["url"] as? String ?? "",
-                        placeholder: type == "custom" ? "URL of the audio" : "URL of the list of audio",
+                        placeholder: type == "custom" ? "Audio file URL" : "Audio list JSON URL",
                         monospaced: true,
                         bordered: true
                     ) { change(.set("url", $0.trimmingCharacters(in: .whitespacesAndNewlines))) }
                     Text(type == "custom"
-                        ? "{term}, {reading} and {language} are replaced with the word, its reading and its language (e.g. ja)."
-                        : "{term}, {reading} and {language} are replaced as for Custom URL. The URL returns a list of audio files in Yomitan’s format, e.g. from a local audio server.")
+                        ? "Placeholders {term}, {reading}, and {language} are replaced with the looked-up word, its reading, and its language code (e.g. ja)."
+                        : "Supports {term}, {reading}, and {language} placeholders. Expects a JSON list of audio files in Yomitan’s custom audio format (e.g. from a local audio server).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 case "text-to-speech", "text-to-speech-reading":
@@ -1087,7 +1087,7 @@ private struct AudioSourceRow: View {
                         ForEach(voices, id: \.value) { Text($0.label).tag($0.value) }
                     }
                     .fixedSize()
-                    Text("Text-to-speech can be played, but not added to Anki cards.")
+                    Text("Text-to-speech can be played in popups, but cannot be saved to Anki cards.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 default:
@@ -1116,7 +1116,7 @@ private struct AnkiTemplatesControl: View {
         VStack(alignment: .leading, spacing: 6) {
             CodeEditor(text: fieldTemplates ?? SettingsSupport.shared.defaultFieldTemplates, height: 220) { save($0) }
             HStack {
-                Text(fieldTemplates == nil ? "Yomitan’s default templates." : "Custom templates.").font(.caption).foregroundStyle(.secondary)
+                Text(fieldTemplates == nil ? "Using Yomitan’s default templates." : "Using custom templates.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 if fieldTemplates != nil {
                     Button("Reset to Yomitan Defaults") { save(nil) }
@@ -1143,7 +1143,7 @@ enum ConnectionTester {
             var base = settings["yomitanApiUrl"] as? String ?? ""
             while base.hasSuffix("/") { base.removeLast() }
             let (status, body) = try await post("\(base)/yomitanVersion", body: [:])
-            guard status == 200 else { throw SettingsSupportError(message: "Yomitan API /yomitanVersion failed (\(status))") }
+            guard status == 200 else { throw SettingsSupportError(message: "Yomitan API returned an error (HTTP \(status))") }
             let version = (SettingsSupport.decode(body)?["version"]).map { "\($0)" } ?? "?"
             return "Connected (Yomitan \(version))"
         case .anki:
@@ -1153,7 +1153,7 @@ enum ConnectionTester {
             do {
                 body = try await post(settings["ankiConnectUrl"] as? String ?? "", body: request).body
             } catch {
-                throw SettingsSupportError(message: "Anki not connected")
+                throw SettingsSupportError(message: "Could not connect to Anki (make sure Anki is running with AnkiConnect installed)")
             }
             let result = SettingsSupport.decode(body)
             if let error = result?["error"] as? String { throw SettingsSupportError(message: error) }
@@ -1162,7 +1162,7 @@ enum ConnectionTester {
     }
 
     private static func post(_ urlString: String, body: [String: Any]) async throws -> (status: Int, body: String) {
-        guard let url = URL(string: urlString), url.scheme != nil else { throw SettingsSupportError(message: "Invalid URL") }
+        guard let url = URL(string: urlString), url.scheme != nil else { throw SettingsSupportError(message: "Invalid URL format") }
         var request = URLRequest(url: url, timeoutInterval: 5)
         request.httpMethod = "POST"
         request.httpBody = Data(SettingsSupport.encode(body).utf8)
@@ -1318,21 +1318,21 @@ private struct HotkeysControl: View {
 
     /// Yomitan's popup shortcut actions, with its names (switching profiles isn't supported).
     static let actions: [SettingsOption] = [
-        SettingsOption("close", "Close"),
-        SettingsOption("nextEntry", "Go to next entry"),
-        SettingsOption("previousEntry", "Go to previous entry"),
-        SettingsOption("lastEntry", "Go to last entry"),
-        SettingsOption("firstEntry", "Go to first entry"),
-        SettingsOption("nextEntryDifferentDictionary", "Go to next dictionary"),
-        SettingsOption("previousEntryDifferentDictionary", "Go to previous dictionary"),
-        SettingsOption("historyBackward", "Navigate backward in history"),
-        SettingsOption("historyForward", "Navigate forward in history"),
-        SettingsOption("addNote", "Add note"),
-        SettingsOption("viewNotes", "View notes"),
+        SettingsOption("close", "Close popup"),
+        SettingsOption("nextEntry", "Next entry"),
+        SettingsOption("previousEntry", "Previous entry"),
+        SettingsOption("lastEntry", "Last entry"),
+        SettingsOption("firstEntry", "First entry"),
+        SettingsOption("nextEntryDifferentDictionary", "Next dictionary"),
+        SettingsOption("previousEntryDifferentDictionary", "Previous dictionary"),
+        SettingsOption("historyBackward", "Back in history"),
+        SettingsOption("historyForward", "Forward in history"),
+        SettingsOption("addNote", "Add Anki card"),
+        SettingsOption("viewNotes", "View existing Anki card"),
         SettingsOption("playAudio", "Play audio"),
-        SettingsOption("playAudioFromSource", "Play audio from source"),
-        SettingsOption("copyHostSelection", "Copy host window selection"),
-        SettingsOption("toggleOption", "Toggle option"),
+        SettingsOption("playAudioFromSource", "Play audio from specific source"),
+        SettingsOption("copyHostSelection", "Copy selected text"),
+        SettingsOption("toggleOption", "Toggle a setting"),
     ]
 
     /// An action's argument when it's chosen, as in Yomitan.
@@ -1440,7 +1440,7 @@ private struct HotkeyRow: View {
                     .help("Remove")
             }
             if isDuplicate {
-                Text("A shortcut above already uses these keys, and takes priority.").font(.caption).foregroundStyle(.red)
+                Text("Already used by an earlier shortcut, which takes priority.").font(.caption).foregroundStyle(.red)
             } else if let combination, combination.keyCode == nil {
                 Text("\(combination.key) isn’t a key MacPopup can use.").font(.caption).foregroundStyle(.red)
             }
@@ -1461,7 +1461,7 @@ private struct HotkeyRow: View {
             Text(isActive ? "Press keys…" : combination?.displayName ?? "Record Shortcut")
                 .frame(minWidth: 90)
         }
-        .help(isActive ? "Click to cancel" : "Click, then press the shortcut")
+        .help(isActive ? "Click to cancel" : "Click, then press a key combination")
     }
 
     @ViewBuilder
@@ -1482,7 +1482,7 @@ private struct HotkeyRow: View {
             }
             .labelsHidden()
             .fixedSize()
-            .help("The card formats of the Yomitan profile, in their order")
+            .help("Card formats from your active Yomitan profile, in order")
         case "playAudioFromSource":
             let types = AudioSourcesControl.types.contains { $0.value == argument }
                 ? AudioSourcesControl.types : AudioSourcesControl.types + [SettingsOption(argument)]

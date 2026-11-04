@@ -1,7 +1,7 @@
 import CoreGraphics
 
 extension OCRLayout {
-    /// Leaves out furigana (Settings → OCR Mode → Strip furigana). The engines read them as lines of their own,
+    /// Leaves out furigana (Settings → OCR Mode → Ignore furigana). The engines read them as lines of their own,
     /// often several words' furigana as one line: small text without kanji, right next to the kanji it's for, above
     /// them in horizontal text and to their right in vertical text. As in owocr's furigana filter, a line is
     /// furigana when it's like that next to a line with kanji, but the line can be anywhere among the others
