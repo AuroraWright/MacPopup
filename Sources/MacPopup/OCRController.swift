@@ -907,9 +907,10 @@ final class OCRController {
         sendResult(frame: frame, areas: indices, started: started)
     }
 
-    /// Reads the areas into `areaLines`. False if it failed (the page was told).
+    /// Reads the areas into `areaLines`. False if it failed (the page was told), or if the window is to be read again
+    /// (see readAgain) since.
     private func readAreas(_ image: CGImage, areas indices: [Int]) async -> Bool {
-        guard let bounds else { return false }
+        guard let bounds, indices.allSatisfy(areas.indices.contains) else { return false }
         if areaLines.count != areas.count { areaLines = areas.map { _ in [] } }
         if areaRemoved.count != areas.count { areaRemoved = areas.map { _ in [] } }
         debugReadings += 1
@@ -931,6 +932,12 @@ final class OCRController {
                 log("\(engine.rawValue): \(String(format: "%.2f", Date().timeIntervalSince(recognizeStarted)))s for \(crop.width)x\(crop.height)")
             } catch {
                 send(["type": "error", "message": error.localizedDescription])
+                return false
+            }
+            // Read again meanwhile (e.g. the engine or the cloud engine was changed): this reading is outdated, and
+            // the lines were cleared.
+            guard areaLines.count == areas.count, areaRemoved.count == areas.count, areas.indices.contains(index) else {
+                log("reading dropped: the window is read again")
                 return false
             }
             saveForDebugging(items, area: index)
