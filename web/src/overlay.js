@@ -1134,9 +1134,62 @@ function showOcrResult(message) {
 	logOcrDebug({ ...debug, shown, outcome: 'shown' });
 	ocr.key = key;
 	ocr.size = size;
-	clearMainScan();
+	const scanned = ocrScanPlace();
 	renderLines($('#ocr-text'), lines);
 	applyOcrScale();
+	if (!moveOcrScan(scanned)) clearMainScan();
+}
+
+/**
+ * Where in the OCR text the word shown in the popup (or being looked up) is: for its start and end, the line's
+ * index and text and the offset in it. Null when there's none.
+ */
+function ocrScanPlace() {
+	const range = scan.source?.range;
+	const container = $('#ocr-text');
+	if (!range || !container.contains(range.startContainer) || !container.contains(range.endContainer)) return null;
+	const lines = [...container.querySelectorAll('.ocr-line')];
+	const point = (node, offset) => {
+		const line = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement).closest('.ocr-line');
+		const before = document.createRange();
+		before.setStart(line, 0);
+		before.setEnd(node, offset);
+		return { index: lines.indexOf(line), text: line.textContent, offset: before.toString().length };
+	};
+	return { start: point(range.startContainer, range.startOffset), end: point(range.endContainer, range.endOffset) };
+}
+
+/**
+ * Moves the word shown in the popup (or being looked up) to the new OCR text where it has the same lines as at
+ * `place` (see ocrScanPlace), e.g. read again after coming back from another space but a pixel off, so its
+ * highlight stays with the popup. Returns whether it did.
+ */
+function moveOcrScan(place) {
+	if (!place) return false;
+	const lines = [...$('#ocr-text').querySelectorAll('.ocr-line')];
+	// A start at the beginning of its character's text, as a scan has it (see Yomitan's hasSameStart).
+	const find = ({ index, text, offset }, isStart) => {
+		// The same line, or else the only one with that text.
+		const same = lines.filter((line) => line.textContent === text);
+		const line = lines[index]?.textContent === text ? lines[index] : same.length === 1 ? same[0] : null;
+		if (!line) return null;
+		const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+		let left = offset;
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			if (left < node.length || (left === node.length && !isStart)) return { node, offset: left };
+			left -= node.length;
+		}
+		return null;
+	};
+	const start = find(place.start, true);
+	const end = find(place.end, false);
+	if (!start || !end) return false;
+	const range = scan.source.range;
+	range.setStart(start.node, start.offset);
+	range.setEnd(end.node, end.offset);
+	// A lookup still going on highlights it when it's done.
+	if (!scan.pending) setHighlight(scan.source);
+	return true;
 }
 
 window.__macpopupOcr = (message) => {
