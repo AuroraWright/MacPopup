@@ -1318,21 +1318,21 @@ private struct HotkeysControl: View {
 
     /// Yomitan's popup shortcut actions, with its names (switching profiles isn't supported).
     static let actions: [SettingsOption] = [
-        SettingsOption("close", "Close popup"),
-        SettingsOption("nextEntry", "Next entry"),
-        SettingsOption("previousEntry", "Previous entry"),
-        SettingsOption("lastEntry", "Last entry"),
-        SettingsOption("firstEntry", "First entry"),
-        SettingsOption("nextEntryDifferentDictionary", "Next dictionary"),
-        SettingsOption("previousEntryDifferentDictionary", "Previous dictionary"),
-        SettingsOption("historyBackward", "Back in history"),
-        SettingsOption("historyForward", "Forward in history"),
-        SettingsOption("addNote", "Add Anki card"),
-        SettingsOption("viewNotes", "View existing Anki card"),
+        SettingsOption("close", "Close"),
+        SettingsOption("nextEntry", "Go to next entry"),
+        SettingsOption("previousEntry", "Go to previous entry"),
+        SettingsOption("lastEntry", "Go to last entry"),
+        SettingsOption("firstEntry", "Go to first entry"),
+        SettingsOption("nextEntryDifferentDictionary", "Go to next dictionary"),
+        SettingsOption("previousEntryDifferentDictionary", "Go to previous dictionary"),
+        SettingsOption("historyBackward", "Navigate backward in history"),
+        SettingsOption("historyForward", "Navigate forward in history"),
+        SettingsOption("addNote", "Add note"),
+        SettingsOption("viewNotes", "View notes"),
         SettingsOption("playAudio", "Play audio"),
-        SettingsOption("playAudioFromSource", "Play audio from specific source"),
-        SettingsOption("copyHostSelection", "Copy selected text"),
-        SettingsOption("toggleOption", "Toggle a setting"),
+        SettingsOption("playAudioFromSource", "Play audio from source"),
+        SettingsOption("copyHostSelection", "Copy host window selection"),
+        SettingsOption("toggleOption", "Toggle option"),
     ]
 
     /// An action's argument when it's chosen, as in Yomitan.

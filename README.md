@@ -140,16 +140,16 @@ Choose your engine in **Settings → OCR Mode → Text recognition engine**. Wha
 without any characters of the language set in *Settings → General* are skipped (e.g. an English menu
 in a Japanese game).
 
-- **Live Text (macOS)** *(Default)*: Built into macOS. Recognizes the language selected in *Settings
+- **Live Text** *(Default)*: Built into macOS. Recognizes the language selected in *Settings
   → General* plus English.
 - **meikiocr**: Built-in Core ML models (by rtr46) trained specifically on Japanese video games.
   Faster than Live Text with tighter character bounding boxes (Japanese only).
-- **Screen AI (Chrome)**: Google Chrome's local OCR engine running on Core ML. Supports most scripts
+- **Screen AI**: Google Chrome's local OCR engine running on Core ML. Supports most scripts
   and detects layout and reading order automatically.
   - *Setup*: Make sure Chrome has downloaded its Screen AI component (`~/Library/Application
     Support/Google/Chrome/screen_ai`), run `scripts/convert-screenai.py` to generate a `.zip` file,
     and load it under **Screen AI models → Load…**.
-- **OneOCR (Windows)**: The OCR engine from the Windows 11 Snipping Tool. Supports most scripts
+- **OneOCR**: The OCR engine from the Windows 11 Snipping Tool. Supports most scripts
   automatically.
   - *Setup*: Run `scripts/convert-oneocr.py` on your decrypted OneOCR model files (`config.json` and
     `Model_Edge`) to create a `.zip` file, and load it under **OneOCR models → Load…**.

@@ -255,12 +255,12 @@ enum SettingsSchema {
                     SettingsField(
                         "ocrEngine", "Text recognition engine",
                         .select([
-                            SettingsOption("liveText", "Live Text (macOS)"),
-                            SettingsOption("meikiocr", "meikiocr (Japanese games)"),
-                            SettingsOption("screenai", "Screen AI (Chrome)"),
-                            SettingsOption("oneocr", "OneOCR (Windows)"),
+                            SettingsOption("liveText", "Live Text"),
+                            SettingsOption("meikiocr", "meikiocr"),
+                            SettingsOption("screenai", "Screen AI"),
+                            SettingsOption("oneocr", "OneOCR"),
                         ]),
-                        hint: "Live Text is built into macOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. Screen AI and OneOCR recognize most languages automatically, but require importing their model files below.",
+                        hint: "Live Text is built into macOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. Screen AI (Chrome’s OCR) and OneOCR (the Windows Snipping Tool’s) recognize most languages automatically, but require importing their model files below.",
                         warning: { settings in
                             let language = settings["language"] as? String ?? "ja"
                             let engine = settings["ocrEngine"] as? String ?? "liveText"
@@ -541,8 +541,8 @@ enum SettingsSchema {
                 description: "Creates flashcards using the decks, note types, and field mappings from your active Yomitan profile.",
                 fields: [
                     SettingsField("ankiEnabled", "Enable Anki integration", .checkbox),
-                    SettingsField("ankiConnectUrl", "AnkiConnect URL", .text(test: .anki)),
-                    SettingsField("ankiConnectKey", "AnkiConnect API key", .text(), hint: "Optional. Only needed if you configured an API key in AnkiConnect."),
+                    SettingsField("ankiConnectUrl", "AnkiConnect server address", .text(test: .anki)),
+                    SettingsField("ankiConnectKey", "API key", .text(), hint: "Optional. Only needed if you configured an API key in AnkiConnect."),
                     SettingsField("ankiTags", "Card tags", .text(), hint: "Tags added to every new card, separated by spaces."),
                     SettingsField(
                         "ankiRenderTemplatesLocally", "Use local Handlebars templates (enables popup text selection)", .checkbox,
@@ -552,43 +552,36 @@ enum SettingsSchema {
                         "yomitanAnkiTemplates", "Anki field templates (Handlebars)", .ankiTemplates,
                         hint: "Imported from Yomitan’s “Configure Anki card templates”. Only used when the local template option above is enabled."
                     ),
-                    SettingsField("checkForDuplicates", "Check for duplicate cards", .checkbox),
-                    SettingsField("duplicateScope", "Check for duplicates within", .select([
-                        SettingsOption("collection", "Entire collection"),
-                        SettingsOption("deck", "Target deck"),
-                        SettingsOption("deck-root", "Top-level deck (deck root)"),
+                    SettingsField("checkForDuplicates", "Check for card duplicates", .checkbox),
+                    SettingsField("duplicateScope", "Duplicate card scope", .select([
+                        SettingsOption("collection", "Collection"), SettingsOption("deck", "Deck"), SettingsOption("deck-root", "Deck root"),
                     ])),
-                    SettingsField("duplicateScopeCheckAllModels", "Check across all note types", .checkbox),
-                    SettingsField("duplicateBehavior", "When a duplicate card already exists", .select([
-                        SettingsOption("prevent", "Block adding duplicate"),
-                        SettingsOption("overwrite", "Allow overwriting existing card"),
-                        SettingsOption("new", "Allow adding as new card"),
+                    SettingsField("duplicateScopeCheckAllModels", "Check for duplicates across all models", .checkbox),
+                    SettingsField("duplicateBehavior", "When a duplicate is detected", .select([
+                        SettingsOption("prevent", "Prevent adding"), SettingsOption("overwrite", "Allow overwriting"), SettingsOption("new", "Allow adding"),
                     ])),
                     SettingsField(
-                        "ankiNoteDupeCheckFirst", "Show add buttons faster (check duplicates before building fields)", .checkbox,
+                        "ankiNoteDupeCheckFirst", "Prioritize Anki note duplicate checks before note creation", .checkbox,
                         hint: "Runs a quick duplicate check on the headword first so the add-card buttons appear right away (disabled), then enables them once the full card fields are ready.",
                         showIf: { $0["checkForDuplicates"] as? Bool == true }
                     ),
-                    SettingsField("ankiDisplayTagsAndFlags", "Show existing card tags and flags in popup", .select([
+                    SettingsField("ankiDisplayTagsAndFlags", "Show card tags and flags", .select([
                         SettingsOption("never", "Never"), SettingsOption("always", "Always"),
                         SettingsOption("non-standard", "Non-standard"), SettingsOption("custom", "Custom"),
                     ]), hint: "Displays tags and flags for words already in your Anki collection. “Non-standard” hides the default card tags set above; “Custom” shows only the specific tags listed below."),
                     SettingsField(
-                        "ankiTargetTags", "Tags to display", .text(), hint: "Separate tag names with spaces or commas.",
+                        "ankiTargetTags", "Target tags", .text(), hint: "List of space or comma separated tags.",
                         showIf: { $0["ankiDisplayTagsAndFlags"] as? String == "custom" }
                     ),
-                    SettingsField("ankiSuspendNewCards", "Suspend new cards when added", .checkbox, hint: "Automatically suspends newly created cards in Anki."),
-                    SettingsField("ankiForceSync", "Sync Anki automatically after adding a card", .checkbox),
+                    SettingsField("ankiSuspendNewCards", "Suspend new cards", .checkbox, hint: "New cards will be suspended when a note is added."),
+                    SettingsField("ankiForceSync", "Force Anki sync on adding card", .checkbox),
                     SettingsField(
-                        "ankiDownloadTimeout", "Audio download timeout (ms)", .number(min: 0),
-                        hint: "Cancels stalled audio downloads after this duration (0 waits up to 60 seconds). Applies to audio chosen from the speaker button’s right-click menu."
+                        "ankiDownloadTimeout", "Idle download timeout (in milliseconds)", .number(min: 0),
+                        hint: "The maximum time before an idle download will be cancelled; 0 = no limit (at most a minute). Applies to audio chosen from the speaker button’s right-click menu."
                     ),
-                    SettingsField("noteGuiMode", "View existing cards in", .select([
-                        SettingsOption("browse", "Anki Card Browser"),
-                        SettingsOption("edit", "Anki Note Editor"),
-                    ])),
+                    SettingsField("noteGuiMode", "Note viewer window", .select([SettingsOption("browse", "Card browser"), SettingsOption("edit", "Note editor")])),
                     SettingsField("screenshotFormat", "Screenshot format", .select([SettingsOption("png", "PNG"), SettingsOption("jpeg", "JPEG")])),
-                    SettingsField("screenshotQuality", "JPEG quality (%)", .number(min: 0, max: 100)),
+                    SettingsField("screenshotQuality", "Screenshot format (quality %)", .number(min: 0, max: 100)),
                     SettingsField(
                         "screenshotResolution", "Screenshot resolution",
                         .select([SettingsOption("1x", "Standard (1x)"), SettingsOption("full", "Full Retina resolution")]),
