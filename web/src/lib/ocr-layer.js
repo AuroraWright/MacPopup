@@ -522,12 +522,17 @@ export function renderLines(container, lines) {
 	// Stretch each glyph along the line to the width of its box (letter-spacing counts as part of the
 	// character's rect). Measured all at once so layout happens only once. The spacing goes after the
 	// glyph, so where the text is shown (Highlight recognized text boxes), it's drawn shifted to the middle.
+	// Measured unscaled: the container may still be scaled to the window since its last reading (the
+	// rects include that), until the caller scales it for these lines.
+	const transform = container.style.transform;
+	container.style.transform = '';
 	const range = document.createRange();
 	const lengths = spans.map(({ span, vertical }) => {
 		range.selectNodeContents(span.firstChild);
 		const rect = range.getBoundingClientRect();
 		return vertical ? rect.height : rect.width;
 	});
+	container.style.transform = transform;
 	spans.forEach(({ span, length, vertical }, index) => {
 		const spacing = length - lengths[index];
 		span.style.letterSpacing = `${spacing}px`;
