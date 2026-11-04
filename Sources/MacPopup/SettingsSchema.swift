@@ -259,14 +259,15 @@ enum SettingsSchema {
                             SettingsOption("meikiocr", "meikiocr"),
                             SettingsOption("screenai", "Screen AI"),
                             SettingsOption("oneocr", "OneOCR"),
+                            SettingsOption("ppocrmanga", "PP-OCRv6 Manga"),
                         ]),
-                        hint: "Live Text is built into macOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. Screen AI (Chrome’s OCR) and OneOCR (the Windows Snipping Tool’s) recognize most languages automatically, but require importing their model files below.",
+                        hint: "Live Text is built into macOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. PP-OCRv6 Manga (by Kellenok) is specialized for Japanese and Chinese manga. Screen AI (Chrome’s OCR) and OneOCR (the Windows Snipping Tool’s) recognize most languages automatically, but require importing their model files below.",
                         warning: { settings in
                             let language = settings["language"] as? String ?? "ja"
                             let engine = settings["ocrEngine"] as? String ?? "liveText"
                             guard !OCRLanguage.isRead(language, by: engine) else { return nil }
                             let name = support.languages.first { $0.iso == language }?.name ?? language
-                            return "\(name) (selected in Settings → General) isn’t supported by this engine: " + (engine == "liveText" ? "Live Text will only recognize English." : "meikiocr only recognizes Japanese.")
+                            return "\(name) (selected in Settings → General) isn’t supported by this engine: " + (engine == "liveText" ? "Live Text will only recognize English." : engine == "meikiocr" ? "meikiocr only recognizes Japanese." : "PP-OCRv6 Manga only recognizes Japanese and Chinese.")
                         }
                     ),
                     SettingsField(

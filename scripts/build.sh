@@ -55,11 +55,12 @@ if [[ -f "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" ]]; then
     cp -L "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" "$APP/Contents/Frameworks/"
     cp "$CURL_IMPERSONATE"/LICENSE* "$APP/Contents/Resources/Licenses/curl-impersonate/"
 fi
-# meikiocr's models (see vendor/meikiocr), compiled for Core ML.
+# meikiocr's and PP-OCRv6_manga's models (see vendor/meikiocr and vendor/ppocr-manga), compiled for Core ML.
 mkdir -p "$APP/Contents/Resources/Models"
-for model in vendor/meikiocr/*.mlpackage; do
+for model in vendor/meikiocr/*.mlpackage vendor/ppocr-manga/*.mlpackage; do
     xcrun coremlcompiler compile "$model" "$APP/Contents/Resources/Models" >/dev/null
 done
+cp vendor/ppocr-manga/PPOCRMangaCharacters.txt "$APP/Contents/Resources/Models/"
 # Signed with a certificate, macOS keeps the privacy permissions (Screen Recording, Microphone,
 # Accessibility) across builds; ad-hoc signatures change with every build, so they'd be asked for again.
 # MACPOPUP_SIGN_IDENTITY overrides the identity ("-" for ad-hoc).

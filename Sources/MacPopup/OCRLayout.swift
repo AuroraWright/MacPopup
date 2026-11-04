@@ -160,8 +160,8 @@ enum OCRLayout {
     /// - Parameters:
     ///   - image: The image that was read, whose pixels the line's normalized boxes refer to.
     ///   - exactBoxes: The engine's boxes for its words are where they are, and evenly divided they're closer to
-    ///     where the characters are than the cells (meikiocr's, Screen AI's, OneOCR's and Google Lens'; not Live
-    ///     Text's, often a cell off).
+    ///     where the characters are than the cells (meikiocr's, Screen AI's, OneOCR's, PP-OCRv6_manga's and Google
+    ///     Lens'; not Live Text's, often a cell off).
     ///   - toWindow: Converts a box normalized to `image` to window points.
     static func layOut(
         _ line: RecognizedLine, image: GrayImage?, size: CGSize, exactBoxes: Bool = false, toWindow: (CGRect) -> CGRect

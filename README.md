@@ -8,8 +8,9 @@ games and apps. It works in two modes:
   LunaTranslator) and displays it in a customizable floating text box (similar to
   [texthooker-ui](https://github.com/Renji-XD/texthooker-ui)).
 - **OCR Mode**: Hides the text box and reads text directly from any app or game window on screen
-  using Apple Live Text, [meikiocr](https://github.com/rtr46/meikiocr), Chrome's Screen AI, or
-  Windows' OneOCR (with optional Google Lens or Bing cloud passes). Simply hover over the game's own
+  using Apple Live Text, [meikiocr](https://github.com/rtr46/meikiocr),
+  [PP-OCRv6 Manga](https://huggingface.co/Kellenok/PP-OCRv6_manga), Chrome's Screen AI, or Windows' OneOCR
+  (with optional Google Lens or Bing cloud passes). Simply hover over the game's own
   text to open dictionary popups.
 
 All dictionary lookups and Anki card templates are powered by your existing browser installation of
@@ -144,6 +145,8 @@ in a Japanese game).
   → General* plus English.
 - **meikiocr**: Built-in Core ML models (by rtr46) trained specifically on Japanese video games.
   Faster than Live Text with tighter character bounding boxes (Japanese only).
+- **PP-OCRv6 Manga**: Built-in Core ML models (by Kellenok, fine-tuned from PaddleOCR's PP-OCRv6)
+  trained on manga and anime: vertical text in speech bubbles, sound effects (Japanese and Chinese).
 - **Screen AI**: Google Chrome's local OCR engine running on Core ML. Supports most scripts
   and detects layout and reading order automatically.
   - *Setup*: Make sure Chrome has downloaded its Screen AI component (`~/Library/Application
@@ -256,3 +259,6 @@ Licensed under the **GPL-3.0** as it includes code from
 The `meikiocr` Core ML models (`vendor/meikiocr`) are licensed under the **LGPL-3.0**, and
 `Sources/MacPopup/MeikiOCR.swift` is adapted from `meikiocr` under the **Apache License 2.0** (see
 `vendor/meikiocr/README.md`).
+
+The PP-OCRv6 Manga Core ML models (`vendor/ppocr-manga`) are licensed under the **Apache License 2.0** (see
+`vendor/ppocr-manga/README.md`).
