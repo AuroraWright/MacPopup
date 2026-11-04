@@ -32,13 +32,15 @@ final class MeikiOCR: @unchecked Sendable {
     private static let characterThreshold: Float = 0.1
     /// Characters overlapping a more confident one by more than this (of the shorter one) are dropped.
     private static let overlapThreshold = 0.3
+    /// Lines read at once.
+    private static let concurrentLines = 4
     /// Pairs the recognizer reads in the wrong order.
     private static let swappedPairs = [
         "儡傀": "傀儡", "談冗": "冗談", "汰淘": "淘汰", "沱滂": "滂沱",
         "攣痙": "痙攣", "酊酩": "酩酊", "麭麺": "麺麭", "哭慟": "慟哭",
     ]
 
-    /// Predictions run one at a time, off the main thread.
+    /// Pictures are read one at a time, off the main thread.
     private let queue = DispatchQueue(label: "MeikiOCR", qos: .userInitiated)
     private var models: Models?
 
@@ -69,19 +71,21 @@ final class MeikiOCR: @unchecked Sendable {
         guard let directory = Bundle.main.resourceURL?.appendingPathComponent("Models") else {
             throw Failure(errorDescription: "The meikiocr models are missing")
         }
-        let configuration = MLModelConfiguration()
-        configuration.computeUnits = .all
-        func load(_ name: String) throws -> MLModel {
+        func load(_ name: String, on computeUnits: MLComputeUnits) throws -> MLModel {
             let url = directory.appendingPathComponent("\(name).mlmodelc")
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw Failure(errorDescription: "The meikiocr model \(name) is missing")
             }
+            let configuration = MLModelConfiguration()
+            configuration.computeUnits = computeUnits
             return try MLModel(contentsOf: url, configuration: configuration)
         }
+        // The recognizers on the CPU, several lines at once (see recognize): faster than one at a time on the GPU,
+        // with the same results.
         let loaded = Models(
-            detection: try load("MeikiDetection"),
-            horizontal: try load("MeikiRecognition"),
-            vertical: try load("MeikiVerticalRecognition")
+            detection: try load("MeikiDetection", on: .all),
+            horizontal: try load("MeikiRecognition", on: .cpuOnly),
+            vertical: try load("MeikiVerticalRecognition", on: .cpuOnly)
         )
         for (model, height, width) in [
             (loaded.detection, Self.detectionSize.height, Self.detectionSize.width),
@@ -101,7 +105,6 @@ final class MeikiOCR: @unchecked Sendable {
     private static func recognize(_ cgImage: CGImage, models: Models) throws -> [RecognizedLine] {
         guard let image = RGBImage(cgImage) else { throw Failure(errorDescription: "Couldn't read the image") }
         let (width, height) = (image.width, image.height)
-        var lines: [RecognizedLine] = []
         var boxes = try detectLines(image, model: models.detection)
         // A line cut off by the image's edge (e.g. the top half of one below the area read) reads as garbage.
         let thickness = { (box: CGRect) in min(box.width, box.height) }
@@ -116,23 +119,37 @@ final class MeikiOCR: @unchecked Sendable {
         if boxes.filter({ $0.height > $0.width }).count * 2 > boxes.count {
             boxes.sort { $0.maxX > $1.maxX }
         }
-        for box in boxes {
-            let vertical = box.height > box.width
-            let characters = vertical
-                ? try recognizeColumn(image, box: box, model: models.vertical)
-                : try recognizeLine(image, box: box, model: models.horizontal)
-            guard !characters.isEmpty else { continue }
-            let normalize = { (rect: CGRect) in
-                CGRect(x: rect.minX / CGFloat(width), y: rect.minY / CGFloat(height),
-                       width: rect.width / CGFloat(width), height: rect.height / CGFloat(height))
-            }
-            lines.append(RecognizedLine(
-                text: String(characters.map(\.character)),
-                box: normalize(box),
-                words: characters.map { (String($0.character), normalize($0.box)) }
-            ))
+        let normalize = { (rect: CGRect) in
+            CGRect(x: rect.minX / CGFloat(width), y: rect.minY / CGFloat(height),
+                   width: rect.width / CGFloat(width), height: rect.height / CGFloat(height))
         }
-        return lines
+        var lines = [RecognizedLine?](repeating: nil, count: boxes.count)
+        var failure: Error?
+        let lock = NSLock()
+        DispatchQueue.concurrentPerform(iterations: min(concurrentLines, boxes.count)) { worker in
+            for index in stride(from: worker, to: boxes.count, by: concurrentLines) {
+                let box = boxes[index]
+                let vertical = box.height > box.width
+                let characters: [Candidate]
+                do {
+                    characters = vertical
+                        ? try recognizeColumn(image, box: box, model: models.vertical)
+                        : try recognizeLine(image, box: box, model: models.horizontal)
+                } catch {
+                    lock.withLock { failure = error }
+                    return
+                }
+                guard !characters.isEmpty else { continue }
+                let line = RecognizedLine(
+                    text: String(characters.map(\.character)),
+                    box: normalize(box),
+                    words: characters.map { (String($0.character), normalize($0.box)) }
+                )
+                lock.withLock { lines[index] = line }
+            }
+        }
+        if let failure { throw failure }
+        return lines.compactMap { $0 }
     }
 
     /// The lines' boxes in image pixels, top to bottom.
