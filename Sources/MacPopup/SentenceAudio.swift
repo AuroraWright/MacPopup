@@ -239,25 +239,11 @@ final class SentenceAudioController {
         let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         let windows = list.compactMap(OCRController.windowInfo).filter { $0.ownerName == ownerName && $0.layer == 0 }
         guard let window = windows.first(where: { $0.title == title }) ?? windows.first,
-              let app = NSRunningApplication(processIdentifier: window.ownerPID) else {
+              NSRunningApplication(processIdentifier: window.ownerPID) != nil else {
             showToast("\(ownerName) isn’t running")
             return false
         }
-        app.activate()
-        if AXIsProcessTrusted() {
-            var value: CFTypeRef?
-            let element = AXUIElementCreateApplication(window.ownerPID)
-            if AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &value) == .success, let axWindows = value as? [AXUIElement] {
-                let match = axWindows.first { axWindow in
-                    var axTitle: CFTypeRef?
-                    return AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &axTitle) == .success && axTitle as? String == window.title
-                }
-                if let match {
-                    AXUIElementSetAttributeValue(match, kAXMainAttribute as CFString, kCFBooleanTrue)
-                    AXUIElementPerformAction(match, kAXRaiseAction as CFString)
-                }
-            }
-        }
+        OCRController.raise(window)
         return true
     }
 

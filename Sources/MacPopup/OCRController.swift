@@ -324,7 +324,24 @@ final class OCRController {
         guard !isPicking else { return }
         isPicking = true
         send(["type": "window", "visible": false])
-        // Start from the window being read, when it's on screen.
+        // Start from the window being read. When it isn't on screen (in another space, or minimized), it's brought
+        // here first, and the picker waits for it to show where it is (it slides in while macOS switches spaces),
+        // up to 2 seconds.
+        guard let id = target?.windowID, !Self.onScreenWindows().contains(where: { $0.id == id }),
+              let window = Self.windows(onScreenOnly: false).first(where: { $0.id == id }) else {
+            pickWindow(enableOCR: enableOCR)
+            return
+        }
+        Self.raise(window)
+        Task { @MainActor in
+            for _ in 0..<40 where !Self.onScreenWindows().contains(where: { $0.id == id && $0.bounds == window.bounds }) {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            pickWindow(enableOCR: enableOCR)
+        }
+    }
+
+    private func pickWindow(enableOCR: Bool) {
         let selection = target.flatMap { target in
             Self.onScreenWindows().first { $0.id == target.windowID }.map { (window: $0, regions: regions) }
         }
@@ -416,6 +433,38 @@ final class OCRController {
             layer: dictionary[kCGWindowLayer as String] as? Int ?? 0,
             isOnScreen: dictionary[kCGWindowIsOnscreen as String] as? Bool ?? false
         )
+    }
+
+    /// Brings the window to the front: raises it above its app's others (unminimized) and makes the app frontmost,
+    /// with Accessibility permission (the window found by its title and frame, or either), which also switches to
+    /// its space. Without it, the app is activated, which macOS can refuse while MacPopup isn't the active app.
+    static func raise(_ window: WindowInfo) {
+        guard AXIsProcessTrusted() else {
+            NSRunningApplication(processIdentifier: window.ownerPID)?.activate()
+            return
+        }
+        let app = AXUIElementCreateApplication(window.ownerPID)
+        defer { AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue) }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
+              let axWindows = value as? [AXUIElement] else { return }
+        func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+            var value: CFTypeRef?
+            return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
+        }
+        func frame(_ element: AXUIElement) -> CGRect? {
+            var origin = CGPoint.zero, size = CGSize.zero
+            guard let position = attribute(element, kAXPositionAttribute), let extent = attribute(element, kAXSizeAttribute),
+                  AXValueGetValue(position as! AXValue, .cgPoint, &origin), AXValueGetValue(extent as! AXValue, .cgSize, &size)
+            else { return nil }
+            return CGRect(origin: origin, size: size)
+        }
+        let titled = axWindows.filter { attribute($0, kAXTitleAttribute) as? String == window.title }
+        let placed = { (element: AXUIElement) in frame(element) == window.bounds }
+        guard let match = titled.first(where: placed) ?? axWindows.first(where: placed) ?? titled.first else { return }
+        AXUIElementSetAttributeValue(match, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        AXUIElementSetAttributeValue(match, kAXMainAttribute as CFString, kCFBooleanTrue)
+        AXUIElementPerformAction(match, kAXRaiseAction as CFString)
     }
 
     /// Normal windows of other apps, front to back.
