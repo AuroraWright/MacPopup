@@ -38,7 +38,7 @@ final class WindowPicker {
         current = picker
         picker.begin()
         if let selection {
-            picker.raise(selection.window)
+            OCRController.raise(selection.window)
         }
     }
 
@@ -58,8 +58,8 @@ final class WindowPicker {
     private let completion: (Result?) -> Void
     private var windows: [PickerWindow] = []
     private var keyMonitor: Any?
-    /// Observes the app of the window brought to the front becoming active.
-    private var activation: NSObjectProtocol?
+    /// Observe apps becoming active and the space changing.
+    private var observers: [NSObjectProtocol] = []
     /// Development aid: MACPOPUP_DEBUG_PICKER_DIR=<dir> saves what the picker draws (only its own
     /// drawing, not the screen) after each change.
     private let debugDirectory = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_PICKER_DIR"]
@@ -83,6 +83,16 @@ final class WindowPicker {
             guard let self else { return event }
             return self.keyDown(event) ? nil : event
         }
+        let center = NSWorkspace.shared.notificationCenter
+        observers = [
+            center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+                let pid = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { self?.screenChanged(activated: pid) }
+            },
+            center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { self?.screenChanged(activated: nil) }
+            },
+        ]
         mouseMoved(to: Self.globalPoint(NSEvent.mouseLocation))
         redraw()
     }
@@ -92,8 +102,8 @@ final class WindowPicker {
             NSEvent.removeMonitor(keyMonitor)
         }
         keyMonitor = nil
-        if let activation { NSWorkspace.shared.notificationCenter.removeObserver(activation) }
-        activation = nil
+        observers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
+        observers = []
         windows.forEach { $0.orderOut(nil) }
         windows = []
         Self.current = nil
@@ -182,23 +192,23 @@ final class WindowPicker {
         redraw()
     }
 
-    /// Brings the window to the front, keeping the keyboard (Escape, Return, Delete) for the picker: activating the
-    /// window's app takes it, so the panel under the mouse takes it back once the app is active (a moment after
-    /// macOS says so, when the app's window has become key).
-    private func raise(_ window: OCRController.WindowInfo) {
-        if let activation { NSWorkspace.shared.notificationCenter.removeObserver(activation) }
-        activation = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { self?.takeKeyboard() }
+    /// Called a moment after an app became active (`activated`) or the space changed, once the app's window has
+    /// become key and the space's windows are on screen. When the chosen window is no longer in front (another app
+    /// is active, or it isn't on screen), another one is chosen. Either way, the picker takes the keyboard back
+    /// (Escape, Return, Delete) from the app.
+    private func screenChanged(activated pid: pid_t?) {
+        guard Self.current === self else { return }
+        if case let .regions(window) = phase,
+           pid.map({ $0 != window.ownerPID && $0 != getpid() }) ?? false
+           || !OCRController.onScreenWindows().contains(where: { $0.id == window.id }) {
+            chooseWindow()
+        } else {
+            mouseMoved(to: Self.globalPoint(NSEvent.mouseLocation))
         }
-        OCRController.raise(window)
+        takeKeyboard()
     }
 
     private func takeKeyboard() {
-        if let activation { NSWorkspace.shared.notificationCenter.removeObserver(activation) }
-        activation = nil
-        guard Self.current === self else { return }
         let mouse = NSEvent.mouseLocation
         (windows.first { $0.frame.contains(mouse) } ?? windows.first)?.makeKey()
     }
@@ -220,7 +230,7 @@ final class WindowPicker {
             mouseMoved(to: point)
             if let hovered {
                 phase = .regions(hovered)
-                raise(hovered)
+                OCRController.raise(hovered)
                 redraw()
             }
         case let .regions(window):

@@ -129,7 +129,11 @@ window** in *Settings → General*):
      matches against incoming WebSocket lines.
    - **Additional areas (Menus, choices, UI)**: Read immediately as soon as they change.
    - Use **Undo** (`Delete`) to remove the last area, **Other Window** to pick a different window,
-     or **Cancel** (`Esc`) to keep your previous selection.
+     or **Cancel** (`Esc`) to keep your previous selection. Switching to another app or Space also
+     goes back to picking a window.
+
+When you select again, the window you're reading is brought to the front first (from another Space
+too), with its areas.
 
 MacPopup remembers the window by its app name and title across launches. It's only read while it's
 on screen in the current Space. The selected window is also used for clean `{screenshot}` captures
