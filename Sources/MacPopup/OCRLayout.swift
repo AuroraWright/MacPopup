@@ -156,11 +156,16 @@ enum OCRLayout {
     /// A line with one box per character, in window points. The engines give boxes per word (Live Text: single characters
     /// for Japanese; meikiocr and Screen AI: always characters); longer words are divided evenly, and the spaces between
     /// words fill the gaps. Lines of evenly spaced full-width text are then snapped to their cells (see
-    /// snapToGrid).
+    /// snapToGrid), unless the engine's own boxes for its characters can be kept (see fillingGaps).
     /// - Parameters:
     ///   - image: The image that was read, whose pixels the line's normalized boxes refer to.
+    ///   - exactBoxes: The engine's boxes for its words are where they are, and evenly divided they're closer to
+    ///     where the characters are than the cells (meikiocr's, Screen AI's, OneOCR's and Google Lens'; not Live
+    ///     Text's, often a cell off).
     ///   - toWindow: Converts a box normalized to `image` to window points.
-    static func layOut(_ line: RecognizedLine, image: GrayImage?, size: CGSize, toWindow: (CGRect) -> CGRect) -> Line {
+    static func layOut(
+        _ line: RecognizedLine, image: GrayImage?, size: CGSize, exactBoxes: Bool = false, toWindow: (CGRect) -> CGRect
+    ) -> Line {
         // Work in image pixels, which keep the aspect ratio.
         let toPixels = { (box: CGRect) in
             CGRect(x: box.minX * size.width, y: box.minY * size.height, width: box.width * size.width, height: box.height * size.height)
@@ -207,7 +212,9 @@ enum OCRLayout {
                 previous = box
             }
         }
-        if let image, let snapped = snapToGrid(chars, line: lineBox, vertical: isVertical, image: image) {
+        if exactBoxes, let filled = placingBlanks(chars, vertical: isVertical, { fillingGaps($0, vertical: isVertical) }) {
+            chars = filled
+        } else if let image, let snapped = snapToGrid(chars, line: lineBox, vertical: isVertical, image: image) {
             chars = snapped
         }
         func toWindowFromPixels(_ box: CGRect) -> CGRect {
@@ -232,11 +239,16 @@ enum OCRLayout {
     /// across the line to where the text's strokes are.
     ///
     /// Whitespace takes no cell of its own: OCR puts spaces between words where the text has none (OneOCR
-    /// around an ellipsis, e.g. "「 …… 厄介"), and a blank cell is skipped anyway. It goes in the gap
-    /// between the cells of the characters around it, which is empty where they touch.
+    /// around an ellipsis, e.g. "「 …… 厄介"), and a blank cell is skipped anyway (see placingBlanks).
     static func snapToGrid(_ chars: [Char], line: CGRect, vertical: Bool, image: GrayImage) -> [Char]? {
+        placingBlanks(chars, vertical: vertical) { snapVisible($0, line: line, vertical: vertical, image: image) }
+    }
+
+    /// The characters other than whitespace laid out by `layOut`, and the whitespace in the gap between the boxes of
+    /// the characters around it, which is empty where they touch; nil if `layOut` gives nil or there are none.
+    private static func placingBlanks(_ chars: [Char], vertical: Bool, _ layOut: ([Char]) -> [Char]?) -> [Char]? {
         let isBlank = { (char: Char) in char.text.allSatisfy(\.isWhitespace) }
-        guard let snapped = snapVisible(chars.filter { !isBlank($0) }, line: line, vertical: vertical, image: image) else { return nil }
+        guard let snapped = layOut(chars.filter { !isBlank($0) }), !snapped.isEmpty else { return nil }
         var result: [Char] = []
         var next = 0
         var index = chars.startIndex
@@ -265,6 +277,29 @@ enum OCRLayout {
             index += run.count
         }
         return result
+    }
+
+    /// The engine's boxes for characters (without whitespace), filled out to make the line's: across the line, each
+    /// reaches as far as any does (a "ー"'s or a small kana's box is thinner than the line); along it, each meets the
+    /// next halfway across the gap between them, but goes at most a quarter of the line's thickness past its own box
+    /// (a wider gap is between words), and the first and last reach as far outward as they do inward.
+    static func fillingGaps(_ chars: [Char], vertical: Bool) -> [Char] {
+        let start = { (box: CGRect) in vertical ? box.minY : box.minX }, end = { (box: CGRect) in vertical ? box.maxY : box.maxX }
+        let near = chars.map { vertical ? $0.box.minX : $0.box.minY }.min() ?? 0
+        let far = chars.map { vertical ? $0.box.maxX : $0.box.maxY }.max() ?? 0
+        // How far each box reaches past its own toward the next.
+        let reach = zip(chars, chars.dropFirst()).map { char, next in
+            min(max(start(next.box) - end(char.box), 0) / 2, (far - near) / 4)
+        }
+        return chars.indices.map { index in
+            let before = index > 0 ? reach[index - 1] : reach.first ?? 0
+            let after = index < reach.count ? reach[index] : reach.last ?? 0
+            let a0 = start(chars[index].box) - before, a1 = end(chars[index].box) + after
+            let box = vertical
+                ? CGRect(x: near, y: a0, width: far - near, height: a1 - a0)
+                : CGRect(x: a0, y: near, width: a1 - a0, height: far - near)
+            return Char(text: chars[index].text, box: box)
+        }
     }
 
     /// snapToGrid for characters without whitespace.
@@ -443,15 +478,35 @@ enum OCRLayout {
         let ends = chars.map { vertical ? Double($0.box.maxY) : Double($0.box.maxX) }
         let strokeBand = strokes(level: best.level)
         let band = strokeBand.map { $0.first...$0.last } ?? c0...(c1 - 1)
-        let unitInk = (0..<units).map { unit -> Bool in
-            let start = max(Int(origin + Double(unit) * half), a0), end = max(min(Int(origin + Double(unit + 1) * half), a1), start)
+        // The engines' line boxes can cut off the outer stroke of a bracket at either end ("「" at the start, "」" at the
+        // end). Where the character read there is one, a half-cell the box cuts is measured on its part inside (unless
+        // that's only a sliver, where a few pixels of the next glyph would be enough), and the cell can have its ink a
+        // little past the box. Not where it's another character: there that ink would more often be a character the
+        // engine missed (an opening bracket, a dash), which the ones it read shouldn't move into.
+        let isBracket = { (char: Char, categories: [Unicode.GeneralCategory]) in
+            char.text.unicodeScalars.allSatisfy { categories.contains($0.properties.generalCategory) }
+        }
+        let cutAtStart = isBracket(chars[chars.startIndex], [.openPunctuation, .initialPunctuation])
+        let cutAtEnd = isBracket(chars[chars.endIndex - 1], [.closePunctuation, .finalPunctuation])
+        let margin = Int(best.pitch / 4)
+        // How much ink a half-cell has (over 1 for text), within the line box or also `past` it where it can be cut.
+        func ink(_ unit: Int, past: Bool) -> Double {
+            let from = past && cutAtStart ? max(a0 - margin, 0) : a0
+            let to = past && cutAtEnd ? min(a1 + margin, vertical ? image.height : image.width) : a1
+            let cellStart = Int(origin + Double(unit) * half), cellEnd = Int(origin + Double(unit + 1) * half)
+            let start = max(cellStart, from), end = max(min(cellEnd, to), start)
             var count = 0
             for a in start..<end {
                 for c in stride(from: band.lowerBound, through: band.upperBound, by: 2) where abs(pixel(a, c) - best.level) <= 32 { count += 1 }
             }
             // Thin glyphs (an ellipsis's dots, a closing bracket) have little ink in a half-cell.
-            return Double(count) > Double(band.count) * 0.015 * half / 2
+            let cut = start > cellStart && cutAtStart || end < cellEnd && cutAtEnd
+            return Double(count) / (Double(band.count) * 0.015 * (cut ? max(Double(end - start), half / 2) : half) / 2)
         }
+        let unitInk = (0..<units).map { ink($0, past: false) > 1 }
+        // How far a half-cell is from empty, for placing a character in it: a faint glyph (a small "。") can have a
+        // little less ink than counts as text.
+        let fill = (0..<units).map { min(max(ink($0, past: true) * 2 - 1, 0), 1) }
         guard !chars.isEmpty, units > 0 else { return narrowed() }
         // A run of dots, dashes or tildes is one item, which takes from one cell up to one per character:
         // Live Text often reads an ellipsis or a long dash as more characters than the cells it's drawn
@@ -506,9 +561,7 @@ enum OCRLayout {
                     for start in stride(from: 0, through: units - width, by: 1) {
                         let end = start + width
                         var place = abs(starts[first] - offset - (origin + Double(start) * half))
-                        if !(start..<(start + width)).contains(where: { unitInk[$0] }) {
-                            place += emptyCost
-                        }
+                        place += emptyCost * (1 - (start..<(start + width)).map { fill[$0] }.max()!)
                         // Read as half-width, so it's more likely to be one.
                         if kind != step {
                             place += widenCost
@@ -581,6 +634,25 @@ enum OCRLayout {
             }
         }
         guard let assignment else { return narrowed() }
+        // Characters a whole cell or more past either end of the line box (punctuation there leaves less of its cell
+        // without ink) don't fit in the line on this grid: then the text isn't evenly spaced, like a proportional
+        // font's, whose small kana and punctuation are narrower than the other characters. Only characters read where
+        // the text is count, with ink in most of their box (Live Text reads things that aren't, e.g. a "™" before a
+        // name, whose box reaches into the name), and of their cells those with ink if any (a run of dots can take
+        // empty cells, see above).
+        let read = items.indices.filter { item in
+            let from = max(Int(((starts[items[item].lowerBound] - origin) / half).rounded(.down)), 0)
+            let to = min(Int(((ends[items[item].upperBound - 1] - origin) / half).rounded(.up)), units)
+            return from < to && (from..<to).filter { unitInk[$0] }.count * 2 >= to - from
+        }
+        if let first = read.first.map({ assignment.placements[$0] }), let last = read.last.map({ assignment.placements[$0] }) {
+            let firstCells = first.start..<(first.start + first.width), lastCells = last.start..<(last.start + last.width)
+            let start = firstCells.first { fill[$0] > 0 } ?? first.start
+            let end = lastCells.last { fill[$0] > 0 }.map { $0 + 1 } ?? lastCells.upperBound
+            if origin + Double(start) * half <= Double(a0) - best.pitch || origin + Double(end) * half >= Double(a1) + best.pitch {
+                return narrowed()
+            }
+        }
 
         // Across the line, keep only the part with strokes. Only ever shrink it: beyond it are the
         // neighboring lines.

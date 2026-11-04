@@ -789,7 +789,9 @@ final class OCRController {
             case let .success(items):
                 self.log("\(engine.rawValue): \(String(format: "%.2f", Date().timeIntervalSince(requested)))s for \(crop.width)x\(crop.height)")
                 if debugReading == self.debugReadings { self.saveForDebugging(items, area: 0, engine: "-\(engine.rawValue)") }
-                let cloud = self.lines(from: items, in: crop, area: 0, bounds: bounds, ordered: false)
+                // Both engines' boxes are where the words are: Google Lens' are the reference the local engines' are
+                // measured against, and Bing's are a cloud version of OneOCR's.
+                let cloud = self.lines(from: items, in: crop, area: 0, bounds: bounds, ordered: false, exactBoxes: true)
                 // It may miss text the local engine read, but not all of it.
                 if !cloud.lines.isEmpty {
                     // Marked for the overlay's outlines (with Highlight recognized text boxes on).
@@ -934,7 +936,9 @@ final class OCRController {
             saveForDebugging(items, area: index)
             let layoutStarted = Date()
             // Screen AI's lines come in its own layout analysis' reading order (paragraphs and columns included).
-            (areaLines[index], areaRemoved[index]) = lines(from: items, in: crop, area: index, bounds: bounds, ordered: engine == .screenAI)
+            (areaLines[index], areaRemoved[index]) = lines(
+                from: items, in: crop, area: index, bounds: bounds, ordered: engine == .screenAI, exactBoxes: engine.hasExactBoxes
+            )
             log("layout: \(String(format: "%.2f", Date().timeIntervalSince(layoutStarted)))s")
         }
         return true
@@ -951,9 +955,11 @@ final class OCRController {
 
     /// The lines an engine read in an area's picture (`crop`), as the page gets them, and the lines left out (by the
     /// language or as furigana) for its debug log.
-    /// - Parameter ordered: The engine gives the lines in reading order; otherwise they're put in it.
+    /// - Parameters:
+    ///   - ordered: The engine gives the lines in reading order; otherwise they're put in it.
+    ///   - exactBoxes: The engine's boxes for words are where they are (see OCRLayout.layOut).
     private func lines(
-        from items: [RecognizedLine], in crop: CGImage, area index: Int, bounds: CGRect, ordered: Bool
+        from items: [RecognizedLine], in crop: CGImage, area index: Int, bounds: CGRect, ordered: Bool, exactBoxes: Bool = false
     ) -> (lines: [[String: Any]], removed: [[String: Any]]) {
         let area = areas[index]
         // The boxes are normalized to the crop; convert them to window points.
@@ -979,7 +985,7 @@ final class OCRController {
                 removed.append(["text": item.text, "box": box(toWindow(item.box)), "reason": "language", "area": index])
             }
         }
-        var lines = kept.map { OCRLayout.layOut($0, image: gray, size: size, toWindow: toWindow) }
+        var lines = kept.map { OCRLayout.layOut($0, image: gray, size: size, exactBoxes: exactBoxes, toWindow: toWindow) }
         if stripsFurigana {
             let bases = OCRLayout.furigana(in: lines)
             if recordsRemoved {
@@ -1036,6 +1042,10 @@ final class OCRController {
         case meikiocr
         case screenAI = "screenai"
         case oneOCR = "oneocr"
+
+        /// Whether its boxes for words are where they are: Live Text's are often a cell off, so its lines are snapped to
+        /// their cells (see OCRLayout.layOut).
+        var hasExactBoxes: Bool { self != .liveText }
     }
 
     /// The engine when OCR mode started or it last changed.
