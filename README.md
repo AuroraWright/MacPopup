@@ -92,8 +92,8 @@ In Window Mode, MacPopup listens to every WebSocket URL listed in **Settings →
 
 - **Hover to Look Up**: Move your cursor over a word to open a Yomitan popup. By default, no
   modifier key is needed. You can require a key (`Option`, `Control`, `Shift`, `Command`) or
-  configure **Other (scanning inputs)** in **Settings → Scanning** to combine keys and mouse
-  buttons (e.g., `shift -mouse0` or `alt kanji`).
+  configure **Other** in **Settings → Scanning** to combine keys and mouse buttons (e.g.,
+  `shift -mouse0` or `alt kanji`).
 - **Nested Popups**: Hold `Shift` (configurable) while hovering inside a popup to open a child
   popup. You can also enable **Search terms when clicking text from the results list** to search
   within the same popup, or **Allow scanning popup source terms** to look up headwords too.

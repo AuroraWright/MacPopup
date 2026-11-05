@@ -128,7 +128,7 @@ enum SettingsSchema {
         SettingsOption("ctrl", "Control (⌃)"),
         SettingsOption("shift", "Shift (⇧)"),
         SettingsOption("meta", "Command (⌘)"),
-        SettingsOption("custom", "Other (scanning inputs)"),
+        SettingsOption("custom", "Other"),
     ]
 
     private static let collapseModeNames = [
@@ -351,9 +351,9 @@ enum SettingsSchema {
             SettingsSection(title: "Scanning", symbol: "cursorarrow.rays", fields: [
                 SettingsField("yomitanApiUrl", "Yomitan API URL", .text(test: .yomitan)),
                 SettingsField("scanModifier", "Scan modifier key (text box)", .select(scanModifierOptions)),
-                SettingsField("scanInputs", "Scanning inputs (text box)", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
+                SettingsField("scanInputs", "Advanced scanning inputs (text box)", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
                 SettingsField("popupScanModifier", "Scan modifier key (popup, for nested lookups)", .select(scanModifierOptions)),
-                SettingsField("popupScanInputs", "Scanning inputs (popup)", .scanInputs, showIf: { $0["popupScanModifier"] as? String == "custom" }),
+                SettingsField("popupScanInputs", "Advanced scanning inputs (popup)", .scanInputs, showIf: { $0["popupScanModifier"] as? String == "custom" }),
                 SettingsField(
                     "popupNestingMaxDepth", "Maximum number of child popups", .number(min: 0),
                     hint: "How many child popups can open from inside another popup. Set to 0 to disable nested popups."
@@ -611,7 +611,7 @@ enum SettingsSchema {
                         hint: "The Anki field where the recorded audio will be saved. Updates the newest card created today, and any other cards from today with the same {sentence}, if this field is empty."
                     ),
                     SettingsField("sentenceAudioApp", "App to focus before recording", .select([
-                        SettingsOption("captured", "Captured window (from General settings)"),
+                        SettingsOption("captured", "Captured window"),
                         SettingsOption("named", "Specific app by name"),
                         SettingsOption("none", "Don’t switch apps"),
                     ]), hint: "Brings the game to the front so it receives the backlog keystrokes."),

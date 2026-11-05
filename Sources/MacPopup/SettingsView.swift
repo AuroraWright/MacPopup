@@ -169,9 +169,7 @@ private struct FieldRow: View {
                 FieldLabel(field: field)
             }
         case .keySequence:
-            LabeledContent {
-                KeySequenceControl(items: (value as? [Any] ?? []).compactMap { $0 as? [String: Any] }) { model.set(field.key, $0) }
-            } label: {
+            KeySequenceControl(items: (value as? [Any] ?? []).compactMap { $0 as? [String: Any] }) { model.set(field.key, $0) } label: {
                 FieldLabel(field: field)
             }
         case .audioInput:
@@ -454,7 +452,7 @@ private struct ConvertedModelsControl: View {
 }
 
 /// The field names of the note types of the Yomitan term card formats, loaded from AnkiConnect when
-/// shown. Nothing shows until they're loaded, or why they couldn't be.
+/// shown.
 private struct AnkiFieldPicker<Label: View>: View {
     let name: String
     let settings: [String: Any]
@@ -466,14 +464,10 @@ private struct AnkiFieldPicker<Label: View>: View {
     var body: some View {
         Group {
             if let fields {
-                Picker(selection: Binding(get: { name }, set: commit)) {
-                    if name.isEmpty { Text("Choose a field").tag("") }
-                    ForEach(fields, id: \.self) { Text($0).tag($0) }
-                    // Kept until another is chosen.
-                    if !name.isEmpty && !fields.contains(name) { Text("\(name) (not found)").tag(name) }
-                } label: {
-                    label
-                }
+                picker(fields)
+            } else if error == nil {
+                // While loading, the chosen field (a menu is as wide as its chosen item, so the text beside it stays put).
+                picker(name.isEmpty ? [] : [name]).disabled(true)
             } else {
                 LabeledContent {
                     if let error {
@@ -488,6 +482,17 @@ private struct AnkiFieldPicker<Label: View>: View {
             }
         }
         .task { await load() }
+    }
+
+    private func picker(_ fields: [String]) -> some View {
+        Picker(selection: Binding(get: { name }, set: commit)) {
+            if name.isEmpty { Text("Choose a field").tag("") }
+            ForEach(fields, id: \.self) { Text($0).tag($0) }
+            // Kept until another is chosen.
+            if !name.isEmpty && !fields.contains(name) { Text("\(name) (not found)").tag(name) }
+        } label: {
+            label
+        }
     }
 
     private func load() async {
@@ -525,50 +530,68 @@ private struct ShortcutControl: View {
                 SteadyLabel(isActive ? "Press keys…" : title, reserving: [title, "Press keys…"]).frame(minWidth: 90)
             }
             .help(isActive ? "Click to cancel" : "Click, then press a key combination")
-            Button("Clear") { commit(nil) }.disabled(value == nil)
+            // While recording, it stops without changing the shortcut.
+            Button("Clear") {
+                if isActive {
+                    recorder.cancel()
+                } else {
+                    commit(nil)
+                }
+            }
+            .disabled(value == nil && !isActive)
         }
         .onDisappear { recorder.cancel() }
     }
 }
 
-/// Keys pressed in turn: each can be removed, and more recorded.
-private struct KeySequenceControl: View {
+/// Keys pressed in turn: each can be removed, and more recorded. They're listed at the bottom right of the row, so
+/// they don't take room from the label and its hint.
+private struct KeySequenceControl<Label: View>: View {
     let items: [[String: Any]]
     let commit: ([[String: Any]]) -> Void
+    @ViewBuilder let label: Label
     @StateObject private var recorder = ShortcutRecorder()
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                HStack(spacing: 2) {
-                    Text(keyCombination(item)?.displayName ?? "?").monospacedDigit()
-                    Button {
-                        var updated = items
-                        updated.remove(at: index)
-                        commit(updated)
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
+        VStack(alignment: .trailing, spacing: 6) {
+            LabeledContent {
+                let isActive = recorder.activeIndex != nil
+                let title = items.isEmpty ? "Record Key" : "Add Key"
+                Button {
+                    if isActive {
+                        recorder.cancel()
+                    } else {
+                        recorder.start(index: 0) { commit(items + [["key": $0.key, "modifiers": $0.modifiers]]) }
                     }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .help("Remove")
+                } label: {
+                    SteadyLabel(isActive ? "Press a key…" : title, reserving: [title, "Press a key…"])
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.15)))
-            }
-            let isActive = recorder.activeIndex != nil
-            let title = items.isEmpty ? "Record Key" : "Add Key"
-            Button {
-                if isActive {
-                    recorder.cancel()
-                } else {
-                    recorder.start(index: 0) { commit(items + [["key": $0.key, "modifiers": $0.modifiers]]) }
-                }
+                .help(isActive ? "Click to cancel" : "Click, then press a key (with any modifier keys)")
             } label: {
-                SteadyLabel(isActive ? "Press a key…" : title, reserving: [title, "Press a key…"])
+                label
             }
-            .help(isActive ? "Click to cancel" : "Click, then press a key (with any modifier keys)")
+            if !items.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                        HStack(spacing: 2) {
+                            Text(keyCombination(item)?.displayName ?? "?").monospacedDigit()
+                            Button {
+                                var updated = items
+                                updated.remove(at: index)
+                                commit(updated)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                            .help("Remove")
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.15)))
+                    }
+                }
+            }
         }
         .onDisappear { recorder.cancel() }
     }
