@@ -79,9 +79,10 @@ In Window Mode, MacPopup listens to every WebSocket URL listed in **Settings →
 - **Furigana & Formatting**: Display furigana above words (in Hiragana, Katakana, Romaji, or
   dictionary reading), add spaces between parsed words, display text vertically, or filter out
   duplicate and non-CJK lines.
-- **Text Replacements**: Apply regular expression find-and-replace rules in order to clean up
-  incoming lines before they are displayed. Use the test field below the list to preview how your
-  rules transform a sample line.
+- **Text Replacements**: Apply regular expression find-and-replace rules (*Settings → General*) in
+  order to clean up incoming lines before they are displayed. Use the test field below the list to
+  preview how your rules transform a sample line. In OCR Mode, they apply to WebSocket lines before
+  they're matched with the recognized text.
 
 ---
 

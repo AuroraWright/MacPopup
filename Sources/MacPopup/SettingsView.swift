@@ -582,6 +582,8 @@ private struct PercentSlider: View {
             .frame(width: 200)
             Text(value, format: .percent.precision(.fractionLength(0)))
                 .monospacedDigit()
+                // A form draws text beside a labeled control in the secondary color.
+                .foregroundStyle(.primary)
                 .frame(width: 44, alignment: .trailing)
         }
     }
@@ -605,6 +607,7 @@ private struct NumberSlider: View {
             .frame(width: 200)
             Text("\(Int(value))")
                 .monospacedDigit()
+                .foregroundStyle(.primary)
                 .frame(width: 44, alignment: .trailing)
         }
     }

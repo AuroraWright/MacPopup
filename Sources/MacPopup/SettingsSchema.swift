@@ -183,6 +183,24 @@ enum SettingsSchema {
                     "ocrWindow", "Captured window", .ocrWindow,
                     hint: "The target window read in OCR Mode and captured for Anki {screenshot} fields. If none is selected, the entire screen is used."
                 ),
+                SettingsField(
+                    "theme", "Theme", .select(support.themes.map { SettingsOption($0) }),
+                    hint: "The colors of the text box in Window Mode. In OCR Mode, it only sets the color of text highlights."
+                ),
+                SettingsField(
+                    "furiganaReadingMode", "Furigana style", .select([
+                        SettingsOption("none", "None"),
+                        SettingsOption("hiragana", "Hiragana (ひらがな)"),
+                        SettingsOption("katakana", "Katakana (カタカナ)"),
+                        SettingsOption("romaji", "Romaji"),
+                        SettingsOption("dictionary-reading", "Dictionary reading"),
+                    ]),
+                    hint: "Controls how readings appear in the text box (when “Show furigana above words” is on) and in Anki’s {sentence-furigana} field. In OCR Mode, it only applies to Anki cards. Note: on Anki cards, only Hiragana and Katakana change the furigana."
+                ),
+                SettingsField(
+                    "replacements", "Text replacements", .replacements,
+                    hint: "Find-and-replace rules applied in order to each new line before it appears. Supports regular expressions ($1 inserts the first capture group, \\n adds a line break, and \\t adds a tab). In OCR Mode, they only apply to WebSocket lines, before they’re matched with the recognized text."
+                ),
             ]),
             SettingsSection(title: "WebSockets", symbol: "network", fields: [
                 SettingsField(
@@ -206,7 +224,6 @@ enum SettingsSchema {
                     hint: "Copied text longer than this character limit is truncated.",
                     showIf: { $0["clipboardMonitor"] as? Bool == true }
                 ),
-                SettingsField("theme", "Theme", .select(support.themes.map { SettingsOption($0) })),
                 SettingsField("fontSize", "Font size (px)", .number(min: 1)),
                 SettingsField("linePadding", "Line spacing", .number(min: 0, step: 0.1)),
                 SettingsField("onlineFont", "Web font", .select(support.onlineFonts.map { SettingsOption($0) })),
@@ -231,21 +248,7 @@ enum SettingsSchema {
                 SettingsField("showLinePoints", "Show bullet beside each line", .checkbox),
                 SettingsField("enableLineAnimation", "Animate new lines", .checkbox),
                 SettingsField("showFurigana", "Show furigana above words", .checkbox),
-                SettingsField(
-                    "furiganaReadingMode", "Furigana style", .select([
-                        SettingsOption("none", "None"),
-                        SettingsOption("hiragana", "Hiragana (ひらがな)"),
-                        SettingsOption("katakana", "Katakana (カタカナ)"),
-                        SettingsOption("romaji", "Romaji"),
-                        SettingsOption("dictionary-reading", "Dictionary reading"),
-                    ]),
-                    hint: "Controls how readings appear in the text box (when “Show furigana above words” is on) and in Anki’s {sentence-furigana} field. Note: on Anki cards, only Hiragana and Katakana change the furigana."
-                ),
                 SettingsField("termSpacing", "Add spaces between parsed words", .checkbox),
-                SettingsField(
-                    "replacements", "Text replacements", .replacements,
-                    hint: "Find-and-replace rules applied in order to each new line before it appears. Supports regular expressions ($1 inserts the first capture group, \\n adds a line break, and \\t adds a tab)."
-                ),
                 SettingsField("customCSS", "Custom CSS (text box)", .textarea),
             ]),
             SettingsSection(
