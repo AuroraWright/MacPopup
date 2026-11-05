@@ -58,6 +58,9 @@ struct SettingsField: Identifiable {
         case shortcut
         /// Keys pressed in turn, [{key, modifiers}].
         case keySequence
+        /// Settings shown together in one row, a line each with its own short label (e.g. Width and Height). The
+        /// row's key isn't a setting. Only menus and numbers can be grouped.
+        case group([SettingsField])
         /// An audio input's name ("" for the system's default input).
         case audioInput
         /// A field name of the note types in Anki (from AnkiConnect).
@@ -166,7 +169,7 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "language", "Language", .select(support.languages.map { SettingsOption($0.iso, $0.name) }),
-                    hint: "Should match your active Yomitan profile language (automatically set when importing Yomitan settings). Used to select default audio sources, format text, and choose the language OCR Mode reads (text in other scripts is skipped)."
+                    hint: "Language of the text that is being looked up. Should match your active Yomitan profile language (automatically set when importing Yomitan settings). Also used to select default audio sources, format text, and choose the language OCR Mode reads (text in other scripts is skipped)."
                 ),
                 SettingsField(
                     "displayIndex", "Display", .display,
@@ -195,7 +198,7 @@ enum SettingsSchema {
                         SettingsOption("romaji", "Romaji"),
                         SettingsOption("dictionary-reading", "Dictionary reading"),
                     ]),
-                    hint: "Controls how readings appear in the text box (when “Show furigana above words” is on) and in Anki’s {sentence-furigana} field. In OCR Mode, it only applies to Anki cards. Note: on Anki cards, only Hiragana and Katakana change the furigana."
+                    hint: "Change what type of furigana is displayed for parsed text, in the text box (when “Show furigana above words” is on) and in Anki’s {sentence-furigana} field. Japanese only. In OCR Mode, it only applies to Anki cards. Note: on Anki cards, only Hiragana and Katakana change the furigana."
                 ),
                 SettingsField(
                     "replacements", "Text replacements", .replacements,
@@ -349,14 +352,17 @@ enum SettingsSchema {
                 ]
             ),
             SettingsSection(title: "Scanning", symbol: "cursorarrow.rays", fields: [
-                SettingsField("yomitanApiUrl", "Yomitan API URL", .text(test: .yomitan)),
-                SettingsField("scanModifier", "Scan modifier key (text box)", .select(scanModifierOptions)),
+                SettingsField(
+                    "yomitanApiUrl", "Yomitan API URL", .text(test: .yomitan),
+                    hint: "To activate the Yomitan API, a native messaging component must be installed (Install), and Enable Yomitan API turned on in Yomitan’s settings."
+                ),
+                SettingsField("scanModifier", "Scan modifier key (text box/OCR Mode text)", .select(scanModifierOptions)),
                 SettingsField("scanInputs", "Advanced scanning inputs (text box)", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
                 SettingsField("popupScanModifier", "Scan modifier key (popup, for nested lookups)", .select(scanModifierOptions)),
                 SettingsField("popupScanInputs", "Advanced scanning inputs (popup)", .scanInputs, showIf: { $0["popupScanModifier"] as? String == "custom" }),
                 SettingsField(
                     "popupNestingMaxDepth", "Maximum number of child popups", .number(min: 0),
-                    hint: "How many child popups can open from inside another popup. Set to 0 to disable nested popups."
+                    hint: "Change the limit on the number of popups that may be generated. Set to 0 to disable nested popups."
                 ),
                 SettingsField(
                     "popupSearchOnClick", "Search terms when clicking text from the results list", .checkbox,
@@ -372,30 +378,39 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "scanLength", "Text scan length", .number(min: 1),
-                    hint: "How many characters ahead of the cursor to include when searching for matching dictionary terms."
+                    hint: "Change how many characters are read when scanning for terms."
                 ),
                 SettingsField(
                     "scanResolution", "Scan resolution",
                     .select([SettingsOption("character", "Character"), SettingsOption("word", "Word")]),
-                    hint: "Start the lookup scan at the word or character of the cursor position. (Japanese, Chinese, Cantonese, and Korean always start at the character under the cursor.)"
+                    hint: "Start the lookup scan at the word or character of the cursor position. The Character option will start scanning at the cursor’s current position, while the Word option will start scanning at the beginning of the word. (Japanese, Chinese, Cantonese, and Korean always start at the character under the cursor.)"
                 ),
                 SettingsField(
                     "scanDelay", "Scan delay (in milliseconds)", .number(min: 0),
-                    hint: "How long the cursor must rest on a word before a popup opens when no modifier key is used."
+                    hint: "Change the delay before scanning occurs when no modifier key is required."
                 ),
                 SettingsField(
                     "scanWithoutMousemove", "Scan without mouse move", .checkbox,
-                    hint: "Allow scanning words under the pointer without the pointer being in motion: pressing the scan key looks up the word under the resting pointer."
+                    hint: "Allow scanning words under the pointer without the pointer being in motion. Pressing the scan key looks up the word under the resting pointer."
                 ),
                 SettingsField("selectMatchedText", "Select matched text", .checkbox, hint: "Visually highlights the matched word while its popup is open."),
-                SettingsField("parser", "Parse sentences using", .select([SettingsOption("scanning-parser", "Yomitan's internal parser"), SettingsOption("mecab", "MeCab")])),
-                SettingsField("autoHideResults", "Auto-hide search popup", .checkbox),
+                SettingsField(
+                    "parser", "Parse sentences using", .select([SettingsOption("scanning-parser", "Yomitan's internal parser"), SettingsOption("mecab", "MeCab")]),
+                    hint: "Yomitan’s internal parser parses sentence words using Yomitan’s dictionaries, by repeatedly detecting the longest term at the start of the sentence. Since grammatical structure is not taken into account, it can sometimes yield incorrect segmentation. MeCab is a third-party program which uses its own dictionaries and parsing algorithm, and may provide more accurate results (Japanese only). For MeCab, both MeCab and a native messaging component must be installed, and MeCab enabled in Yomitan’s settings."
+                ),
+                SettingsField(
+                    "autoHideResults", "Auto-hide search popup", .checkbox,
+                    hint: "When an existing popup is present, upon scanning again, hide the existing popup even if no definitions are found when scanning again."
+                ),
                 SettingsField("hideDelay", "Auto-hide search popup delay (in milliseconds)", .number(min: 0)),
-                SettingsField("hidePopupOnCursorExit", "Hide popup on cursor exit", .checkbox),
+                SettingsField(
+                    "hidePopupOnCursorExit", "Hide popup on cursor exit", .checkbox,
+                    hint: "When the cursor exits the popup, the popup will be hidden."
+                ),
                 SettingsField("hidePopupOnCursorExitDelay", "Hide popup on cursor exit delay (in milliseconds)", .number(min: 0)),
                 SettingsField(
                     "sentenceScanExtent", "Sentence scanning extent", .number(min: 1),
-                    hint: "How many characters around the looked-up word to scan when extracting the context sentence for Anki cards."
+                    hint: "Adjust how many characters are bidirectionally scanned to form a sentence."
                 ),
                 SettingsField("sentenceTerminationCharacterMode", "Sentence termination characters", .select([
                     SettingsOption("custom", "Custom"),
@@ -412,44 +427,84 @@ enum SettingsSchema {
             SettingsSection(
                 title: "Yomitan Popup", symbol: "rectangle.on.rectangle",
                 fields: [
-                    SettingsField("popupTheme", "Theme (body)", .select(themeOptions)),
-                    SettingsField("popupOuterTheme", "Theme (shadow)", .select(themeOptions + [SettingsOption("none", "None")])),
-                    SettingsField("popupWidth", "Size (width)", .number(min: 1)),
-                    SettingsField("popupHeight", "Size (height)", .number(min: 1)),
+                    SettingsField(
+                        "popupThemes", "Theme", .group([
+                            SettingsField("popupTheme", "Body", .select(themeOptions)),
+                            SettingsField("popupOuterTheme", "Shadow", .select(themeOptions + [SettingsOption("none", "None")])),
+                        ]),
+                        hint: "Adjust the style of Yomitan."
+                    ),
+                    SettingsField(
+                        "popupSize", "Size", .group([
+                            SettingsField("popupWidth", "Width", .number(min: 1)),
+                            SettingsField("popupHeight", "Height", .number(min: 1)),
+                        ]),
+                        hint: "Control the size of the popup, in pixels."
+                    ),
                     SettingsField("popupScalingFactor", "Scale", .numberSelect(
                         [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5].map { SettingsOption("\($0 as NSNumber)", "\(Int(($0 * 100).rounded()))%") }
-                    )),
-                    SettingsField("popupHorizontalOffset", "Horizontal text offset (x)", .number()),
-                    SettingsField("popupVerticalOffset", "Horizontal text offset (y)", .number()),
+                    ), hint: "Control the scaling factor of the popup."),
+                    SettingsField(
+                        "popupHorizontalTextOffset", "Horizontal text offset", .group([
+                            SettingsField("popupHorizontalOffset", "x", .number()),
+                            SettingsField("popupVerticalOffset", "y", .number()),
+                        ]),
+                        hint: "Change the distance the popup is placed relative to horizontal text."
+                    ),
+                    SettingsField(
+                        "popupVerticalTextOffset", "Vertical text offset", .group([
+                            SettingsField("popupHorizontalOffset2", "x", .number()),
+                            SettingsField("popupVerticalOffset2", "y", .number()),
+                        ]),
+                        hint: "Change the distance the popup is placed relative to vertical text. Used unless Vertical text positioning is Same as horizontal text."
+                    ),
                     SettingsField("popupHorizontalTextPosition", "Horizontal text positioning", .select([
                         SettingsOption("below", "Below text"), SettingsOption("above", "Above text"),
-                    ])),
+                    ]), hint: "Change where the popup is positioned relative to horizontal text."),
                     SettingsField("popupVerticalTextPosition", "Vertical text positioning", .select([
                         SettingsOption("default", "Same as horizontal text"),
                         SettingsOption("before", "Before reading direction"),
                         SettingsOption("after", "After reading direction"),
                         SettingsOption("left", "Left of text"),
                         SettingsOption("right", "Right of text"),
-                    ])),
-                    SettingsField("popupDisplayMode", "Display mode", .select([SettingsOption("default", "Default"), SettingsOption("full-width", "Full width")])),
+                    ]), hint: "Change where the popup is positioned relative to vertical text."),
+                    SettingsField(
+                        "popupDisplayMode", "Display mode", .select([SettingsOption("default", "Default"), SettingsOption("full-width", "Full width")]),
+                        hint: "Change the layout of the popup. The Default mode will position the popup relative to the scanned text. The Full width mode will anchor the popup to the top or bottom of the screen and take up the full width of the screen."
+                    ),
                     SettingsField(
                         "popupFullWidthPosition", "Popup position", .select([
                             SettingsOption("top", "Top"), SettingsOption("above-cursor", "Follow Cursor"), SettingsOption("bottom", "Bottom"),
                         ]),
                         showIf: { $0["popupDisplayMode"] as? String == "full-width" }
                     ),
-                    SettingsField("fontFamily", "Font family", .text()),
-                    SettingsField("popupFontSize", "Font size", .number(min: 1)),
-                    SettingsField("lineHeight", "Line height", .text()),
+                    SettingsField(
+                        "fontFamily", "Font family", .text(),
+                        hint: "Change the font family used in Yomitan. The font family can be changed to any font installed on your system. You can input things such as sans-serif, serif, or monospace. If you want to specify one or multiple specific fonts, you can type them in manually separated by commas, for example \"Noto Sans JP\", \"Meiryo\", sans-serif."
+                    ),
+                    SettingsField(
+                        "popupFontSize", "Font size", .number(min: 1),
+                        hint: "Change the font size used in popups, in pixels."
+                    ),
+                    SettingsField(
+                        "lineHeight", "Line height", .text(),
+                        hint: "Change the space between lines of text in popups. This will usually be a decimal number between 1 and 2."
+                    ),
                     SettingsField("glossaryLayoutMode", "Compact glossaries", .select([
                         SettingsOption("default", "Default"), SettingsOption("compact", "Compact Popup"), SettingsOption("compact-popup-anki", "Compact Popup and Anki"),
-                    ])),
-                    SettingsField("compactTags", "Compact tags", .checkbox),
+                    ]), hint: "Display term glossaries using a more compact layout."),
+                    SettingsField(
+                        "compactTags", "Compact tags", .checkbox,
+                        hint: "Show fewer repeated tags for term glossaries."
+                    ),
                     SettingsField(
                         "showSearchTags", "Show tags for expressions and their readings", .checkbox,
                         hint: "These tags can be scanned if “Allow scanning popup source terms” is on."
                     ),
-                    SettingsField("averageFrequency", "Average frequencies", .checkbox),
+                    SettingsField(
+                        "averageFrequency", "Average frequencies", .checkbox,
+                        hint: "Compress frequency tags into one “Average” frequency tag based on the harmonic mean."
+                    ),
                     SettingsField("frequencyDisplayMode", "Frequency display style", .select([
                         SettingsOption("tags", "Tags"),
                         SettingsOption("tags-grouped", "Tags, grouped content"),
@@ -458,14 +513,17 @@ enum SettingsSchema {
                         SettingsOption("inline-list", "Inline list"),
                         SettingsOption("list", "List"),
                         SettingsOption("list-bordered", "List, bordered"),
-                    ])),
+                    ]), hint: "Change how frequency information is presented."),
                     SettingsField("termDisplayMode", "Term display style", .select([
                         SettingsOption("ruby", "Term furigana"),
                         SettingsOption("ruby-and-reading", "Term furigana and reading"),
                         SettingsOption("term-and-reading", "Plain term and reading"),
                         SettingsOption("term-only", "Plain term"),
-                    ])),
-                    SettingsField("showPitchAccentDownstepNotation", "Pitch accent display styles (downstep notation)", .checkbox),
+                    ]), hint: "Change how terms and their readings are displayed."),
+                    SettingsField(
+                        "showPitchAccentDownstepNotation", "Pitch accent display styles (downstep notation)", .checkbox,
+                        hint: "Japanese only. Pitch accents for terms and expressions can be shown if a dictionary supporting pitch accents is installed."
+                    ),
                     SettingsField("showPitchAccentPositionNotation", "Pitch accent display styles (downstep position)", .checkbox),
                     SettingsField("showPitchAccentGraph", "Pitch accent display styles (graph)", .checkbox),
                     SettingsField("popupCurrentIndicatorMode", "Selection indicator style", .select([
@@ -476,10 +534,10 @@ enum SettingsSchema {
                         SettingsOption("bar-right", "Vertical bar (right)"),
                         SettingsOption("dot-left", "Small dot (left)"),
                         SettingsOption("dot-right", "Small dot (right)"),
-                    ])),
+                    ]), hint: "Change how the selected definition entry is visually indicated."),
                     SettingsField("popupActionBarVisibility", "Action bar appearance (visibility)", .select([
                         SettingsOption("auto", "Auto"), SettingsOption("always", "Always"),
-                    ])),
+                    ]), hint: "Control when and where the action bar is visible."),
                     SettingsField("popupActionBarLocation", "Action bar appearance (location)", .select([
                         SettingsOption("left", "Left"), SettingsOption("right", "Right"), SettingsOption("top", "Top"), SettingsOption("bottom", "Bottom"),
                     ])),
@@ -507,13 +565,16 @@ enum SettingsSchema {
                         hint: "Imported from Yomitan’s “Configure collapsible dictionaries” menu."
                     ),
                     SettingsField("audioEnabled", "Enable audio playback for terms", .checkbox, hint: "Show a clickable speaker icon next to search results."),
-                    SettingsField("audioAutoPlay", "Auto-play search result audio", .checkbox),
+                    SettingsField(
+                        "audioAutoPlay", "Auto-play search result audio", .checkbox,
+                        hint: "The audio for the first result will be played automatically."
+                    ),
                     SettingsField("audioVolume", "Audio volume", .number(min: 0, max: 100), hint: "Adjust the volume audio is played at, in percent."),
                     SettingsField(
                         "audioFallbackSound", "Audio fallback sound", .select([
                             SettingsOption("none", "None"), SettingsOption("click", "Click"), SettingsOption("bloop", "Bloop"),
                         ]),
-                        hint: "Plays a short sound effect when none of your audio sources have a recording for the word."
+                        hint: "The sound to play when Yomitan fails to fetch audio."
                     ),
                     SettingsField(
                         "audioSources", "Audio sources", .audioSources,
@@ -544,10 +605,16 @@ enum SettingsSchema {
                 title: "Anki", symbol: "rectangle.stack.badge.plus",
                 description: "Creates flashcards using the decks, note types, and field mappings from your active Yomitan profile.",
                 fields: [
-                    SettingsField("ankiEnabled", "Enable Anki integration", .checkbox),
-                    SettingsField("ankiConnectUrl", "AnkiConnect server address", .text(test: .anki)),
-                    SettingsField("ankiConnectKey", "API key", .text(), hint: "Optional. Only needed if you configured an API key in AnkiConnect."),
-                    SettingsField("ankiTags", "Card tags", .text(), hint: "Tags added to every new card, separated by spaces."),
+                    SettingsField(
+                        "ankiEnabled", "Enable Anki integration", .checkbox,
+                        hint: "This option may send information contained in Yomitan dictionary entries and/or relevant user settings to Anki."
+                    ),
+                    SettingsField(
+                        "ankiConnectUrl", "AnkiConnect server address", .text(test: .anki),
+                        hint: "Change the URL of the AnkiConnect server. The default address for a server on the same device is http://127.0.0.1:8765. If Anki is running and AnkiConnect is installed, Test shows the current version of AnkiConnect."
+                    ),
+                    SettingsField("ankiConnectKey", "API key", .text(), hint: "Pass a secret value to AnkiConnect API calls. Only needed if you configured an API key in AnkiConnect."),
+                    SettingsField("ankiTags", "Card tags", .text(), hint: "List of space or comma separated tags to add to the card."),
                     SettingsField(
                         "ankiRenderTemplatesLocally", "Use local Handlebars templates (enables popup text selection)", .checkbox,
                         hint: "Renders card fields directly in MacPopup instead of Yomitan so templates can use text highlighted inside a popup (via popupSelectionText)."
@@ -559,32 +626,44 @@ enum SettingsSchema {
                     SettingsField("checkForDuplicates", "Check for card duplicates", .checkbox),
                     SettingsField("duplicateScope", "Duplicate card scope", .select([
                         SettingsOption("collection", "Collection"), SettingsOption("deck", "Deck"), SettingsOption("deck-root", "Deck root"),
-                    ])),
-                    SettingsField("duplicateScopeCheckAllModels", "Check for duplicates across all models", .checkbox),
+                    ]), hint: "A card is considered a duplicate if the value of the first field matches that of any other card. By default, this check will include cards across all decks in a collection, but this constraint can be relaxed by using either the Deck or Deck root option. The Deck option will only check for duplicates in the target deck. The Deck root option will additionally check for duplicates in all child decks of the root deck. This allows adding cards that are unique for decks including a subdeck structure. For decks which don’t have any parent-child hierarchy, both options function the same."),
+                    SettingsField(
+                        "duplicateScopeCheckAllModels", "Check for duplicates across all models", .checkbox,
+                        hint: "By default, duplicate checks are only performed for notes created with the same model. Enabling this option will check for duplicates across all model types."
+                    ),
                     SettingsField("duplicateBehavior", "When a duplicate is detected", .select([
                         SettingsOption("prevent", "Prevent adding"), SettingsOption("overwrite", "Allow overwriting"), SettingsOption("new", "Allow adding"),
-                    ])),
+                    ]), hint: "Overwriting a card can result in the loss of data. Duplicate cards of a different note type cannot be overwritten. If there are multiple duplicate cards, the first card found will be overwritten. You can customize overwriting for each field in Yomitan’s Configure Anki card format… menu."),
                     SettingsField(
                         "ankiNoteDupeCheckFirst", "Prioritize Anki note duplicate checks before note creation", .checkbox,
-                        hint: "Runs a quick duplicate check on the headword first so the add-card buttons appear right away (disabled), then enables them once the full card fields are ready.",
+                        hint: "Recommended for those with Yomitan’s “Maximum number of results” set to a high number, and many active dictionaries. Normally, the Anki notes for each dictionary entry are created and rendered, the duplicate check is performed, and then the buttons are displayed, which may take some time. This option will perform duplicate checks first, and then show the buttons earlier, disabled and opaque. Once the notes are made, they will be re-enabled.",
                         showIf: { $0["checkForDuplicates"] as? Bool == true }
                     ),
                     SettingsField("ankiDisplayTagsAndFlags", "Show card tags and flags", .select([
                         SettingsOption("never", "Never"), SettingsOption("always", "Always"),
                         SettingsOption("non-standard", "Non-standard"), SettingsOption("custom", "Custom"),
-                    ]), hint: "Displays tags and flags for words already in your Anki collection. “Non-standard” hides the default card tags set above; “Custom” shows only the specific tags listed below."),
+                    ]), hint: "When coming across a word that is already in an Anki deck, two buttons can appear that show the tags and flags the card has. If set to Non-standard, all tags that are included in the Card tags option will be filtered out from the list. If set to Custom, only tags that are included in the Target tags option will be shown. If no tags remain after filtering, then the tags button will not be shown. If no flags are found, the flags button will not be shown."),
                     SettingsField(
                         "ankiTargetTags", "Target tags", .text(), hint: "List of space or comma separated tags.",
                         showIf: { $0["ankiDisplayTagsAndFlags"] as? String == "custom" }
                     ),
                     SettingsField("ankiSuspendNewCards", "Suspend new cards", .checkbox, hint: "New cards will be suspended when a note is added."),
-                    SettingsField("ankiForceSync", "Force Anki sync on adding card", .checkbox),
+                    SettingsField(
+                        "ankiForceSync", "Force Anki sync on adding card", .checkbox,
+                        hint: "May cause issues when using in conjunction with AnkiConnect Android, and/or slow or metered connections."
+                    ),
                     SettingsField(
                         "ankiDownloadTimeout", "Idle download timeout (in milliseconds)", .number(min: 0),
                         hint: "The maximum time before an idle download will be cancelled; 0 = no limit (at most a minute). Applies to audio chosen from the speaker button’s right-click menu."
                     ),
-                    SettingsField("noteGuiMode", "Note viewer window", .select([SettingsOption("browse", "Card browser"), SettingsOption("edit", "Note editor")])),
-                    SettingsField("screenshotFormat", "Screenshot format", .select([SettingsOption("png", "PNG"), SettingsOption("jpeg", "JPEG")])),
+                    SettingsField(
+                        "noteGuiMode", "Note viewer window", .select([SettingsOption("browse", "Card browser"), SettingsOption("edit", "Note editor")]),
+                        hint: "Clicking the View added note button shows this window. AnkiConnect releases after around 2022-05-29 support a new note editor window. If an error occurs, Anki and/or AnkiConnect may need to be updated."
+                    ),
+                    SettingsField(
+                        "screenshotFormat", "Screenshot format", .select([SettingsOption("png", "PNG"), SettingsOption("jpeg", "JPEG")]),
+                        hint: "Adjust the format and quality of screenshots created for cards."
+                    ),
                     SettingsField("screenshotQuality", "Screenshot format (quality %)", .number(min: 0, max: 100)),
                     SettingsField(
                         "screenshotResolution", "Screenshot resolution",

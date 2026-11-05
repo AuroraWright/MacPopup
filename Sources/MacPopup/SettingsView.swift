@@ -135,6 +135,21 @@ private struct FieldRow: View {
             } label: {
                 FieldLabel(field: field)
             }
+        case let .group(fields):
+            LabeledContent {
+                // Each label right before its control, so it moves left as the control widens.
+                VStack(alignment: .trailing, spacing: 6) {
+                    ForEach(fields) { field in
+                        // (A menu has its own padding before its text.)
+                        HStack(spacing: field.isMenu ? 2.5 : 8) {
+                            Text(field.label).foregroundStyle(.secondary)
+                            GroupedControl(field: field, model: model)
+                        }
+                    }
+                }
+            } label: {
+                FieldLabel(field: field)
+            }
         case let .percentSlider(step):
             LabeledContent {
                 PercentSlider(value: (value as? NSNumber)?.doubleValue ?? 0, step: step) { model.set(field.key, $0) }
@@ -653,6 +668,88 @@ private struct RoundedBorder: ViewModifier {
 
     @ViewBuilder func body(content: Content) -> some View {
         if isOn { content.textFieldStyle(.roundedBorder) } else { content }
+    }
+}
+
+private extension SettingsField {
+    var isMenu: Bool {
+        if case .select = kind { true } else { false }
+    }
+}
+
+/// A menu or number of a group of settings (see SettingsField.Kind.group), without its label.
+private struct GroupedControl: View {
+    let field: SettingsField
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        let value = model[field.key]
+        switch field.kind {
+        case let .number(min, max, step):
+            FittingNumberField(value: (value as? NSNumber)?.doubleValue ?? 0, min: min, max: max, decimals: step.map { $0 < 1 } ?? false) {
+                model.set(field.key, $0)
+            }
+        case let .select(options):
+            let current = value as? String ?? ""
+            // A value the menu doesn't offer (e.g. imported) is shown rather than dropped.
+            let shown = options.contains { $0.value == current } ? options : options + [SettingsOption(current)]
+            Picker(field.label, selection: Binding(get: { current }, set: { model.set(field.key, $0) })) {
+                ForEach(shown, id: \.value) { Text($0.label).tag($0.value) }
+            }
+            .labelsHidden()
+            .fixedSize()
+        default:
+            EmptyView()
+        }
+    }
+}
+
+/// A number field as wide as the number in it (growing to the left while typing), saving when editing ends.
+private struct FittingNumberField: View {
+    let value: Double
+    let min: Double?
+    let max: Double?
+    let decimals: Bool
+    let commit: (Any) -> Void
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    private var formatted: String { Self.text(value) }
+
+    /// Plain digits (a locale's minus sign or decimal comma wouldn't parse back).
+    private static func text(_ number: Double) -> String {
+        number.rounded() == number && abs(number) < 1e15 ? String(Int(number)) : String(number)
+    }
+
+    var body: some View {
+        // The hidden text sets the width; a little more leaves room for the caret.
+        Text(draft.isEmpty ? "0" : draft)
+            .hidden()
+            .padding(.horizontal, 3)
+            .frame(minWidth: 24, alignment: .trailing)
+            .overlay {
+                TextField("", text: $draft)
+                    .labelsHidden()
+                    .multilineTextAlignment(.trailing)
+                    .focused($focused)
+                    .onSubmit(save)
+            }
+            .onAppear { draft = formatted }
+            .onChange(of: value) { if !focused { draft = formatted } }
+            .onChange(of: focused) { if !focused { save() } }
+    }
+
+    private func save() {
+        guard var number = Double(draft.trimmingCharacters(in: .whitespaces)) else {
+            draft = formatted
+            return
+        }
+        if let min { number = Swift.max(number, min) }
+        if let max { number = Swift.min(number, max) }
+        if !decimals { number = number.rounded() }
+        draft = Self.text(number)
+        guard number != value else { return }
+        commit(number.rounded() == number && abs(number) < 1e15 ? Int(number) as Any : number as Any)
     }
 }
 
