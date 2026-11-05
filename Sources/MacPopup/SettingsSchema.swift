@@ -357,7 +357,7 @@ enum SettingsSchema {
                     hint: "To activate the Yomitan API, a native messaging component must be installed (Install), and Enable Yomitan API turned on in Yomitan’s settings."
                 ),
                 SettingsField("scanModifier", "Scan modifier key (text box/OCR Mode text)", .select(scanModifierOptions)),
-                SettingsField("scanInputs", "Advanced scanning inputs (text box)", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
+                SettingsField("scanInputs", "Advanced scanning inputs", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
                 SettingsField("popupScanModifier", "Scan modifier key (popup, for nested lookups)", .select(scanModifierOptions)),
                 SettingsField("popupScanInputs", "Advanced scanning inputs (popup)", .scanInputs, showIf: { $0["popupScanModifier"] as? String == "custom" }),
                 SettingsField(
