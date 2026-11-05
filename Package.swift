@@ -43,6 +43,11 @@ let package = Package(
             name: "CurlImpersonate",
             path: "Sources/CurlImpersonate"
         ),
+        // The Yomitan API's native messaging host (yomitan_api.py, without Python); scripts/build.sh puts it in the app.
+        .executableTarget(
+            name: "yomitan-api",
+            path: "Sources/YomitanAPI"
+        ),
         .executableTarget(
             name: "MacPopup",
             dependencies: ["LiveText", "ScreenAI", "OneOCR", "CurlImpersonate"],

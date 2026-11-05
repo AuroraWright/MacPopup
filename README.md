@@ -23,7 +23,9 @@ Yomitan through the [Yomitan API](https://github.com/yomidevs/yomitan-api).
 - **macOS 14 (Sonoma)** or later
 - **Xcode** (or Xcode Command Line Tools with Swift 5.9+) and **Node.js 18+** to build
 - **Yomitan** with the [Yomitan API](https://github.com/yomidevs/yomitan-api) native messaging host
-  installed (default: `http://127.0.0.1:19633`)
+  installed (default: `http://127.0.0.1:19633`). **Install** next to the Yomitan API URL (*Settings → Scanning*)
+  installs MacPopup's own version of it, which doesn't need Python, for Chrome, Chromium, Brave or Firefox. Then restart
+  the browser and turn on *Enable Yomitan API* in Yomitan's settings (*General*, with advanced options shown).
 - **Anki** with the **AnkiConnect** add-on for flashcard creation (default: `http://127.0.0.1:8765`)
 
 ---

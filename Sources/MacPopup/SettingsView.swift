@@ -212,6 +212,7 @@ private struct FieldRow: View {
                     HStack {
                         CommitTextField(value: value as? String ?? "", placeholder: "None") { model.set(field.key, $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
                         if let test { TestButton(test: test, model: model) }
+                        if test == .yomitan { InstallYomitanAPIButton() }
                     }
                 }
                 .frame(maxWidth: 320)
@@ -761,6 +762,88 @@ private struct TestButton: View {
                 Label(status.text, systemImage: status.ok ? "checkmark.circle.fill" : "xmark.octagon.fill")
                     .foregroundStyle(status.ok ? .green : .red)
                     .padding()
+            }
+        }
+    }
+}
+
+/// Installs MacPopup's Yomitan API host for a browser (see YomitanAPIInstaller).
+private struct InstallYomitanAPIButton: View {
+    @State private var showing = false
+    @State private var browser = YomitanAPIInstaller.likelyBrowser
+    @State private var ids = ""
+    @State private var result: (text: String, ok: Bool)?
+
+    private var otherIDs: [String] {
+        ids.split(whereSeparator: { $0 == "," || $0.isWhitespace }).map(String.init).filter { $0 != browser.defaultID }
+    }
+
+    var body: some View {
+        Button("Install") {
+            result = nil
+            browser = YomitanAPIInstaller.likelyBrowser
+            ids = YomitanAPIInstaller.otherIDs(browser).joined(separator: ", ")
+            showing = true
+        }
+        .popover(isPresented: $showing) {
+            Group {
+                if let result {
+                    Label(result.text, systemImage: result.ok ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                        .foregroundStyle(result.ok ? .green : .red)
+                        .fixedSize()
+                } else {
+                    form
+                }
+            }
+            .padding()
+        }
+    }
+
+    private var form: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Grid(alignment: .leading, verticalSpacing: 8) {
+                GridRow {
+                    Text("Browser").gridColumnAlignment(.trailing)
+                    Picker("Browser", selection: $browser) {
+                        ForEach(YomitanAPIInstaller.browsers) { Text($0.name).tag($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    .onChange(of: browser) { ids = YomitanAPIInstaller.otherIDs(browser).joined(separator: ", ") }
+                }
+                GridRow {
+                    Text("ID")
+                    // (The settings form's trailing alignment carries over into the popover.)
+                    TextField("ID", text: $ids, prompt: Text("\(browser.defaultID) (default)"))
+                        .labelsHidden()
+                        .multilineTextAlignment(.leading)
+                        .frame(width: 420)
+                }
+            }
+            let invalid = otherIDs.filter { !YomitanAPIInstaller.isValid($0, for: browser) }
+            Group {
+                if invalid.isEmpty {
+                    Text("For a Yomitan built from source, add its extension ID. The default ID stays allowed.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("This may not be a valid extension ID (expected: \(browser.idFormat)). It will still be added.")
+                        .foregroundStyle(.orange)
+                }
+            }
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: 480, alignment: .leading)
+            HStack {
+                Spacer()
+                Button("Confirm") {
+                    do {
+                        try YomitanAPIInstaller.install(browser, otherIDs: otherIDs)
+                        result = ("Installed.\nEnable the Yomitan API in Yomitan settings and restart \(browser.name) to start the API.", true)
+                    } catch {
+                        result = (error.localizedDescription, false)
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
     }

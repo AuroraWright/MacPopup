@@ -43,11 +43,13 @@ if [[ ! -f "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" ]]; then
 fi
 
 swift build -c "$CONFIGURATION"
-BIN="$(swift build -c "$CONFIGURATION" --show-bin-path)/MacPopup"
+BIN_DIR="$(swift build -c "$CONFIGURATION" --show-bin-path)"
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/MacPopup"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
+cp "$BIN_DIR/MacPopup" "$APP/Contents/MacOS/MacPopup"
+# The Yomitan API's native messaging host, which Settings → Scanning → Install copies next to a browser's manifest.
+cp "$BIN_DIR/yomitan-api" "$APP/Contents/Helpers/yomitan_api"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R build/web "$APP/Contents/Resources/web"
 if [[ -f "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" ]]; then
@@ -73,6 +75,7 @@ fi
 if [[ -d "$APP/Contents/Frameworks" ]]; then
     codesign --force --timestamp=none --sign "$IDENTITY" "$APP"/Contents/Frameworks/*.dylib >/dev/null
 fi
+codesign --force --timestamp=none --sign "$IDENTITY" --identifier local.macpopup.yomitan-api "$APP/Contents/Helpers/yomitan_api" >/dev/null
 codesign --force --timestamp=none --sign "$IDENTITY" "$APP" >/dev/null
 
 echo "Built $APP"
