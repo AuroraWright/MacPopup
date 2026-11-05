@@ -429,20 +429,27 @@ private struct ConvertedModelsControl: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if models.busy {
-                ProgressView().controlSize(.small)
-                Text("Loading…").foregroundStyle(.secondary)
-            } else if let converted = models.converted {
-                Label("Loaded", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                    .help("Converted \(converted.formatted(date: .abbreviated, time: .shortened))")
-            } else {
-                Label("Not loaded", systemImage: "exclamationmark.circle.fill").foregroundStyle(.orange)
+            // As wide as the wider status, and Remove always there, so the buttons don't move.
+            ZStack(alignment: .trailing) {
+                loaded.hidden()
+                notLoaded.hidden()
+                if let converted = models.converted {
+                    loaded.help("Converted \(converted.formatted(date: .abbreviated, time: .shortened))")
+                } else {
+                    notLoaded
+                }
             }
             Button("Load…") { load(models.kind) }.disabled(models.busy)
-            if models.converted != nil {
-                Button("Remove") { remove(models.kind) }.disabled(models.busy)
-            }
+            Button("Remove") { remove(models.kind) }.disabled(models.busy || models.converted == nil)
         }
+    }
+
+    private var loaded: some View {
+        Label("Loaded", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+    }
+
+    private var notLoaded: some View {
+        Label("Not loaded", systemImage: "exclamationmark.circle.fill").foregroundStyle(.orange)
     }
 }
 
@@ -514,7 +521,8 @@ private struct ShortcutControl: View {
                     recorder.start(index: 0) { commit(["key": $0.key, "modifiers": $0.modifiers]) }
                 }
             } label: {
-                Text(isActive ? "Press keys…" : keyCombination(value)?.displayName ?? "Record Shortcut").frame(minWidth: 90)
+                let title = keyCombination(value)?.displayName ?? "Record Shortcut"
+                SteadyLabel(isActive ? "Press keys…" : title, reserving: [title, "Press keys…"]).frame(minWidth: 90)
             }
             .help(isActive ? "Click to cancel" : "Click, then press a key combination")
             Button("Clear") { commit(nil) }.disabled(value == nil)
@@ -550,12 +558,15 @@ private struct KeySequenceControl: View {
                 .background(RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.15)))
             }
             let isActive = recorder.activeIndex != nil
-            Button(isActive ? "Press a key…" : items.isEmpty ? "Record Key" : "Add Key") {
+            let title = items.isEmpty ? "Record Key" : "Add Key"
+            Button {
                 if isActive {
                     recorder.cancel()
                 } else {
                     recorder.start(index: 0) { commit(items + [["key": $0.key, "modifiers": $0.modifiers]]) }
                 }
+            } label: {
+                SteadyLabel(isActive ? "Press a key…" : title, reserving: [title, "Press a key…"])
             }
             .help(isActive ? "Click to cancel" : "Click, then press a key (with any modifier keys)")
         }
@@ -738,6 +749,25 @@ private struct JSONEditor: View {
     }
 }
 
+/// A button's label that keeps the width of the widest of `labels`, so what's beside the button doesn't move when
+/// the label changes (e.g. to "Press keys…" while recording).
+private struct SteadyLabel: View {
+    let text: String
+    let labels: [String]
+
+    init(_ text: String, reserving labels: [String]) {
+        self.text = text
+        self.labels = labels
+    }
+
+    var body: some View {
+        ZStack {
+            ForEach(labels, id: \.self) { Text($0).hidden() }
+            Text(text)
+        }
+    }
+}
+
 private struct TestButton: View {
     let test: SettingsField.ConnectionTest
     @ObservedObject var model: SettingsModel
@@ -745,7 +775,7 @@ private struct TestButton: View {
     @State private var running = false
 
     var body: some View {
-        Button(running ? "Testing…" : "Test") {
+        Button("Test") {
             running = true
             Task {
                 do {
@@ -881,12 +911,17 @@ private struct ScanInputRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
-                CommitTextField(value: value, placeholder: "hover", monospaced: true, bordered: true) { text in
+                // While recording, the field shows the keys and mouse buttons held.
+                let recording = recorder.activeID == id
+                CommitTextField(
+                    value: recording ? ScanInput.format(recorder.recorded) : value,
+                    placeholder: recording ? "Hold keys or mouse buttons…" : "hover", monospaced: true, bordered: true
+                ) { text in
                     let names = ScanInput.parse(text)
                     invalid = names.filter { !ScanInput.isValidName($0) }
                     if invalid.isEmpty { change(ScanInput.format(names)) }
                 }
-                RecordButton(id: id, title: "Record", recorder: recorder) { change($0) }
+                RecordButton(id: id, title: "Record", recorder: recorder, showsInput: false) { change($0) }
                 Button {
                     change(nil)
                 } label: {
@@ -906,6 +941,8 @@ private struct RecordButton: View {
     let id: String
     let title: String
     @ObservedObject var recorder: ScanInputRecorder
+    /// Whether the label shows what's held while recording (rather than "Recording…", for a row whose field shows it).
+    var showsInput = true
     let recorded: (String) -> Void
 
     var body: some View {
@@ -919,8 +956,12 @@ private struct RecordButton: View {
                 }
             }
         } label: {
-            Text(isActive ? (recorder.recorded.isEmpty ? "Hold keys or mouse buttons…" : ScanInput.format(recorder.recorded)) : title)
-                .frame(minWidth: 60)
+            if showsInput {
+                Text(isActive ? (recorder.recorded.isEmpty ? "Hold keys or mouse buttons…" : ScanInput.format(recorder.recorded)) : title)
+                    .frame(minWidth: 60)
+            } else {
+                SteadyLabel(isActive ? "Recording…" : title, reserving: [title, "Recording…"]).frame(minWidth: 60)
+            }
         }
         .buttonStyle(.bordered)
         .tint(isActive ? .accentColor : nil)
@@ -1544,8 +1585,8 @@ private struct HotkeyRow: View {
                 }
             }
         } label: {
-            Text(isActive ? "Press keys…" : combination?.displayName ?? "Record Shortcut")
-                .frame(minWidth: 90)
+            let title = combination?.displayName ?? "Record Shortcut"
+            SteadyLabel(isActive ? "Press keys…" : title, reserving: [title, "Press keys…"]).frame(minWidth: 90)
         }
         .help(isActive ? "Click to cancel" : "Click, then press a key combination")
     }
