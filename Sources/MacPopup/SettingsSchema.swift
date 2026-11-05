@@ -552,7 +552,7 @@ enum SettingsSchema {
                         hint: "Applies to dictionaries that don’t have a custom rule imported from Yomitan below."
                     ),
                     SettingsField(
-                        "dictionaryCollapsible", "Per-dictionary collapse rules (imported from Yomitan)",
+                        "dictionaryCollapsible", "Per-dictionary collapse rules",
                         .imported(
                             describe: { values in
                                 collapseModes(values).map { "\($0.label): \($0.names.count)" }.joined(separator: ", ")
