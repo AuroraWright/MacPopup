@@ -1227,8 +1227,7 @@ function updateOcrWebsocket() {
 
 function ocrLineText(rawText) {
 	if (typeof rawText !== 'string') return null;
-	let text = applyReplacements(rawText, getSettings().replacements);
-	if (getSettings().removeAllWhitespace) text = text.replace(/\s/gm, '');
+	const text = applyReplacements(rawText, getSettings().replacements);
 	return text.trim() || null;
 }
 

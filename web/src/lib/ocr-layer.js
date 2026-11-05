@@ -8,7 +8,13 @@
 // sentences and lookups.
 
 const SPACE = /\s/u;
+const LINE_BREAK = /[\n\v\f\r\u0085\u2028\u2029]/u;
 const LETTER = /[\p{L}\p{N}]/u;
+const OPENING = /^[\p{Ps}\p{Pi}]$/u;
+const CLOSING = /^[\p{Pe}\p{Pf}]$/u;
+const BRACKET = /^[\p{Ps}\p{Pe}\p{Pi}\p{Pf}]$/u;
+// Scripts written without spaces between words.
+const UNSPACED = /[\p{scx=Han}\p{scx=Hira}\p{scx=Kana}\p{scx=Thai}\p{scx=Lao}\p{scx=Khmer}\p{scx=Mymr}]/u;
 
 /**
  * @typedef {{text: string, x: number, y: number, width: number, height: number, corrected?: boolean}} OcrChar
@@ -68,7 +74,7 @@ const isLookalike = (key) => LOOKALIKES.some(([, value]) => value === key);
  * @param {string} text
  * @returns {{lines: OcrLine[], quality: number, missingEnd: number, partial?: boolean}} `quality` is the
  *   share of the letters and digits of `text` that matched exactly, and `missingEnd` the characters at
- *   its end that weren't found; `partial` is set when only a part of `text` matched. Without a match,
+ *   its end that weren't found (but for closing brackets whose opening one isn't on screen); `partial` is set when only a part of `text` matched. Without a match,
  *   the lines are returned unchanged.
  */
 export function correctWithText(lines, text, minQuality = 0.6) {
@@ -120,8 +126,9 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 	if (n === 0 || m === 0 || significant === 0) return { lines, quality: 0, missingEnd: significant };
 
 	// score[i][j]: best score aligning target[0..i) with ocr[..j), any OCR prefix being free. A match
-	// scores 4, a mismatch -2 (-6 for whitespace), a missed character -2 (-5 where there's no room for
-	// it) and an extra OCR character -2.
+	// scores 4, a mismatch -2 (-6 for whitespace, -3 for a bracket and a letter, which an engine doesn't
+	// mistake for each other: a 「 the game doesn't draw is missed rather than taking a name's last letter),
+	// a missed character -2 (-5 where there's no room for it) and an extra OCR character -2.
 	const width = m + 1;
 	const score = new Int32Array((n + 1) * width);
 	const move = new Uint8Array((n + 1) * width); // 1 diagonal, 2 target gap (insert), 3 OCR gap (delete)
@@ -132,8 +139,11 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 	}
 	for (let i = 1; i <= n; i++) {
 		const isSpace = SPACE.test(target[i - 1]);
+		const isBracket = BRACKET.test(target[i - 1]);
+		const isLetter = LETTER.test(target[i - 1]);
 		for (let j = 1; j <= m; j++) {
-			const diagonal = score[(i - 1) * width + j - 1] + (targetKeys[i - 1] === ocr[j - 1].key ? 4 : isSpace ? -6 : -2);
+			const unlike = (isBracket && LETTER.test(ocr[j - 1].key)) || (isLetter && BRACKET.test(ocr[j - 1].key));
+			const diagonal = score[(i - 1) * width + j - 1] + (targetKeys[i - 1] === ocr[j - 1].key ? 4 : isSpace ? -6 : unlike ? -3 : -2);
 			const insert = score[(i - 1) * width + j] + (isSpace ? 0 : cramped[j] ? -5 : -2);
 			const remove = score[i * width + j - 1] - 2;
 			let best = diagonal;
@@ -193,8 +203,18 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 	const firstOcr = operations.findIndex(isOcrOp);
 	const lastOcr = operations.length - 1 - [...operations].reverse().findIndex(isOcrOp);
 	if (firstOcr < 0) return { lines, quality: 0, missingEnd: significant };
-	// Characters at the end that aren't on screen (yet).
-	const missingEnd = operations.slice(lastOcr + 1).filter((op) => !SPACE.test(target[op.target])).length;
+	// Characters at the end that aren't on screen (yet). A closing bracket or quote doesn't count when its
+	// opening one isn't on screen either: games often don't draw the 「」 a hook adds around a line (while one
+	// that drew the 「 draws the 」 too, if maybe not yet).
+	const openers = new Map();
+	const open = [];
+	target.forEach((unit, index) => {
+		if (OPENING.test(unit)) open.push(index);
+		else if (CLOSING.test(unit) && open.length > 0) openers.set(index, open.pop());
+	});
+	const onScreen = new Set(operations.filter((op) => op.type === 'match').map((op) => op.target));
+	const undrawn = (index) => openers.has(index) && !onScreen.has(openers.get(index));
+	const missingEnd = operations.slice(lastOcr + 1).filter((op) => !SPACE.test(target[op.target]) && !undrawn(op.target)).length;
 
 	// Missing text at the start doesn't count against the match, but missing text at the end does:
 	// it's usually still being drawn.
@@ -310,7 +330,19 @@ function applyOperations(lines, ocr, target, operations) {
 			const box = entry.group.reduce((box, index) => union(box, line.chars[index]), char);
 			const lastIndex = lastIndexOf(entry);
 			const own = edit.deleted ? [] : edit.text !== null ? [...edit.text] : [char.text, ...entry.group.map((index) => line.chars[index].text)];
-			const after = [...edit.after];
+			// The text's whitespace that the picture doesn't show is left out, unless it separates words (e.g.
+			// "Q BACK"): line breaks (the picture's own lines show where it breaks), and other whitespace with no
+			// room for it (none drawn there), rather than squeezing it into this character's box.
+			const previousText = line.chars.slice(0, charIndex).findLast((other) => !SPACE.test(other.text))?.text ?? '';
+			const nextText = line.chars.slice(lastIndex + 1).find((other) => !SPACE.test(other.text))?.text ?? '';
+			const unshown = (list, previous, next, pattern) =>
+				list.filter((character, index) => {
+					if (!pattern.test(character)) return true;
+					const left = list.slice(0, index).findLast((other) => !SPACE.test(other)) ?? previous;
+					const right = list.slice(index + 1).find((other) => !SPACE.test(other)) ?? next;
+					return separatesWords(left, right);
+				});
+			const after = unshown(edit.after, own.at(-1) ?? char.text, nextText[0], LINE_BREAK);
 			const trailingSpaces = [];
 			const isLineEnd = !line.chars.slice(lastIndex + 1).some((other) => !SPACE.test(other.text));
 			if (spaceAfter.has(lastIndex)) {
@@ -322,7 +354,7 @@ function applyOperations(lines, ocr, target, operations) {
 			// Characters that weren't recognized often left an empty space before the next one: put
 			// inserted text there instead of squeezing it into this character's box. After the last
 			// character of a line, the text continues at its size, and before the first, it starts at it.
-			const before = edit.before;
+			const before = unshown(edit.before, previousText.at(-1), own[0] ?? '', LINE_BREAK);
 			const isLineStart = !line.chars.slice(0, charIndex).some((other) => !SPACE.test(other.text));
 			const gapFront =
 				before.length > 0 && own.length > 0
@@ -332,7 +364,11 @@ function applyOperations(lines, ocr, target, operations) {
 				after.length > 0 && own.length > 0
 					? (gapAfter(line, lastIndex) ?? (isLineEnd ? continuation(box, own.length, after.length, line.vertical) : null))
 					: null;
-			const parts = [...(gapFront ? [] : before), ...own, ...(gap ? [] : after)];
+			const parts = [
+				...(gapFront ? [] : unshown(before, previousText.at(-1), own[0] ?? '', SPACE)),
+				...own,
+				...(gap ? [] : unshown(after, own.at(-1) ?? char.text, nextText[0], SPACE)),
+			];
 			if (gapFront) chars.push(...divide(gapFront, before, line.vertical));
 			if (gap) chars.push(...divide(box, parts, line.vertical), ...divide(gap, after, line.vertical));
 			else if (parts.length > 0) {
@@ -347,6 +383,12 @@ function applyOperations(lines, ocr, target, operations) {
 		const recognized = new Set(line.chars);
 		return { ...line, chars: chars.map((char) => (recognized.has(char) ? char : { ...char, corrected: true })), matched: true };
 	});
+}
+
+/** Whether a space between these characters separates words: letters or digits of scripts that space their words. */
+function separatesWords(left, right) {
+	const spaced = (character) => !!character && LETTER.test(character) && !UNSPACED.test(character);
+	return spaced(left) && spaced(right);
 }
 
 /** The empty space between a character and the next one in its line, if it fits a character. */
