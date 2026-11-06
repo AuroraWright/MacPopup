@@ -1,4 +1,5 @@
 import Foundation
+import OCREngines
 
 /// A choice in a menu: the stored value and its label.
 struct SettingsOption: Hashable {

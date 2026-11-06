@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import OCREngines
 import UniformTypeIdentifiers
 
 /// Online text recognition (Settings → OCR Mode → Cloud recognition (second pass)), with the requests owocr makes: Google

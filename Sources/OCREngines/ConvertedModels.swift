@@ -4,10 +4,10 @@ import Foundation
 
 /// The OCR engines whose models can't come with MacPopup: a script converts them on the user's Mac into a zip,
 /// which Settings → OCR Mode loads into Application Support.
-enum ConvertedModelsKind: String, CaseIterable {
+public enum ConvertedModelsKind: String, CaseIterable {
     case screenAI, oneOCR
 
-    var name: String {
+    public var name: String {
         switch self {
         case .screenAI: "Screen AI"
         case .oneOCR: "OneOCR"
@@ -23,7 +23,7 @@ enum ConvertedModelsKind: String, CaseIterable {
     }
 
     /// The script that makes the zip, which writes this file (with the format's version) at its root.
-    var script: String {
+    public var script: String {
         switch self {
         case .screenAI: "scripts/convert-screenai.py"
         case .oneOCR: "scripts/convert-oneocr.py"
@@ -38,21 +38,21 @@ enum ConvertedModelsKind: String, CaseIterable {
     }
 
     /// The loaded models: the archive's files, with its Core ML models compiled.
-    var directory: URL {
+    public var directory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("MacPopup/\(folderName)", isDirectory: true)
     }
 
     private var infoFile: URL { directory.appendingPathComponent(infoFileName) }
 
-    var installed: Bool { FileManager.default.fileExists(atPath: infoFile.path) }
+    public var installed: Bool { FileManager.default.fileExists(atPath: infoFile.path) }
 
     /// When the loaded models were converted, if they are.
-    var convertedDate: Date? {
+    public var convertedDate: Date? {
         try? FileManager.default.attributesOfItem(atPath: infoFile.path)[.modificationDate] as? Date
     }
 
-    @MainActor var store: any ConvertedModelsStore {
+    @MainActor public var store: any ConvertedModelsStore {
         switch self {
         case .screenAI: ScreenAIOCR.shared.models
         case .oneOCR: OneOCROCR.shared.models
@@ -60,14 +60,14 @@ enum ConvertedModelsKind: String, CaseIterable {
     }
 }
 
-protocol ConvertedModelsStore: Sendable {
+public protocol ConvertedModelsStore: Sendable {
     func installModels(from archive: URL) async throws
     func removeModels() async throws
 }
 
 /// One engine's converted models: loading them from a zip, removing them, and running the engine on them, one
 /// reading at a time and off the main thread.
-final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sendable {
+public final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sendable {
     let kind: ConvertedModelsKind
     private let make: (URL) throws -> Engine
     private let warmUp: (Engine, CGImage) throws -> Void
@@ -123,7 +123,7 @@ final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sendable {
 
     /// Replaces the models with those in a zip made by the kind's script: unpacks it next to the models directory,
     /// compiles its Core ML models for this Mac and checks that they load before swapping it in.
-    func installModels(from archive: URL) async throws {
+    public func installModels(from archive: URL) async throws {
         let manager = FileManager.default
         let parent = directory.deletingLastPathComponent()
         try manager.createDirectory(at: parent, withIntermediateDirectories: true)
@@ -166,7 +166,17 @@ final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sendable {
         }
     }
 
-    func removeModels() async throws {
+    /// Lets the loaded engine go, to free its memory; the next run loads it again.
+    func unload() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async {
+                self.engine = nil
+                continuation.resume()
+            }
+        }
+    }
+
+    public func removeModels() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async {
                 self.engine = nil
@@ -180,6 +190,7 @@ final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sendable {
     }
 
     private static func unzip(_ archive: URL, to directory: URL) async throws {
+        #if os(macOS)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
         process.arguments = ["-x", "-k", archive.path, directory.path]
@@ -201,33 +212,37 @@ final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sendable {
                 continuation.resume(throwing: error)
             }
         }
+        #else
+        // iOS has no ditto.
+        try await Task.detached(priority: .userInitiated) { try ZipArchive.unpack(archive, to: directory) }.value
+        #endif
     }
 }
 
 /// Whether an engine's converted models are loaded, for Settings.
 @MainActor
-final class ConvertedModelsStatus: ObservableObject {
+public final class ConvertedModelsStatus: ObservableObject {
     private static var instances: [ConvertedModelsKind: ConvertedModelsStatus] = [:]
 
-    static func shared(_ kind: ConvertedModelsKind) -> ConvertedModelsStatus {
+    public static func shared(_ kind: ConvertedModelsKind) -> ConvertedModelsStatus {
         if let status = instances[kind] { return status }
         let status = ConvertedModelsStatus(kind)
         instances[kind] = status
         return status
     }
 
-    let kind: ConvertedModelsKind
+    public let kind: ConvertedModelsKind
     /// When the loaded models were converted; nil when there are none.
-    @Published private(set) var converted: Date?
+    @Published public private(set) var converted: Date?
     /// Models are being loaded or removed.
-    @Published var busy = false
+    @Published public var busy = false
 
     private init(_ kind: ConvertedModelsKind) {
         self.kind = kind
         refresh()
     }
 
-    func refresh() {
+    public func refresh() {
         converted = kind.installed ? kind.convertedDate ?? .distantPast : nil
     }
 }

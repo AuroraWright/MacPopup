@@ -2,20 +2,26 @@ import CoreGraphics
 import Foundation
 
 /// A line of recognized text. Boxes are normalized to the image (0–1, origin at the top left).
-struct RecognizedLine {
-    var text: String
-    var box: CGRect
+public struct RecognizedLine {
+    public var text: String
+    public var box: CGRect
     /// Its words in order (for Japanese, usually single characters).
-    var words: [(text: String, box: CGRect)]
+    public var words: [(text: String, box: CGRect)]
+
+    public init(text: String, box: CGRect, words: [(text: String, box: CGRect)]) {
+        self.text = text
+        self.box = box
+        self.words = words
+    }
 }
 
 /// A grayscale copy of a captured image, for measuring where text actually is.
-struct GrayImage {
-    let width: Int
-    let height: Int
-    let pixels: [UInt8]
+public struct GrayImage {
+    public let width: Int
+    public let height: Int
+    public let pixels: [UInt8]
 
-    init?(_ image: CGImage) {
+    public init?(_ image: CGImage) {
         // Locals, since the closure below can't capture self before every property is set.
         let (width, height) = (image.width, image.height)
         self.width = width
@@ -36,7 +42,7 @@ struct GrayImage {
     /// Whether the picture has detail that a copy at half the resolution loses, i.e. it was drawn at
     /// this resolution rather than enlarged (like a window drawn at 1x on a Retina display). Nil when
     /// it has too few edges to tell (e.g. no text in it yet).
-    var hasFineDetail: Bool? {
+    public var hasFineDetail: Bool? {
         let halfWidth = width / 2, halfHeight = height / 2
         guard halfWidth > 2, halfHeight > 2 else { return nil }
         // Each half-resolution pixel is the sum of the 2x2 pixels it covers.
@@ -77,31 +83,43 @@ struct GrayImage {
 /// neighbor. Games and most Japanese text put every full-width character in a cell of the same
 /// size, so the cells are found from the picture instead (where the gaps between glyphs are) and
 /// the recognized characters are assigned to them in order.
-enum OCRLayout {
-    struct Char {
-        var text: String
+public enum OCRLayout {
+    public struct Char {
+        public var text: String
         /// In image pixels, or window points in a Line.
-        var box: CGRect
+        public var box: CGRect
+
+        public init(text: String, box: CGRect) {
+            self.text = text
+            self.box = box
+        }
     }
 
     /// A recognized line, in window points.
-    struct Line {
-        var text: String
-        var box: CGRect
-        var vertical: Bool
-        var chars: [Char]
+    public struct Line {
+        public var text: String
+        public var box: CGRect
+        public var vertical: Bool
+        public var chars: [Char]
+
+        public init(text: String, box: CGRect, vertical: Bool, chars: [Char]) {
+            self.text = text
+            self.box = box
+            self.vertical = vertical
+            self.chars = chars
+        }
     }
 
     /// The lines in reading order: rows from the top, each from the left, or in vertical text (most of the lines)
     /// columns from the right, each from the top. Live Text and OneOCR don't always give them so (OneOCR lists
     /// vertical columns from the left), and the page matches WebSocket lines through them in this order. Screen AI's
     /// lines keep the order its layout analysis gives them.
-    static func inReadingOrder(_ lines: [Line]) -> [Line] {
+    public static func inReadingOrder(_ lines: [Line]) -> [Line] {
         inReadingOrder(lines) { $0 }
     }
 
     /// Items in the reading order of their lines (see above).
-    static func inReadingOrder<Item>(_ items: [Item], line: (Item) -> Line) -> [Item] {
+    public static func inReadingOrder<Item>(_ items: [Item], line: (Item) -> Line) -> [Item] {
         let lines = items.map { (item: $0, box: line($0).box) }
         let vertical = items.filter { line($0).vertical }.count * 2 > items.count
         // Across the rows (top to bottom, or right to left), and along them.
@@ -124,7 +142,7 @@ enum OCRLayout {
     /// Screen AI's lines in its reading order, except that a line the engine split where it goes on along its row (e.g.
     /// "…分厚い、" and "絆創", whose furigana made it a block of its own) is kept together: the layout analysis sometimes
     /// puts the second part after the lines below it, and the page matches WebSocket lines through the lines in order.
-    static func keepingRowsTogether(_ lines: [Line]) -> [Line] {
+    public static func keepingRowsTogether(_ lines: [Line]) -> [Line] {
         var rest = lines
         var ordered: [Line] = []
         while !rest.isEmpty {
@@ -163,7 +181,7 @@ enum OCRLayout {
     ///     where the characters are than the cells (meikiocr's, Screen AI's, OneOCR's, PP-OCRv6_manga's and Google
     ///     Lens'; not Live Text's, often a cell off).
     ///   - toWindow: Converts a box normalized to `image` to window points.
-    static func layOut(
+    public static func layOut(
         _ line: RecognizedLine, image: GrayImage?, size: CGSize, exactBoxes: Bool = false, toWindow: (CGRect) -> CGRect
     ) -> Line {
         // Work in image pixels, which keep the aspect ratio.

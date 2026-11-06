@@ -5,19 +5,24 @@ import ScreenAI
 /// Text recognition with Screen AI, Chrome's OCR (see Sources/ScreenAI), run with Core ML. Its models are Google's and
 /// aren't shipped with the app: scripts/convert-screenai.py converts the ones Chrome downloads into a zip, which
 /// Settings → OCR Mode loads (installModels) into Application Support.
-final class ScreenAIOCR: Sendable {
-    static let shared = ScreenAIOCR()
+public final class ScreenAIOCR: Sendable {
+    public static let shared = ScreenAIOCR()
 
     let models = ConvertedModels(.screenAI) { try ScreenAIEngine(modelsDirectory: $0) } warmUp: { engine, blank in
         _ = try engine.recognize(blank)
     }
 
     /// Loads the models, if they aren't yet.
-    func prepare() async throws {
+    public func prepare() async throws {
         try await models.run { _ in }
     }
 
-    func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
+    /// Lets the models go, to free their memory; the next picture loads them again.
+    public func unload() async {
+        await models.unload()
+    }
+
+    public func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
         try await models.run { engine in Self.lines(try engine.recognize(image), width: image.width, height: image.height) }
     }
 

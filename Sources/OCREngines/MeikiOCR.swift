@@ -5,8 +5,8 @@ import Foundation
 /// Text recognition with meikiocr's models (https://github.com/rtr46/meikiocr), trained on Japanese game text and
 /// run with Core ML (converted by scripts/convert-meikiocr.py, see vendor/meikiocr). This follows meikiocr/ocr.py:
 /// a detector finds the lines, then a recognizer finds each line's characters (as boxes with a character code).
-final class MeikiOCR: @unchecked Sendable {
-    static let shared = MeikiOCR()
+public final class MeikiOCR: @unchecked Sendable {
+    public static let shared = MeikiOCR()
 
     private struct Models {
         let detection: MLModel
@@ -50,11 +50,22 @@ final class MeikiOCR: @unchecked Sendable {
 
     /// Loads the models, if they aren't yet. Takes a moment, and the first prediction even longer (Core ML
     /// prepares them for the GPU), so they predict once on blank input.
-    func prepare() async throws {
+    public func prepare() async throws {
         try await run { _ in }
     }
 
-    func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
+    /// Lets the models go, to free their memory (the iOS app does when it's in the background); the next picture loads
+    /// them again.
+    public func unload() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async {
+                self.models = nil
+                continuation.resume()
+            }
+        }
+    }
+
+    public func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
         try await run { models in try Self.recognize(image, models: models) }
     }
 
@@ -83,7 +94,7 @@ final class MeikiOCR: @unchecked Sendable {
         // The recognizers on the CPU, several lines at once (see recognize): faster than one at a time on the GPU,
         // with the same results.
         let loaded = Models(
-            detection: try load("MeikiDetection", on: .all),
+            detection: try load("MeikiDetection", on: OCRCompute.units(.all)),
             horizontal: try load("MeikiRecognition", on: .cpuOnly),
             vertical: try load("MeikiVerticalRecognition", on: .cpuOnly)
         )

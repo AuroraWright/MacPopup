@@ -1,5 +1,6 @@
 import AppKit
 import LiveText
+import OCREngines
 import ScreenCaptureKit
 import UniformTypeIdentifiers
 

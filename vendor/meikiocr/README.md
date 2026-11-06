@@ -10,5 +10,5 @@ to Core ML by `scripts/convert-meikiocr.py`:
 The models are licensed under the LGPL-3.0 (`LICENSE-models`). They're separate files in the app
 (`Contents/Resources/Models`) and can be replaced with other versions taking the same inputs and outputs.
 
-`Sources/MacPopup/MeikiOCR.swift` follows meikiocr's pipeline (meikiocr/ocr.py at commit
+`Sources/OCREngines/MeikiOCR.swift` follows meikiocr's pipeline (meikiocr/ocr.py at commit
 52aa607ecdc1038c7bf390f37cd9a8b306e8a08a), which is licensed under the Apache License 2.0 (`LICENSE-code`).

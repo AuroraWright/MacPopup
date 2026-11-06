@@ -240,6 +240,13 @@ Requires **Microphone** and **Accessibility** permissions (*Settings → Permiss
 
 ---
 
+## iPhone App (Experiment)
+
+`ios/` has an experimental iPhone app that reads pictures and the screen with the same OCR engines and opens the text
+in Safari for a dictionary extension such as Yomitan. It's separate from MacPopup: see [ios/README.md](ios/README.md).
+
+---
+
 ## Known Limitations
 
 - **No Prefix Matching**: The Yomitan API only supports exact term lookups, so prefix search is
@@ -264,7 +271,7 @@ Licensed under the **GPL-3.0** as it includes code from
 [Yomitan](https://github.com/yomidevs/yomitan) (see `vendor/yomitan/README.md` and `LICENSE`).
 
 The `meikiocr` Core ML models (`vendor/meikiocr`) are licensed under the **LGPL-3.0**, and
-`Sources/MacPopup/MeikiOCR.swift` is adapted from `meikiocr` under the **Apache License 2.0** (see
+`Sources/OCREngines/MeikiOCR.swift` is adapted from `meikiocr` under the **Apache License 2.0** (see
 `vendor/meikiocr/README.md`).
 
 The PP-OCRv6 Manga Core ML models (`vendor/ppocr-manga`) are licensed under the **Apache License 2.0** (see

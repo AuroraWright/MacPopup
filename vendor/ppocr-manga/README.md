@@ -10,5 +10,5 @@ from https://huggingface.co/Kellenok/PP-OCRv6_manga at revision d65838996a00ef6b
 repository's optional language model, lm/manga_lm.npz, which it calls experimental, isn't used). They're licensed
 under the Apache License 2.0 (`LICENSE`). They're separate files in the app (`Contents/Resources/Models`).
 
-`Sources/MacPopup/PPOCRManga.swift` follows the repository's examples/onnx_openvino.py, with the widening its
+`Sources/OCREngines/PPOCRManga.swift` follows the repository's examples/onnx_openvino.py, with the widening its
 README recommends.

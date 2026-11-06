@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>MacPopup</title>
+<link rel="stylesheet" href="/viewer.css">
+</head>
+<body>
+<header>
+	<a id="home" href="/">Readings</a>
+	<a id="live-link" href="/live">Live</a>
+	<span id="status"></span>
+	<label id="boxes-toggle" hidden><input type="checkbox" id="boxes"> Boxes</label>
+</header>
+<main id="reading" hidden></main>
+<main id="index" hidden>
+	<ul id="readings"></ul>
+	<p id="empty" class="empty" hidden>No readings yet. Read a picture in the app.</p>
+</main>
+<main id="live" hidden>
+	<div id="live-readings"></div>
+	<p id="live-empty" class="empty" hidden>Nothing read yet. Start continuous reading in the app, then a screen broadcast.</p>
+</main>
+<script type="module" src="/viewer.js"></script>
+</body>
+</html>

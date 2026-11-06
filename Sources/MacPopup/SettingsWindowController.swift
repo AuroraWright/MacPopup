@@ -1,4 +1,5 @@
 import AppKit
+import OCREngines
 import SwiftUI
 import UniformTypeIdentifiers
 

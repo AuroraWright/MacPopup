@@ -7,9 +7,15 @@ import Foundation
 final class CoreMLModel: @unchecked Sendable {
     let model: MLModel
 
-    init(_ url: URL) throws {
+    /// - Parameter reshapes: Its input size changes from call to call (the detector's). On iOS Core ML then doesn't
+    ///   compile a model specialized for each new size: the first pictures of each size took seconds (12 s for the
+    ///   first), and the bench's 102 pictures 0.7 s on average rather than 0.1 s.
+    init(_ url: URL, reshapes: Bool = false) throws {
         let config = MLModelConfiguration()
         config.computeUnits = .cpuAndGPU
+        #if os(iOS)
+        if reshapes { config.optimizationHints.reshapeFrequency = .frequent }
+        #endif
         do {
             model = try MLModel(contentsOf: url, configuration: config)
         } catch {
