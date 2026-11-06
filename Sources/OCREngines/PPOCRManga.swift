@@ -92,7 +92,7 @@ public final class PPOCRManga: @unchecked Sendable {
         var characters = list.components(separatedBy: "\n").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\r")) }
         if characters.last == "" { characters.removeLast() }
         let loaded = Models(
-            detection: try load("PPOCRMangaDetection", on: .cpuAndGPU),
+            detection: try load("PPOCRMangaDetection", on: OCRCompute.units(.cpuAndGPU)),
             recognition: try load("PPOCRMangaRecognition", on: .cpuOnly),
             characters: [""] + characters + [" "]
         )

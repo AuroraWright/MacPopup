@@ -49,13 +49,18 @@ struct Reading: Identifiable, Sendable {
 
 /// The saved readings. Used from the main actor and the page server's queue.
 final class ReadingStore: @unchecked Sendable {
-    static let shared = ReadingStore()
+    static let shared = ReadingStore("readings")
+    /// Continuous mode's readings, for the live page (Documents/live, served at /l/<id>).
+    static let live = ReadingStore("live")
 
-    let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("readings", isDirectory: true)
+    let folder: URL
 
     private let lock = NSLock()
     private var cached: [Reading]?
+
+    private init(_ name: String) {
+        folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(name, isDirectory: true)
+    }
 
     /// Newest first.
     var readings: [Reading] {
@@ -82,11 +87,28 @@ final class ReadingStore: @unchecked Sendable {
         }
     }
 
-    /// Reads the picture and saves the reading.
-    func read(_ picture: Picture, engine: Engine, language: String, stripsFurigana: Bool) async throws -> Reading {
+    /// Removes all but the newest readings.
+    func keepNewest(_ count: Int) {
+        let old = readings.dropFirst(count)
+        if !old.isEmpty { delete(Set(old.map(\.id))) }
+    }
+
+    /// Reads the picture: the page's data (see page(_:lines:…)).
+    static func read(_ picture: Picture, engine: Engine, language: String, stripsFurigana: Bool) async throws -> [String: Any] {
         let lines = try await engine.recognize(picture.image, language: language)
-        let reading = Self.page(picture.image, lines: lines, engine: engine, language: language, stripsFurigana: stripsFurigana)
-        return try save(picture, reading: reading)
+        return page(picture.image, lines: lines, engine: engine, language: language, stripsFurigana: stripsFurigana)
+    }
+
+    /// The page data's text, lines joined by spaces.
+    static func text(_ reading: [String: Any]) -> String {
+        lines(reading).joined(separator: " ")
+    }
+
+    /// The page data's lines' text.
+    static func lines(_ reading: [String: Any]) -> [String] {
+        (reading["lines"] as? [[String: Any]] ?? []).map { line in
+            (line["chars"] as? [[Any]] ?? []).compactMap { $0.first as? String }.joined()
+        }
     }
 
     /// The page's data, as OCRController.lines(from:) makes it for one area, in the picture's pixels: {image: {width,
@@ -117,8 +139,11 @@ final class ReadingStore: @unchecked Sendable {
         ]
     }
 
-    private func save(_ picture: Picture, reading: [String: Any]) throws -> Reading {
-        let id = String(Int(Date().timeIntervalSince1970 * 1000), radix: 36)
+    func save(_ picture: Picture, reading: [String: Any]) throws -> Reading {
+        // Continuous mode can save several in a millisecond.
+        var time = Int(Date().timeIntervalSince1970 * 1000)
+        while FileManager.default.fileExists(atPath: folder.appendingPathComponent(String(time, radix: 36)).path) { time += 1 }
+        let id = String(time, radix: 36)
         let directory = folder.appendingPathComponent(id, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         if let file = picture.file {
@@ -143,15 +168,11 @@ final class ReadingStore: @unchecked Sendable {
               let reading = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let image = (try? FileManager.default.contentsOfDirectory(atPath: directory.path))?.first(where: { $0.hasPrefix("image.") })
         else { return nil }
-        let lines = reading["lines"] as? [[String: Any]] ?? []
-        let text = lines.map { line in
-            (line["chars"] as? [[Any]] ?? []).compactMap { $0.first as? String }.joined()
-        }.joined(separator: " ")
         return Reading(
             id: id,
             createdAt: Date(timeIntervalSince1970: (reading["createdAt"] as? Double ?? 0) / 1000),
             engine: reading["engine"] as? String ?? "",
-            text: text,
+            text: Self.text(reading),
             imageFile: directory.appendingPathComponent(image)
         )
     }

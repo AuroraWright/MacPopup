@@ -10,10 +10,10 @@ enum AppGroup {
 }
 
 /// A log the app and its extensions all write (the App Group's intents.log), to see which process runs an action and
-/// how it ends.
+/// how it ends. Continuous mode writes continuous.log.
 enum IntentLog {
-    static func append(_ message: String) {
-        guard let url = AppGroup.folder?.appendingPathComponent("intents.log") else { return }
+    static func append(_ message: String, to name: String = "intents.log") {
+        guard let url = AppGroup.folder?.appendingPathComponent(name) else { return }
         let line = "\(Date().formatted(.iso8601)) \(Bundle.main.bundleIdentifier ?? "?"): \(message)\n"
         if let handle = try? FileHandle(forWritingTo: url) {
             handle.seekToEndOfFile()

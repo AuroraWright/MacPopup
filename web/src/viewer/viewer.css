@@ -48,29 +48,29 @@ header a {
 	font-size: 13px;
 }
 
-#frame {
+.frame {
 	overflow: hidden;
 }
 
 /* The picture and its text, in the picture's pixels, scaled together to the page's width. */
-#stage {
+.stage {
 	position: relative;
 	transform-origin: 0 0;
 }
 
-#image {
+.stage img {
 	display: block;
 }
 
 /* MacPopup's text layer (web/src/app.css): invisible text over the picture. It must stay selectable, or Yomitan's
    scanner treats transparent text as hidden. */
-#ocr-layer {
+.ocr-layer {
 	position: absolute;
 	left: 0;
 	top: 0;
 }
 
-#ocr-text {
+.ocr-text {
 	position: absolute;
 	left: 0;
 	top: 0;
@@ -81,24 +81,24 @@ header a {
 	font-weight: 400;
 }
 
-#ocr-text .ocr-line {
+.ocr-text .ocr-line {
 	position: absolute;
 	white-space: pre;
 }
 
-#ocr-text .ocr-char {
+.ocr-text .ocr-char {
 	display: inline-block;
 	position: relative;
 	vertical-align: top;
 }
 
-#ocr-layer.show-boxes .ocr-line {
+.show-boxes .ocr-line {
 	outline: 1px solid rgb(255 80 80 / 0.8);
 	color: rgb(255 80 80 / 0.7);
 }
 
 /* The glyph in the middle of its box (see renderLines). */
-#ocr-layer.show-boxes .ocr-char {
+.show-boxes .ocr-char {
 	-webkit-text-fill-color: transparent;
 	text-shadow: var(--center-x, 0) var(--center-y, 0) 0 currentColor;
 }
@@ -136,11 +136,32 @@ header a {
 }
 
 #readings .meta,
-#empty {
+.empty {
 	color: var(--muted);
 	font-size: 13px;
 }
 
-#empty {
+.empty {
 	padding: 24px 16px;
+}
+
+/* Continuous mode's live page: the newest reading first, the earlier ones under it. */
+#live-readings article {
+	border-bottom: 1px solid var(--line);
+}
+
+#live-readings .meta {
+	padding: 6px 16px;
+	color: var(--muted);
+	font-size: 12px;
+}
+
+#live-readings .new {
+	animation: arrive 1.2s ease-out;
+}
+
+@keyframes arrive {
+	from {
+		background: color-mix(in srgb, var(--accent) 25%, transparent);
+	}
 }

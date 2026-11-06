@@ -61,7 +61,8 @@ final class AppModel: ObservableObject {
 
     /// For testing on a device with `xcrun devicectl`: `-installModels <screenAI|oneOCR> <name>` loads the models in that
     /// zip in Documents; `-readFile <name>` reads that file in Documents as if it were chosen, along with the settings
-    /// as arguments (e.g. `-ocrEngine meikiocr`).
+    /// as arguments (e.g. `-ocrEngine meikiocr`); `-readLive <name> …` reads those files in Documents into the live
+    /// page, 3 s apart, as if continuous mode had captured them.
     func launched() {
         PageServer.shared.start()
         refresh()
@@ -79,7 +80,14 @@ final class AppModel: ObservableObject {
                     IntentLog.append("Loading \(kind.name)’s models failed: \(error.localizedDescription)")
                 }
             }
-            if let index = arguments.firstIndex(of: "-readFile"), index + 1 < arguments.count {
+            if let index = arguments.firstIndex(of: "-readLive") {
+                PageServer.shared.start()
+                for name in arguments[(index + 1)...].prefix(while: { !$0.hasPrefix("-") }) {
+                    try? await Task.sleep(for: .seconds(3))
+                    guard let data = try? Data(contentsOf: documents.appendingPathComponent(name)), let picture = await Self.picture(data) else { continue }
+                    await Continuous.shared.read(picture)
+                }
+            } else if let index = arguments.firstIndex(of: "-readFile"), index + 1 < arguments.count {
                 guard let data = try? Data(contentsOf: documents.appendingPathComponent(arguments[index + 1])) else {
                     error = "Couldn’t open \(arguments[index + 1])."
                     return
@@ -96,8 +104,9 @@ final class AppModel: ObservableObject {
     }
 
     /// Loads the engine in Settings, freeing the one loaded before (their models take up to about 1 GB).
-    func prepareEngine() async {
-        let engine = engine
+    /// - Parameter engine: Another engine than Settings' (continuous mode's, see Continuous.engine).
+    func prepareEngine(_ engine: Engine? = nil) async {
+        let engine = engine ?? self.engine
         if let loadedEngine, loadedEngine != engine { await unloadEngine() }
         loadedEngine = engine
         try? await engine.prepare(language: language)
@@ -173,11 +182,16 @@ final class AppModel: ObservableObject {
 
     /// Reads the picture with the engine in Settings and saves the reading (also for the Shortcuts actions).
     func reading(_ picture: Picture) async throws -> Reading {
-        let engine = engine
-        if loadedEngine != engine { await prepareEngine() }
-        let reading = try await ReadingStore.shared.read(picture, engine: engine, language: language, stripsFurigana: stripsFurigana)
+        let reading = try ReadingStore.shared.save(picture, reading: try await page(picture))
         refresh()
         return reading
+    }
+
+    /// Reads the picture with the engine in Settings: the page's data, not saved (see ReadingStore.page).
+    func page(_ picture: Picture, engine: Engine? = nil) async throws -> [String: Any] {
+        let engine = engine ?? self.engine
+        if loadedEngine != engine { await prepareEngine(engine) }
+        return try await ReadingStore.read(picture, engine: engine, language: language, stripsFurigana: stripsFurigana)
     }
 
     /// Opens a page in Safari.

@@ -10,20 +10,18 @@
 <body>
 <header>
 	<a id="home" href="/">Readings</a>
+	<a id="live-link" href="/live">Live</a>
 	<span id="status"></span>
 	<label id="boxes-toggle" hidden><input type="checkbox" id="boxes"> Boxes</label>
 </header>
-<main id="reading" hidden>
-	<div id="frame">
-		<div id="stage">
-			<img id="image" alt="">
-			<div id="ocr-layer"><div id="ocr-text"></div></div>
-		</div>
-	</div>
-</main>
+<main id="reading" hidden></main>
 <main id="index" hidden>
 	<ul id="readings"></ul>
-	<p id="empty" hidden>No readings yet. Read a picture in the app.</p>
+	<p id="empty" class="empty" hidden>No readings yet. Read a picture in the app.</p>
+</main>
+<main id="live" hidden>
+	<div id="live-readings"></div>
+	<p id="live-empty" class="empty" hidden>Nothing read yet. Start continuous reading in the app, then a screen broadcast.</p>
 </main>
 <script type="module" src="/viewer.js"></script>
 </body>

@@ -5,10 +5,14 @@ struct CropRequest: Identifiable {
     let picture: Picture
 }
 
-/// Picks the part of a picture to read: drag the frame to move it, or its corners to resize it.
+/// Picks the part of a picture to read (or continuous mode's area): drag the frame to move it, or its corners to
+/// resize it. Shown in a NavigationStack.
 struct CropView: View {
     let picture: Picture
-    let read: (Picture) -> Void
+    let title: String
+    let action: String
+    /// The part picked, normalized to the picture.
+    let done: (CGRect) -> Void
     @Environment(\.dismiss) private var dismiss
     /// The part to read, normalized to the picture.
     @State private var crop = CGRect(x: 0, y: 0, width: 1, height: 1)
@@ -16,67 +20,68 @@ struct CropView: View {
     @State private var dragStart: CGRect?
     private let image: UIImage
 
-    init(picture: Picture, read: @escaping (Picture) -> Void) {
+    init(picture: Picture, title: String = "Crop", action: String = "Read", initial: CGRect? = nil, done: @escaping (CGRect) -> Void) {
         self.picture = picture
-        self.read = read
+        self.title = title
+        self.action = action
+        self.done = done
         image = UIImage(cgImage: picture.image)
+        _crop = State(initialValue: initial ?? CGRect(x: 0, y: 0, width: 1, height: 1))
     }
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { geometry in
-                let frame = fitted(in: geometry.size)
-                let box = CGRect(
-                    x: frame.minX + crop.minX * frame.width, y: frame.minY + crop.minY * frame.height,
-                    width: crop.width * frame.width, height: crop.height * frame.height
-                )
-                ZStack(alignment: .topLeading) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .frame(width: frame.width, height: frame.height)
-                        .offset(x: frame.minX, y: frame.minY)
-                    // Dims what's left out.
-                    Path { path in
-                        path.addRect(frame)
-                        path.addRect(box)
-                    }
-                    .fill(.black.opacity(0.5), style: FillStyle(eoFill: true))
-                    .allowsHitTesting(false)
-                    Rectangle()
-                        .strokeBorder(.white, lineWidth: 2)
+        GeometryReader { geometry in
+            let frame = fitted(in: geometry.size)
+            let box = CGRect(
+                x: frame.minX + crop.minX * frame.width, y: frame.minY + crop.minY * frame.height,
+                width: crop.width * frame.width, height: crop.height * frame.height
+            )
+            ZStack(alignment: .topLeading) {
+                Image(uiImage: image)
+                    .resizable()
+                    .frame(width: frame.width, height: frame.height)
+                    .offset(x: frame.minX, y: frame.minY)
+                // Dims what's left out.
+                Path { path in
+                    path.addRect(frame)
+                    path.addRect(box)
+                }
+                .fill(.black.opacity(0.5), style: FillStyle(eoFill: true))
+                .allowsHitTesting(false)
+                Rectangle()
+                    .strokeBorder(.white, lineWidth: 2)
+                    .contentShape(Rectangle())
+                    .frame(width: box.width, height: box.height)
+                    .offset(x: box.minX, y: box.minY)
+                    .gesture(drag(in: frame) { start, x, y in start.offsetBy(dx: x, dy: y) })
+                ForEach(Corner.allCases, id: \.self) { corner in
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 22, height: 22)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
-                        .frame(width: box.width, height: box.height)
-                        .offset(x: box.minX, y: box.minY)
-                        .gesture(drag(in: frame) { start, x, y in start.offsetBy(dx: x, dy: y) })
-                    ForEach(Corner.allCases, id: \.self) { corner in
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 22, height: 22)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                            .offset(x: (corner.isLeft ? box.minX : box.maxX) - 22, y: (corner.isTop ? box.minY : box.maxY) - 22)
-                            .gesture(drag(in: frame) { start, x, y in corner.resize(start, x: x, y: y) })
-                    }
+                        .offset(x: (corner.isLeft ? box.minX : box.maxX) - 22, y: (corner.isTop ? box.minY : box.maxY) - 22)
+                        .gesture(drag(in: frame) { start, x, y in corner.resize(start, x: x, y: y) })
                 }
             }
-            .background(Color.black)
-            .navigationTitle("Crop")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+        }
+        .background(Color.black)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismiss() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(action) {
+                    dismiss()
+                    done(crop)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Read") {
-                        dismiss()
-                        read(cropped())
-                    }
-                }
-                ToolbarItem(placement: .bottomBar) {
-                    Button("Whole Picture") { crop = CGRect(x: 0, y: 0, width: 1, height: 1) }
-                        .disabled(crop == CGRect(x: 0, y: 0, width: 1, height: 1))
-                }
+            }
+            ToolbarItem(placement: .bottomBar) {
+                Button("Whole Picture") { crop = CGRect(x: 0, y: 0, width: 1, height: 1) }
+                    .disabled(crop == CGRect(x: 0, y: 0, width: 1, height: 1))
             }
         }
     }
@@ -111,13 +116,6 @@ struct CropView: View {
         return CGRect(x: x, y: y, width: rect.width, height: rect.height)
     }
 
-    private func cropped() -> Picture {
-        guard crop != CGRect(x: 0, y: 0, width: 1, height: 1) else { return picture }
-        let width = CGFloat(picture.image.width), height = CGFloat(picture.image.height)
-        let pixels = CGRect(x: crop.minX * width, y: crop.minY * height, width: crop.width * width, height: crop.height * height).integral
-        return picture.image.cropping(to: pixels).map(Picture.init(image:)) ?? picture
-    }
-
     private enum Corner: CaseIterable {
         case topLeft, topRight, bottomLeft, bottomRight
 
@@ -132,5 +130,15 @@ struct CropView: View {
             let bottom = isTop ? rect.maxY : max(rect.maxY + y, rect.minY + 0.04)
             return CGRect(x: left, y: top, width: right - left, height: bottom - top)
         }
+    }
+}
+
+extension Picture {
+    /// The part of the picture, normalized to it.
+    func cropped(to part: CGRect) -> Picture {
+        guard part != CGRect(x: 0, y: 0, width: 1, height: 1) else { return self }
+        let width = CGFloat(image.width), height = CGFloat(image.height)
+        let pixels = CGRect(x: part.minX * width, y: part.minY * height, width: part.width * width, height: part.height * height).integral
+        return image.cropping(to: pixels).map(Picture.init(image:)) ?? self
     }
 }

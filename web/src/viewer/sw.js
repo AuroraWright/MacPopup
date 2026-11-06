@@ -24,7 +24,9 @@ self.addEventListener('fetch', (event) => {
 	const url = new URL(event.request.url);
 	if (event.request.method !== 'GET' || url.origin !== location.origin) return;
 	const parts = url.pathname.split('/').filter(Boolean);
-	if (parts[0] === 'r' && parts.length === 3) {
+	// Live readings' events stream from the app.
+	if (url.pathname === '/live/events') return;
+	if ((parts[0] === 'r' || parts[0] === 'l') && parts.length === 3) {
 		event.respondWith((async () => {
 			const cache = await caches.open(CACHE);
 			const cached = await cache.match(url.pathname);
@@ -35,7 +37,7 @@ self.addEventListener('fetch', (event) => {
 		})());
 		return;
 	}
-	if (url.pathname === '/readings.json') {
+	if (url.pathname === '/readings.json' || url.pathname === '/live.json') {
 		// No cache: the page lists the kept readings itself when the app doesn't answer.
 		event.respondWith(fromApp(event.request));
 		return;

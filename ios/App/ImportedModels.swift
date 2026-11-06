@@ -39,32 +39,22 @@ private struct ImportedModelsRow: View {
 
     private var kind: ConvertedModelsKind { status.kind }
 
+    /// As MacPopup for Mac's (ConvertedModelsControl): whether they're loaded, then Load… and Remove on the right.
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(spacing: 12) {
                 Text(kind.name)
                 Spacer()
-                if status.busy {
-                    ProgressView()
-                } else if let converted = status.converted {
-                    Text(converted == .distantPast ? "Loaded" : "Converted \(converted.formatted(date: .abbreviated, time: .omitted))")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Not loaded").foregroundStyle(.secondary)
+                // The status's words when they fit (a narrow iPhone may only have room for its icon).
+                ViewThatFits {
+                    controls.labelStyle(.titleAndIcon)
+                    controls.labelStyle(.iconOnly)
                 }
             }
             if status.busy {
                 Text("Loading and compiling the models… This takes a minute.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            } else {
-                HStack(spacing: 20) {
-                    Button(status.converted == nil ? "Load…" : "Replace…") { importing = true }
-                    if status.converted != nil {
-                        Button("Remove", role: .destructive) { confirmsRemoval = true }
-                    }
-                }
-                .buttonStyle(.borderless)
             }
             if let error {
                 Text(error).font(.footnote).foregroundStyle(.red)
@@ -79,6 +69,22 @@ private struct ImportedModelsRow: View {
         } message: {
             Text("You can load them again from the .zip.")
         }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 12) {
+            if status.converted != nil {
+                Label("Loaded", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            } else {
+                Label("Not loaded", systemImage: "exclamationmark.circle.fill").foregroundStyle(.orange)
+            }
+            Button("Load…") { importing = true }
+                .disabled(status.busy)
+            Button("Remove", role: .destructive) { confirmsRemoval = true }
+                .disabled(status.busy || status.converted == nil)
+        }
+        .buttonStyle(.borderless)
+        .fixedSize()
     }
 
     private func install(_ url: URL) async {

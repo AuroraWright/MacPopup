@@ -94,7 +94,7 @@ public final class MeikiOCR: @unchecked Sendable {
         // The recognizers on the CPU, several lines at once (see recognize): faster than one at a time on the GPU,
         // with the same results.
         let loaded = Models(
-            detection: try load("MeikiDetection", on: .all),
+            detection: try load("MeikiDetection", on: OCRCompute.units(.all)),
             horizontal: try load("MeikiRecognition", on: .cpuOnly),
             vertical: try load("MeikiVerticalRecognition", on: .cpuOnly)
         )

@@ -22,6 +22,7 @@ struct MacPopupApp: App {
                         PageServer.shared.start()
                         model.refresh()
                         Screenshots.shared.refresh()
+                        Continuous.shared.appBecameActive()
                         Task { await model.readShared() }
                     }
                 }
@@ -50,6 +51,9 @@ struct ContentView: View {
                     PasteButton(supportedContentTypes: [.image]) { providers in
                         Task { await paste(providers) }
                     }
+                }
+                Section {
+                    NavigationLink("Continuous Reading") { ContinuousView() }
                 }
                 ScreenshotsSection()
                 Section {
@@ -101,8 +105,10 @@ struct ContentView: View {
             SettingsView().environmentObject(model)
         }
         .fullScreenCover(item: $model.cropping) { request in
-            CropView(picture: request.picture) { picture in
-                Task { await model.read(picture) }
+            NavigationStack {
+                CropView(picture: request.picture) { part in
+                    Task { await model.read(request.picture.cropped(to: part)) }
+                }
             }
         }
         .fileImporter(isPresented: $importsFile, allowedContentTypes: [.image]) { result in

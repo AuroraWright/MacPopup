@@ -11,6 +11,7 @@
 		B10000000000000000000003 /* LiveText in Frameworks */ = {isa = PBXBuildFile; productRef = B10000000000000000000004 /* LiveText */; };
 		B10000000000000000000005 /* Controls.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* Controls.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B10000000000000000000009 /* Share.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B10000000000000000000012 /* Share.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B1000000000000000000000C /* Broadcast.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B10000000000000000000013 /* Broadcast.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -28,6 +29,13 @@
 			remoteGlobalIDString = B10000000000000000000202;
 			remoteInfo = Share;
 		};
+		B1000000000000000000000D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B10000000000000000000100 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B10000000000000000000203;
+			remoteInfo = Broadcast;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -39,6 +47,7 @@
 			files = (
 				B10000000000000000000005 /* Controls.appex in Embed Foundation Extensions */,
 				B10000000000000000000009 /* Share.appex in Embed Foundation Extensions */,
+				B1000000000000000000000C /* Broadcast.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -49,6 +58,7 @@
 		B10000000000000000000010 /* MacPopup.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacPopup.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000000000000000000011 /* Controls.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Controls.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000000000000000000012 /* Share.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Share.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000013 /* Broadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Broadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -57,6 +67,7 @@
 		B10000000000000000000023 /* Common */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Common; sourceTree = "<group>"; };
 		B10000000000000000000024 /* Share */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Share; sourceTree = "<group>"; };
 		B10000000000000000000022 /* Controls */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Controls; sourceTree = "<group>"; };
+		B10000000000000000000025 /* Broadcast */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Broadcast; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -83,6 +94,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000000000000000000033 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -94,6 +112,7 @@
 				B10000000000000000000023 /* Common */,
 				B10000000000000000000022 /* Controls */,
 				B10000000000000000000024 /* Share */,
+				B10000000000000000000025 /* Broadcast */,
 				B10000000000000000000041 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -104,6 +123,7 @@
 				B10000000000000000000010 /* MacPopup.app */,
 				B10000000000000000000011 /* Controls.appex */,
 				B10000000000000000000012 /* Share.appex */,
+				B10000000000000000000013 /* Broadcast.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -126,6 +146,7 @@
 			dependencies = (
 				B10000000000000000000008 /* PBXTargetDependency */,
 				B1000000000000000000000B /* PBXTargetDependency */,
+				B1000000000000000000000E /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				B10000000000000000000020 /* App */,
@@ -184,6 +205,27 @@
 			productReference = B10000000000000000000012 /* Share.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		B10000000000000000000203 /* Broadcast */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000000000000000000340 /* Build configuration list for PBXNativeTarget "Broadcast" */;
+			buildPhases = (
+				B10000000000000000000053 /* Sources */,
+				B10000000000000000000033 /* Frameworks */,
+				B10000000000000000000063 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B10000000000000000000025 /* Broadcast */,
+				B10000000000000000000023 /* Common */,
+			);
+			name = Broadcast;
+			productName = Broadcast;
+			productReference = B10000000000000000000013 /* Broadcast.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -214,6 +256,7 @@
 				B10000000000000000000200 /* MacPopup */,
 				B10000000000000000000201 /* Controls */,
 				B10000000000000000000202 /* Share */,
+				B10000000000000000000203 /* Broadcast */,
 			);
 		};
 /* End PBXProject section */
@@ -234,6 +277,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		B10000000000000000000062 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000000000000000000063 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -282,6 +332,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000000000000000000053 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -294,6 +351,11 @@
 			isa = PBXTargetDependency;
 			target = B10000000000000000000202 /* Share */;
 			targetProxy = B1000000000000000000000A /* PBXContainerItemProxy */;
+		};
+		B1000000000000000000000E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B10000000000000000000203 /* Broadcast */;
+			targetProxy = B1000000000000000000000D /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -412,6 +474,41 @@
 			};
 			name = Release;
 		};
+		B10000000000000000000341 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Broadcast.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Broadcast-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = MacPopup;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = local.macpopup.ios.broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B10000000000000000000342 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Broadcast.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Broadcast-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = MacPopup;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = local.macpopup.ios.broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 		B10000000000000000000321 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -474,6 +571,15 @@
 			buildConfigurations = (
 				B10000000000000000000331 /* Debug */,
 				B10000000000000000000332 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B10000000000000000000340 /* Build configuration list for PBXNativeTarget "Broadcast" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10000000000000000000341 /* Debug */,
+				B10000000000000000000342 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
