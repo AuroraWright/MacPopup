@@ -39,7 +39,9 @@ final class Continuous: ObservableObject {
         didSet { SharedFrame.areas = areas }
     }
 
-    private let audio = AVAudioEngine()
+    /// Made once reading starts: setting up its output with the session's default category, at launch, stops other
+    /// apps' sound (e.g. a YouTube video playing in the background).
+    private var audio: AVAudioEngine?
     private let player = AVAudioPlayerNode()
     private let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
     private var heartbeat: Timer?
@@ -79,8 +81,6 @@ final class Continuous: ObservableObject {
     private init() {
         UserDefaults.standard.register(defaults: ContinuousKey.defaults)
         UIDevice.current.isBatteryMonitoringEnabled = true
-        audio.attach(player)
-        audio.connect(player, to: audio.mainMixerNode, format: format)
         let center = CFNotificationCenterGetDarwinNotifyCenter()
         CFNotificationCenterAddObserver(
             center, nil, { _, _, _, _, _ in Task { @MainActor in Continuous.shared.frameArrived() } },
@@ -133,7 +133,7 @@ final class Continuous: ObservableObject {
             isOn = false
             PiPCompanion.shared.stop()
             player.stop()
-            audio.stop()
+            audio?.stop()
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             heartbeat?.invalidate()
             heartbeat = nil
@@ -161,6 +161,13 @@ final class Continuous: ObservableObject {
         for channel in 0..<Int(format.channelCount) {
             silence.floatChannelData![channel].update(repeating: 0, count: Int(silence.frameLength))
         }
+        let audio = self.audio ?? {
+            let audio = AVAudioEngine()
+            audio.attach(player)
+            audio.connect(player, to: audio.mainMixerNode, format: format)
+            self.audio = audio
+            return audio
+        }()
         try audio.start()
         player.scheduleBuffer(silence, at: nil, options: .loops)
         player.play()
