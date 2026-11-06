@@ -8,8 +8,8 @@ import Foundation
 /// vendor/ppocr-manga). This follows the repository's examples/onnx_openvino.py: a detector gives each pixel's
 /// probability of being text, whose regions are the lines; a recognizer reads each line (columns turned to read
 /// across), with a character or none for each of its output's steps (CTC).
-final class PPOCRManga: @unchecked Sendable {
-    static let shared = PPOCRManga()
+public final class PPOCRManga: @unchecked Sendable {
+    public static let shared = PPOCRManga()
 
     private struct Models {
         let detection: MLModel
@@ -43,11 +43,22 @@ final class PPOCRManga: @unchecked Sendable {
 
     /// Loads the models, if they aren't yet. Takes a moment, and the first prediction even longer (Core ML
     /// prepares them for the GPU), so they predict once on blank input.
-    func prepare() async throws {
+    public func prepare() async throws {
         try await run { _ in }
     }
 
-    func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
+    /// Lets the models go, to free their memory (the iOS app does when it's in the background); the next picture loads
+    /// them again.
+    public func unload() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async {
+                self.models = nil
+                continuation.resume()
+            }
+        }
+    }
+
+    public func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
         try await run { models in try Self.recognize(image, models: models) }
     }
 
@@ -266,8 +277,9 @@ final class PPOCRManga: @unchecked Sendable {
 
     /// Andrew's monotone chain.
     private static func convexHull(_ points: [CGPoint]) -> [CGPoint] {
-        let sorted = Set(points.map { [$0.x, $0.y] }).map { CGPoint(x: $0[0], y: $0[1]) }
-            .sorted { $0.x != $1.x ? $0.x < $1.x : $0.y < $1.y }
+        let unique: Set<[CGFloat]> = Set(points.map { [$0.x, $0.y] })
+        let sorted: [CGPoint] = unique.map { CGPoint(x: $0[0], y: $0[1]) }
+            .sorted { (a: CGPoint, b: CGPoint) -> Bool in a.x != b.x ? a.x < b.x : a.y < b.y }
         guard sorted.count > 2 else { return sorted }
         let cross = { (o: CGPoint, a: CGPoint, b: CGPoint) in (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x) }
         var lower: [CGPoint] = [], upper: [CGPoint] = []

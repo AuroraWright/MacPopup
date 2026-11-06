@@ -822,11 +822,29 @@ final class LineRecognizer {
         }
     }
 
+    /// How many script recognizers stay loaded besides the default one. On iOS each holds GPU memory of its own once it
+    /// has run, and pictures with lines in several scripts kept loading more (1.1 GB for screenshots of Japanese games
+    /// on an iPhone 15 Pro Max), so the least recently used one is let go and loaded again when it's needed.
+    #if os(iOS)
+    private static let keptRecognizers = 2
+    #else
+    private static let keptRecognizers = Int.max
+    #endif
+    /// The loaded recognizers other than the default one, the most recently used last.
+    private var recentKeys: [String] = []
+
     private func recognizer(_ key: String) throws -> ScriptRecognizer {
+        if key != defaultKey {
+            recentKeys.removeAll { $0 == key }
+            recentKeys.append(key)
+        }
         if let r = recognizers[key] { return r }
         guard let file = configFiles[key] else { throw ScreenAIError("No recognizer \(key)") }
         let r = try ScriptRecognizer(resources: resources, configFile: file, quantization: quantization)
         recognizers[key] = r
+        while recentKeys.count > Self.keptRecognizers {
+            recognizers[recentKeys.removeFirst()] = nil
+        }
         return r
     }
 

@@ -240,6 +240,32 @@ Requires **Microphone** and **Accessibility** permissions (*Settings → Permiss
 
 ---
 
+## iPhone App
+
+The `ios/` folder has an iPhone app (iOS 18 or later) that reads the text in a picture with the same engines and
+opens it in **Safari**, as the picture with invisible text over it, for a Safari dictionary extension such as Yomitan
+to look up. Readings keep opening in Safari after the app is closed.
+
+Build it by opening `ios/MacPopup.xcodeproj` in Xcode, choosing your own team under *Signing & Capabilities* for both
+targets (MacPopup, Controls and Share), and running it on your iPhone. Node.js is needed, as for the Mac app. The app
+has Live Text, meikiocr and PP-OCRv6 Manga, and Screen AI and OneOCR once their models are loaded: put the same .zip
+files the Mac app loads (see OCR Engines above) in Files, then load them in the app's Settings.
+
+Pictures can come from Photos, Files, the clipboard, or the latest screenshots, which the app lists once it's allowed
+full access to Photos. They can also be shared to **MacPopup** from other apps' share sheets, including an image
+long-pressed in Safari. With *Crop before reading* on (Settings), pictures chosen in the app open in a crop view first.
+Swipe a reading left to delete it. To read what's on the screen without opening the app:
+
+- **Back Tap** (*Settings → Accessibility → Touch → Back Tap*): make a Shortcut with **Take Screenshot** followed by
+  MacPopup's **Read Image**, and choose it for Double or Triple Tap. The screenshot is read with the app in the
+  background, and the reading opens in Safari.
+- **Action button** (iPhone 15 Pro and later, *Settings → Action Button*): choose the same Shortcut, or choose
+  *Controls* and MacPopup's **Read Latest Screenshot** to read the screenshot taken last.
+- **Control Center**: add MacPopup's **Read Latest Screenshot** control, take a screenshot, then tap the control.
+- **Siri**: "Read my latest screenshot with MacPopup".
+
+---
+
 ## Known Limitations
 
 - **No Prefix Matching**: The Yomitan API only supports exact term lookups, so prefix search is
@@ -264,7 +290,7 @@ Licensed under the **GPL-3.0** as it includes code from
 [Yomitan](https://github.com/yomidevs/yomitan) (see `vendor/yomitan/README.md` and `LICENSE`).
 
 The `meikiocr` Core ML models (`vendor/meikiocr`) are licensed under the **LGPL-3.0**, and
-`Sources/MacPopup/MeikiOCR.swift` is adapted from `meikiocr` under the **Apache License 2.0** (see
+`Sources/OCREngines/MeikiOCR.swift` is adapted from `meikiocr` under the **Apache License 2.0** (see
 `vendor/meikiocr/README.md`).
 
 The PP-OCRv6 Manga Core ML models (`vendor/ppocr-manga`) are licensed under the **Apache License 2.0** (see

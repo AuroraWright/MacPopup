@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>MacPopup</title>
+<link rel="stylesheet" href="/viewer.css">
+</head>
+<body>
+<header>
+	<a id="home" href="/">Readings</a>
+	<span id="status"></span>
+	<label id="boxes-toggle" hidden><input type="checkbox" id="boxes"> Boxes</label>
+</header>
+<main id="reading" hidden>
+	<div id="frame">
+		<div id="stage">
+			<img id="image" alt="">
+			<div id="ocr-layer"><div id="ocr-text"></div></div>
+		</div>
+	</div>
+</main>
+<main id="index" hidden>
+	<ul id="readings"></ul>
+	<p id="empty" hidden>No readings yet. Read a picture in the app.</p>
+</main>
+<script type="module" src="/viewer.js"></script>
+</body>
+</html>

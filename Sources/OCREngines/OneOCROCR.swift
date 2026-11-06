@@ -5,19 +5,24 @@ import OneOCR
 /// Text recognition with OneOCR, the OCR of Windows' Snipping Tool (see Sources/OneOCR), run with Core ML. Its models
 /// are Microsoft's and aren't shipped with the app: scripts/convert-oneocr.py converts them into a zip, which
 /// Settings → OCR Mode loads into Application Support.
-final class OneOCROCR: Sendable {
-    static let shared = OneOCROCR()
+public final class OneOCROCR: Sendable {
+    public static let shared = OneOCROCR()
 
     let models = ConvertedModels(.oneOCR) { try OneOCREngine(modelsDirectory: $0) } warmUp: { engine, blank in
         _ = try engine.recognize(blank)
     }
 
     /// Loads the models, if they aren't yet.
-    func prepare() async throws {
+    public func prepare() async throws {
         try await models.run { _ in }
     }
 
-    func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
+    /// Lets the models go, to free their memory; the next picture loads them again.
+    public func unload() async {
+        await models.unload()
+    }
+
+    public func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
         try await models.run { engine in
             Self.lines(try engine.recognize(image).lines, width: image.width, height: image.height)
         }

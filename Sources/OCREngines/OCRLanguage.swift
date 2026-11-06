@@ -2,7 +2,7 @@ import Foundation
 import VisionKit
 
 /// OCR mode's language: Settings → General → Language, an ISO code of Yomitan's (see web/src/lib/languages.js).
-enum OCRLanguage {
+public enum OCRLanguage {
     /// The languages Live Text reads on this version of macOS, e.g. "ja-JP" or "zh-Hans".
     @MainActor private static let liveTextLanguages = ImageAnalyzer.supportedTextRecognitionLanguages
 
@@ -10,7 +10,7 @@ enum OCRLanguage {
     private static let liveTextEquivalents = ["arz": ["ar"], "no": ["no", "nb", "nn"]]
 
     /// The Live Text languages for `language` (e.g. both Chinese scripts for "zh"), empty when it doesn't read it.
-    @MainActor static func liveTextLocales(for language: String) -> [String] {
+    @MainActor public static func liveTextLocales(for language: String) -> [String] {
         let codes = liveTextEquivalents[language] ?? [language]
         return liveTextLanguages.filter { identifier in
             Locale.Language(identifier: identifier).languageCode.map { codes.contains($0.identifier) } ?? false
@@ -19,7 +19,7 @@ enum OCRLanguage {
 
     /// Whether the engine (Settings → OCR Mode → Text recognition engine) reads `language`. Screen AI and OneOCR read most
     /// scripts; PP-OCRv6_manga is trained on Japanese and Chinese.
-    @MainActor static func isRead(_ language: String, by engine: String) -> Bool {
+    @MainActor public static func isRead(_ language: String, by engine: String) -> Bool {
         switch engine {
         case "liveText": !liveTextLocales(for: language).isEmpty
         case "meikiocr": language == "ja"
@@ -31,7 +31,7 @@ enum OCRLanguage {
     /// Whether `text` may be in `language`, as Yomitan's isTextLookupWorthy decides it: some of it is in the language's
     /// characters (Japanese's and Chinese's as in Yomitan, otherwise the language's script), or it has no letters
     /// (e.g. "……"). Unknown languages and "Any" take everything.
-    static func contains(_ text: String, language: String) -> Bool {
+    public static func contains(_ text: String, language: String) -> Bool {
         guard text.contains(where: \.isLetter) else { return true }
         switch language {
         case "ja": return text.unicodeScalars.contains { japaneseRanges.contains($0.value) }

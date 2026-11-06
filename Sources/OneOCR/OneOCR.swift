@@ -1,5 +1,6 @@
 import Accelerate
 import CoreGraphics
+import CoreML
 import Foundation
 
 /// OneOCR, the OCR of Windows' Snipping Tool: its text detector, script and layout classifiers and line recognizers,
@@ -40,11 +41,19 @@ public final class OneOCREngine: @unchecked Sendable {
     /// One OCR call at a time.
     private let lock = NSLock()
 
+    /// On iOS the detector runs on the CPU: on the GPU its first prediction grew the app past its memory limit (3.3 GB
+    /// on an iPhone 15 Pro Max, iOS 27.2), where the Mac stays under 0.5 GB.
+    #if os(iOS)
+    private static let detectorUnits = MLComputeUnits.cpuOnly
+    #else
+    private static let detectorUnits = MLComputeUnits.cpuAndGPU
+    #endif
+
     /// Loads the models from an unpacked models archive.
     public init(modelsDirectory: URL) throws {
         let files = ModelFiles(root: modelsDirectory)
         let cfg = try files.json("config.json")
-        detector = try TextDetector(model: files.model("Detector", units: .cpuAndGPU), quantization: files.json("detector.json"),
+        detector = try TextDetector(model: files.model("Detector", units: Self.detectorUnits), quantization: files.json("detector.json"),
                                     config: (cfg["det_model"] as? [[String: Any]])?.first)
         analyzer = try TextAnalyzer(files: files, config: cfg)
         recognizer = try TextRecognizer(files: files, config: cfg)

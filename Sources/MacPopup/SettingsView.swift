@@ -1,5 +1,6 @@
 import AVFoundation
 import AppKit
+import OCREngines
 import SwiftUI
 
 /// What the Settings window asks of the app.

@@ -7,13 +7,13 @@ extension OCRLayout {
     /// furigana when it's like that next to a line with kanji, but the line can be anywhere among the others
     /// (no reading order is needed), it must be on the furigana's side of that line (furigana between two lines
     /// belong to the next one), close to it (a speaker's name above the text is further away), and over kanji in it.
-    static func removingFurigana(_ lines: [Line]) -> [Line] {
+    public static func removingFurigana(_ lines: [Line]) -> [Line] {
         let bases = furigana(in: lines)
         return lines.indices.filter { bases[$0] == nil }.map { lines[$0] }
     }
 
     /// The furigana among `lines` (see removingFurigana), by index, with the index of the line each is the reading of.
-    static func furigana(in lines: [Line]) -> [Int: Int] {
+    public static func furigana(in lines: [Line]) -> [Int: Int] {
         var bases: [Int: Int] = [:]
         for (index, line) in lines.enumerated() {
             bases[index] = lines.firstIndex { isFurigana(line, of: $0) }

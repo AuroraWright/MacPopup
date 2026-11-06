@@ -3,7 +3,12 @@ import PackageDescription
 
 let package = Package(
     name: "MacPopup",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS("18.0")],
+    products: [
+        // For the iOS app (an Xcode project under ios/).
+        .library(name: "OCREngines", targets: ["OCREngines"]),
+        .library(name: "LiveText", targets: ["LiveText"]),
+    ],
     targets: [
         .target(
             name: "LiveText",
@@ -24,7 +29,11 @@ let package = Package(
         // oneocr (the Windows Snipping Tool's OCR), ported to Swift; models converted by scripts/convert-oneocr.py.
         .target(
             name: "OneOCRKernels",
-            path: "Sources/OneOCRKernels"
+            path: "Sources/OneOCRKernels",
+            // iOS builds default to the A7's instruction set, without the dot product instructions the kernels use. The
+            // iOS app's oldest device is the iPhone 13 mini (A15); the A14 is the Apple Silicon Mac's core, for the
+            // simulator.
+            cSettings: [.unsafeFlags(["-mcpu=apple-a14"], .when(platforms: [.iOS]))]
         ),
         .target(
             name: "OneOCR",
@@ -48,9 +57,16 @@ let package = Package(
             name: "yomitan-api",
             path: "Sources/YomitanAPI"
         ),
+        // The local OCR engines and what OCR mode does with their readings (layout, furigana, language), shared with the
+        // iOS app.
+        .target(
+            name: "OCREngines",
+            dependencies: ["ScreenAI", "OneOCR"],
+            path: "Sources/OCREngines"
+        ),
         .executableTarget(
             name: "MacPopup",
-            dependencies: ["LiveText", "ScreenAI", "OneOCR", "CurlImpersonate"],
+            dependencies: ["LiveText", "OCREngines", "CurlImpersonate"],
             path: "Sources/MacPopup"
         ),
     ]

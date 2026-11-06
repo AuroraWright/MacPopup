@@ -9,4 +9,4 @@ to Core ML by `scripts/convert-ppocr-manga.py`:
 from https://huggingface.co/Kellenok/PP-OCRv6_manga at revision 02af751fcea728fba69ee421a95838f3e549daa2. They're
 licensed under the Apache License 2.0 (`LICENSE`). They're separate files in the app (`Contents/Resources/Models`).
 
-`Sources/MacPopup/PPOCRManga.swift` follows the repository's examples/onnx_openvino.py.
+`Sources/OCREngines/PPOCRManga.swift` follows the repository's examples/onnx_openvino.py.

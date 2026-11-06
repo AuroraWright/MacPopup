@@ -1,0 +1,146 @@
+/* The iOS app's reading page (see viewer.js), shown in Safari. */
+:root {
+	color-scheme: light dark;
+	--bg: #fff;
+	--fg: #111;
+	--muted: #6b6b6b;
+	--line: #e3e3e3;
+	--accent: #0a66d8;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #111;
+		--fg: #eee;
+		--muted: #9a9a9a;
+		--line: #2c2c2c;
+		--accent: #5aa2ff;
+	}
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+	font: 15px/1.4 -apple-system, system-ui, sans-serif;
+}
+
+header {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	display: flex;
+	gap: 16px;
+	align-items: center;
+	padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
+	background: var(--bg);
+	border-bottom: 1px solid var(--line);
+}
+
+header a {
+	color: var(--accent);
+	text-decoration: none;
+}
+
+#status {
+	flex: 1;
+	color: var(--muted);
+	font-size: 13px;
+}
+
+#frame {
+	overflow: hidden;
+}
+
+/* The picture and its text, in the picture's pixels, scaled together to the page's width. */
+#stage {
+	position: relative;
+	transform-origin: 0 0;
+}
+
+#image {
+	display: block;
+}
+
+/* MacPopup's text layer (web/src/app.css): invisible text over the picture. It must stay selectable, or Yomitan's
+   scanner treats transparent text as hidden. */
+#ocr-layer {
+	position: absolute;
+	left: 0;
+	top: 0;
+}
+
+#ocr-text {
+	position: absolute;
+	left: 0;
+	top: 0;
+	transform-origin: 0 0;
+	white-space: pre;
+	color: transparent;
+	font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+	font-weight: 400;
+}
+
+#ocr-text .ocr-line {
+	position: absolute;
+	white-space: pre;
+}
+
+#ocr-text .ocr-char {
+	display: inline-block;
+	position: relative;
+	vertical-align: top;
+}
+
+#ocr-layer.show-boxes .ocr-line {
+	outline: 1px solid rgb(255 80 80 / 0.8);
+	color: rgb(255 80 80 / 0.7);
+}
+
+/* The glyph in the middle of its box (see renderLines). */
+#ocr-layer.show-boxes .ocr-char {
+	-webkit-text-fill-color: transparent;
+	text-shadow: var(--center-x, 0) var(--center-y, 0) 0 currentColor;
+}
+
+#readings {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+#readings a {
+	display: flex;
+	gap: 12px;
+	align-items: center;
+	padding: 10px 16px;
+	border-bottom: 1px solid var(--line);
+	color: inherit;
+	text-decoration: none;
+}
+
+#readings img {
+	flex: none;
+	width: 72px;
+	height: 72px;
+	object-fit: cover;
+	border-radius: 6px;
+	background: var(--line);
+}
+
+#readings .text {
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+#readings .meta,
+#empty {
+	color: var(--muted);
+	font-size: 13px;
+}
+
+#empty {
+	padding: 24px 16px;
+}
