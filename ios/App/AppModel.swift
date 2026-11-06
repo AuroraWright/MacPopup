@@ -203,7 +203,7 @@ final class AppModel: ObservableObject {
     /// Keeps the page server up for the background time iOS gives (about 30 s), while Safari loads a page; after that
     /// the page's service worker has it.
     func serve() {
-        PageServer.shared.start()
+        PageServer.shared.start(fresh: true)
         endServing()
         servingTask = UIApplication.shared.beginBackgroundTask(withName: "Serve the page") {
             MainActor.assumeIsolated { AppModel.shared.endServing() }

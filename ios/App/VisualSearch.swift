@@ -1,3 +1,5 @@
+// The simulator's SDK has no VisualIntelligence.
+#if canImport(VisualIntelligence)
 import AppIntents
 import CoreImage
 import Foundation
@@ -111,3 +113,5 @@ struct OpenPictureResultIntent: OpenIntent {
         return .result(opensIntent: OpenURLIntent(PageServer.url(reading)))
     }
 }
+
+#endif

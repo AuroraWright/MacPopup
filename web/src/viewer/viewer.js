@@ -69,12 +69,28 @@ async function keep(base) {
 	} catch {}
 }
 
+/**
+ * Fetches a reading the app has just saved: Safari can open its page before the app, woken in the background, answers,
+ * so it tries again for a while.
+ */
+async function fetchNew(url) {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await fetch(url);
+		} catch (error) {
+			if (attempt === 30) throw error;
+			$('status').textContent = 'Waiting for MacPopup…';
+			await new Promise((resolve) => setTimeout(resolve, 500));
+		}
+	}
+}
+
 /** A reading: /r/<id>/reading.json and its picture. */
 async function showReading(id) {
 	$('reading').hidden = false;
 	$('boxes-toggle').hidden = false;
 	const base = `/r/${id}`;
-	const reading = await (await fetch(`${base}/reading.json`)).json();
+	const reading = await (await fetchNew(`${base}/reading.json`)).json();
 	const { lines, image } = renderReading($('reading'), base, reading);
 	document.title = lines.length ? lineText(lines[0]).slice(0, 40) : 'Reading';
 	$('status').textContent = `${formatDate(reading.createdAt)} · ${lines.length ? `${lines.length} lines` : 'no text found'}`;

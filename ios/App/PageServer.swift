@@ -27,8 +27,24 @@ final class PageServer: @unchecked Sendable {
     /// The live pages' event streams.
     private var subscribers: [ObjectIdentifier: NWConnection] = [:]
 
-    func start() {
+    /// Listens, unless it already does; `fresh` listens again anyway, since a listener can stop answering after the app
+    /// was suspended for a while without saying it failed.
+    func start(fresh: Bool = false) {
         queue.async { [self] in
+            if fresh, let listener {
+                // Once the old one has let go of the port (else "Address already in use").
+                let next = { [weak self, weak listener] in
+                    guard let self, self.listener === listener else { return }
+                    self.listener = nil
+                    start()
+                }
+                listener.stateUpdateHandler = { state in
+                    if case .cancelled = state { next() }
+                }
+                queue.asyncAfter(deadline: .now() + 1, execute: next)
+                listener.cancel()
+                return
+            }
             guard listener == nil else { return }
             do {
                 let parameters = NWParameters.tcp
@@ -36,8 +52,10 @@ final class PageServer: @unchecked Sendable {
                 parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: Self.port)!)
                 let listener = try NWListener(using: parameters)
                 listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
-                listener.stateUpdateHandler = { [weak self] state in
-                    if case .failed = state { self?.restart() }
+                listener.stateUpdateHandler = { [weak self, weak listener] state in
+                    guard case .failed(let error) = state, let self, self.listener === listener else { return }
+                    IntentLog.append("Page server: \(error), listening again")
+                    restart()
                 }
                 listener.start(queue: queue)
                 self.listener = listener
