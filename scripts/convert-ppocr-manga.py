@@ -27,16 +27,16 @@ import onnxruntime
 import torch
 from onnx import helper, numpy_helper
 
-REPOSITORY = ("Kellenok/PP-OCRv6_manga", "02af751fcea728fba69ee421a95838f3e549daa2")
+REPOSITORY = ("Kellenok/PP-OCRv6_manga", "d65838996a00ef6b1c73ca3a700d7a8c5fbbef8a")
 # (file, SHA-256, output name, input name, input shape, output name)
 MODELS = [
-    ("det/manga_det_v0.2.onnx", "d132078c46e292b226fb5a2ca52a7612ad319262dfdf493e7d8e3be435295978",
+    ("det/manga_det.onnx", "97c434ae8deaad83513fb132b605d5085a3af8ffac2cb15e2aa096815c206172",
      "PPOCRMangaDetection", "image", (1, 3, ct.RangeDim(32, 2048, default=544), ct.RangeDim(32, 2048, default=960)),
      "probabilities"),
-    ("rec/manga_rec_v0.2.onnx", "de12c84c63e62c80339e882e675983d886670dcb6f0147e1ed041afd6fa81888",
-     "PPOCRMangaRecognition", "line", (1, 3, 48, ct.RangeDim(16, 2400, default=320)), "logits"),
+    ("rec/manga_rec.onnx", "5288bd221a9a047c6b7d1ff56bb98de8c875fb613df98ebe8754946448bda540",
+     "PPOCRMangaRecognition", "line", (1, 3, 48, ct.RangeDim(16, 4800, default=320)), "logits"),
 ]
-CHARACTERS = ("ppocrv6_dict.txt", "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
+CHARACTERS = ("ppocrv6_dict.txt", "4f0f8971ecb95e3a4d278985d6eaac154413e81fda0b4c941db17389580e9e9b",
               "PPOCRMangaCharacters.txt")
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "vendor", "ppocr-manga")
 

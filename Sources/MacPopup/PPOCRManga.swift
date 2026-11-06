@@ -5,9 +5,10 @@ import Foundation
 
 /// Text recognition with PP-OCRv6_manga's models (https://huggingface.co/Kellenok/PP-OCRv6_manga), trained on manga and
 /// anime (Japanese and Chinese) and run with Core ML (converted by scripts/convert-ppocr-manga.py, see
-/// vendor/ppocr-manga). This follows the repository's examples/onnx_openvino.py: a detector gives each pixel's
-/// probability of being text, whose regions are the lines; a recognizer reads each line (columns turned to read
-/// across), with a character or none for each of its output's steps (CTC).
+/// vendor/ppocr-manga). This follows the repository's examples/onnx_openvino.py, but with the widening its README
+/// recommends (`unclipRatio`: 1.5, where the example still has 1.4): a detector gives each pixel's probability of
+/// being text, whose regions are the lines; a recognizer reads each line (columns turned to read across), with a
+/// character or none for each of its output's steps (CTC).
 final class PPOCRManga: @unchecked Sendable {
     static let shared = PPOCRManga()
 
@@ -23,13 +24,13 @@ final class PPOCRManga: @unchecked Sendable {
     private static let lineHeight = 48
     /// How many lines are read at once.
     private static let concurrentLines = 4
-    /// Lines are read at most this wide, or the wider one for lines naturally wider than `wideLine`.
-    private static let maxLineWidth = 640, maxWideLineWidth = 2400, wideLine = 2000
+    /// Lines are read at their natural width (at `lineHeight`), up to the most the recognizer takes.
+    private static let maxLineWidth = 4800
     /// Pixels with a higher probability are text; regions whose average is lower are left out.
     private static let pixelThreshold: Float = 0.15, regionThreshold: Float = 0.25
     /// How far a region is widened on each side (its area times this, divided by its perimeter): the detector finds
     /// a line's core.
-    private static let unclipRatio = 1.4
+    private static let unclipRatio = 1.5
     /// ImageNet's, in the detector input's channel order (blue, green, red).
     private static let detectionMean: [Float] = [0.485, 0.456, 0.406], detectionDeviation: [Float] = [0.229, 0.224, 0.225]
 
@@ -121,13 +122,13 @@ final class PPOCRManga: @unchecked Sendable {
                     return
                 }
                 guard !characters.isEmpty else { continue }
-                // Each character where its steps are along the line, half a step earlier: a step's character is
-                // recognized toward the end of what the step sees (against Google Lens' boxes, characters were a
-                // tenth of the line's thickness late).
+                // Each character where its steps are along the line, a quarter of a step earlier: a step's character
+                // is recognized toward the end of what the step sees (closest to Google Lens' boxes on games and
+                // manga).
                 let length = vertical ? box.height : box.width
                 let words = characters.map { character -> (text: String, box: CGRect) in
-                    let start = length * max(0, CGFloat(character.steps.lowerBound) - 0.5) / CGFloat(steps)
-                    let end = length * (CGFloat(character.steps.upperBound) - 0.5) / CGFloat(steps)
+                    let start = length * max(0, CGFloat(character.steps.lowerBound) - 0.25) / CGFloat(steps)
+                    let end = length * (CGFloat(character.steps.upperBound) - 0.25) / CGFloat(steps)
                     let rect = vertical
                         ? CGRect(x: box.minX, y: box.minY + start, width: box.width, height: end - start)
                         : CGRect(x: box.minX + start, y: box.minY, width: end - start, height: box.height)
@@ -163,11 +164,11 @@ final class PPOCRManga: @unchecked Sendable {
             let rowStride = strides[2], columnStride = strides[3]
             let probability = { (x: Int, y: Int) in values[y * rowStride + x * columnStride] }
             for region in textRegions(width: inputWidth, height: inputHeight, probability: probability) {
-                guard let rect = widenedRectangle(region.hull, outline: region.outline) else { continue }
-                // Back to the image's pixels (rounded, within the image), as the corners' bounds.
-                let xs = rect.map { min(max((Double($0.x) / Double(inputWidth) * width).rounded(.toNearestOrEven), 0), width) }
-                let ys = rect.map { min(max((Double($0.y) / Double(inputHeight) * height).rounded(.toNearestOrEven), 0), height) }
-                let x1 = xs.min()!, y1 = ys.min()!, x2 = xs.max()!, y2 = ys.max()!
+                guard let bounds = widenedBounds(region.hull, outline: region.outline) else { continue }
+                // Back to the image's pixels (rounded, within the image).
+                let x = { (value: CGFloat) in min(max((Double(value) / Double(inputWidth) * width).rounded(.toNearestOrEven), 0), width) }
+                let y = { (value: CGFloat) in min(max((Double(value) / Double(inputHeight) * height).rounded(.toNearestOrEven), 0), height) }
+                let x1 = x(bounds.minX), y1 = y(bounds.minY), x2 = x(bounds.maxX), y2 = y(bounds.maxY)
                 guard x2 > x1, y2 > y1 else { continue }
                 lines.append(CGRect(x: x1, y: y1, width: x2 - x1, height: y2 - y1))
             }
@@ -282,12 +283,11 @@ final class PPOCRManga: @unchecked Sendable {
         return Array(lower.dropLast() + upper.dropLast())
     }
 
-    /// The smallest rectangle (any angle) around the region widened on every side by its area times `unclipRatio`
-    /// over its perimeter (of its `outline`), as its four corners; nil if it has no area or the rectangle is under 3
-    /// pixels thick. (The reference widens the outline with rounded corners, then fits the rectangle: the same as
-    /// fitting it to the widened convex `hull`, whose smallest rectangle is the hull's at the same angle, wider on
-    /// each side by the distance.)
-    private static func widenedRectangle(_ hull: [CGPoint], outline: [CGPoint]) -> [CGPoint]? {
+    /// The bounds of the region widened on every side by its area times `unclipRatio` over its perimeter (of its
+    /// `outline`), as the reference widens it (with rounded corners): its convex `hull`'s bounds, that much bigger on
+    /// each side. Nil if it has no area or the smallest rectangle (any angle) around the widened region is under 3
+    /// pixels thick: that's the hull's smallest rectangle, at the same angle, wider on each side by the distance.
+    private static func widenedBounds(_ hull: [CGPoint], outline: [CGPoint]) -> CGRect? {
         var area = 0.0, perimeter = 0.0
         for (index, point) in outline.enumerated() {
             let next = outline[(index + 1) % outline.count]
@@ -297,7 +297,7 @@ final class PPOCRManga: @unchecked Sendable {
         area = abs(area) / 2
         guard area > 0, perimeter > 0 else { return nil }
         let distance = area * unclipRatio / perimeter
-        var best: (area: Double, thickness: Double, corners: [CGPoint])?
+        var best: (area: Double, thickness: Double)?
         for (index, point) in hull.enumerated() {
             let next = hull[(index + 1) % hull.count]
             let length = Double(hypot(next.x - point.x, next.y - point.y))
@@ -310,18 +310,19 @@ final class PPOCRManga: @unchecked Sendable {
             let v0 = across.min()! - distance, v1 = across.max()! + distance
             let rectArea = (u1 - u0) * (v1 - v0)
             guard best.map({ rectArea < $0.area }) ?? true else { continue }
-            let corner = { (u: Double, v: Double) in CGPoint(x: u * ux - v * uy, y: u * uy + v * ux) }
-            best = (rectArea, min(u1 - u0, v1 - v0), [corner(u0, v0), corner(u1, v0), corner(u1, v1), corner(u0, v1)])
+            best = (rectArea, min(u1 - u0, v1 - v0))
         }
         guard let best, best.thickness >= 3 else { return nil }
-        return best.corners
+        let xs = hull.map(\.x), ys = hull.map(\.y)
+        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+            .insetBy(dx: -distance, dy: -distance)
     }
 
     /// The characters the recognizer reads in `line` (turned to read across), each with its output steps, and the
     /// number of steps.
     private static func read(_ line: RGBImage, models: Models) throws -> (characters: [(text: String, steps: Range<Int>)], steps: Int) {
         let natural = Int((Double(lineHeight) * Double(line.width) / Double(max(1, line.height))).rounded(.toNearestOrEven))
-        let width = max(16, min(natural > wideLine ? maxWideLineWidth : maxLineWidth, natural))
+        let width = max(16, min(maxLineWidth, natural))
         let input = try MLMultiArray(shape: [1, 3, lineHeight, width] as [NSNumber], dataType: .float32)
         line.write(CGRect(x: 0, y: 0, width: line.width, height: line.height), into: input, width: width,
                    height: lineHeight, mean: [0.5, 0.5, 0.5], deviation: [0.5, 0.5, 0.5], rounded: true)
