@@ -27,7 +27,7 @@ final class ImpersonatedSession: @unchecked Sendable {
 
     init() throws {
         try Self.loadLibrary()
-        guard let session = MPCurlSessionCreate() else { throw BridgeError("Couldn’t start libcurl-impersonate") }
+        guard let session = MPCurlSessionCreate() else { throw CloudOCR.Failure("Couldn’t start libcurl-impersonate") }
         self.session = session
     }
 
@@ -36,15 +36,19 @@ final class ImpersonatedSession: @unchecked Sendable {
     }
 
     private static func loadLibrary() throws {
-        let path = Bundle.main.privateFrameworksURL?.appendingPathComponent("libcurl-impersonate.4.dylib").path ?? ""
+        // On iOS, in a framework (the app's build makes it from the release's dylib: see ios/README.md).
+        #if os(iOS)
+        let file = "libcurl-impersonate.framework/libcurl-impersonate"
+        let missing = "libcurl-impersonate isn’t in the app: its build downloads it"
+        #else
+        let file = "libcurl-impersonate.4.dylib"
+        let missing = "libcurl-impersonate isn’t in MacPopup.app: scripts/build.sh downloads it"
+        #endif
+        let path = Bundle.main.privateFrameworksURL?.appendingPathComponent(file).path ?? ""
         var error = [CChar](repeating: 0, count: 512)
         guard MPCurlLoad(path, &error, error.count) == 0 else {
             let reason = String(cString: error)
-            throw BridgeError(
-                FileManager.default.fileExists(atPath: path)
-                    ? "Couldn’t load libcurl-impersonate: \(reason)"
-                    : "libcurl-impersonate isn’t in MacPopup.app: scripts/build.sh downloads it"
-            )
+            throw CloudOCR.Failure(FileManager.default.fileExists(atPath: path) ? "Couldn’t load libcurl-impersonate: \(reason)" : missing)
         }
     }
 
@@ -103,7 +107,7 @@ final class ImpersonatedSession: @unchecked Sendable {
             case 42: throw CancellationError()  // CURLE_ABORTED_BY_CALLBACK
             default:
                 let message = withUnsafeBytes(of: response.error) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
-                throw BridgeError(message.isEmpty ? "curl error \(code)" : message)
+                throw CloudOCR.Failure(message.isEmpty ? "curl error \(code)" : message)
             }
         }
         return Response(

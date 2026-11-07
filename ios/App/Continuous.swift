@@ -101,14 +101,15 @@ final class Continuous: ObservableObject {
         latest = ReadingStore.live.readings.first
     }
 
-    /// The engine in Settings, but meikiocr instead of Screen AI: Screen AI needs the GPU, which iOS doesn't let apps
-    /// use in the background (on iPhone), and Core ML's CPU engine crashes on its detector.
+    /// The engine in Settings, but meikiocr instead of one that can't read continuously (Engine.readsContinuously):
+    /// Screen AI needs the GPU, which iOS doesn't let apps use in the background (on iPhone), and Core ML's CPU engine
+    /// crashes on its detector; Google Lens and Bing would make a request for each change.
     var engine: Engine {
-        if let chosen = Engine(rawValue: defaults.string(forKey: ContinuousKey.engine) ?? ""), chosen.isAvailable, chosen != .screenAI {
+        if let chosen = Engine(rawValue: defaults.string(forKey: ContinuousKey.engine) ?? ""), chosen.isAvailable, chosen.readsContinuously {
             return chosen
         }
         let engine = AppModel.shared.engine
-        return engine == .screenAI ? .meikiocr : engine
+        return engine.readsContinuously ? engine : .meikiocr
     }
 
     func setOn(_ on: Bool) {
@@ -592,6 +593,8 @@ struct ContinuousView: View {
                     Text("While the broadcast runs, MacPopup reads the screen each time its text changes and then stays the same, and adds it to the live page in Safari, where your dictionary extension looks it up. It uses more battery.")
                     if engine.isEmpty && model.engine == .screenAI {
                         Text("Screen AI needs the GPU, which iOS doesn’t let apps use in the background, so continuous reading uses meikiocr instead.")
+                    } else if engine.isEmpty && model.engine.isCloud {
+                        Text("\(model.engine.name) would be asked to read each change of the screen, so continuous reading uses meikiocr instead.")
                     }
                 }
             }
@@ -625,7 +628,7 @@ struct ContinuousView: View {
             Section {
                 Picker("Engine", selection: $engine) {
                     Text("As in Settings (\(continuous.engine.name))").tag("")
-                    ForEach(Engine.allCases.filter { $0 != .screenAI && $0.isAvailable }) { engine in
+                    ForEach(Engine.allCases.filter { $0.readsContinuously && $0.isAvailable }) { engine in
                         Text(engine.name).tag(engine.rawValue)
                     }
                 }

@@ -47,7 +47,7 @@ let package = Package(
             path: "Sources/OneOCRCLI"
         ),
         // Browser-like HTTP requests for the cloud OCR engines, with libcurl-impersonate (loaded at runtime; scripts/build.sh
-        // puts it in the app).
+        // puts it in the Mac app, the iOS project's build in the iOS app).
         .target(
             name: "CurlImpersonate",
             path: "Sources/CurlImpersonate"
@@ -57,16 +57,16 @@ let package = Package(
             name: "yomitan-api",
             path: "Sources/YomitanAPI"
         ),
-        // The local OCR engines and what OCR mode does with their readings (layout, furigana, language), shared with the
-        // iOS app.
+        // The OCR engines (local, and Google Lens' and Bing's) and what OCR mode does with their readings (layout, furigana,
+        // language), shared with the iOS app.
         .target(
             name: "OCREngines",
-            dependencies: ["ScreenAI", "OneOCR"],
+            dependencies: ["ScreenAI", "OneOCR", "CurlImpersonate"],
             path: "Sources/OCREngines"
         ),
         .executableTarget(
             name: "MacPopup",
-            dependencies: ["LiveText", "OCREngines", "CurlImpersonate"],
+            dependencies: ["LiveText", "OCREngines"],
             path: "Sources/MacPopup"
         ),
     ]

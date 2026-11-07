@@ -10,6 +10,9 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
     case screenAI = "screenai"
     case oneOCR = "oneocr"
     case ppocrManga = "ppocrmanga"
+    /// Online (CloudOCR, as the Mac's cloud recognition reads).
+    case googleLens
+    case bing
 
     var id: String { rawValue }
 
@@ -20,14 +23,23 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
         case .screenAI: "Screen AI"
         case .oneOCR: "OneOCR"
         case .ppocrManga: "PP-OCRv6 Manga"
+        case .googleLens: CloudOCR.googleLens.name
+        case .bing: CloudOCR.bing.name
         }
     }
+
+    /// Google Lens and Bing: they send the picture online.
+    var isCloud: Bool { self == .googleLens || self == .bing }
+
+    /// Whether continuous mode can read with it: not Screen AI, which needs the GPU (apps in the background can't use it
+    /// on iPhone), and not the cloud engines, a request for each change of the screen being too many and too slow.
+    var readsContinuously: Bool { self != .screenAI && !isCloud }
 
     /// Screen AI and OneOCR need the models the user converts on the Mac (loading them comes in a later version).
     var isAvailable: Bool {
         switch self {
         case .liveText: MPLiveText.isAvailable()
-        case .meikiocr, .ppocrManga: true
+        case .meikiocr, .ppocrManga, .googleLens, .bing: true
         case .screenAI: ConvertedModelsKind.screenAI.installed
         case .oneOCR: ConvertedModelsKind.oneOCR.installed
         }
@@ -49,6 +61,8 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
         case .screenAI: try await ScreenAIOCR.shared.recognize(image)
         case .oneOCR: try await OneOCROCR.shared.recognize(image)
         case .ppocrManga: try await PPOCRManga.shared.recognize(image)
+        case .googleLens: try await CloudOCR.googleLens.recognize(image, language: language)
+        case .bing: try await CloudOCR.bing.recognize(image, language: language)
         }
     }
 
@@ -60,13 +74,14 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
         case .screenAI: try await ScreenAIOCR.shared.prepare()
         case .oneOCR: try await OneOCROCR.shared.prepare()
         case .ppocrManga: try await PPOCRManga.shared.prepare()
+        case .googleLens, .bing: break
         }
     }
 
     /// Frees the models' memory (Live Text's is the system's).
     func unload() async {
         switch self {
-        case .liveText: break
+        case .liveText, .googleLens, .bing: break
         case .meikiocr: await MeikiOCR.shared.unload()
         case .screenAI: await ScreenAIOCR.shared.unload()
         case .oneOCR: await OneOCROCR.shared.unload()

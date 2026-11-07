@@ -139,6 +139,7 @@
 				B10000000000000000000030 /* Frameworks */,
 				B10000000000000000000060 /* Resources */,
 				B10000000000000000000070 /* Models and viewer */,
+				B10000000000000000000071 /* libcurl-impersonate */,
 				B10000000000000000000007 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -307,6 +308,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -e\n# meikiocr's and PP-OCRv6_manga's models, compiled into Models/ as scripts/build.sh does for the Mac app, and the\n# reading page (web/src/viewer) into Viewer/.\nREPO=\"$PROJECT_DIR/..\"\nOUT=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$OUT/Models\" \"$OUT/Viewer\"\nfor model in \"$REPO\"/vendor/meikiocr/*.mlpackage \"$REPO\"/vendor/ppocr-manga/*.mlpackage; do\n    name=$(basename \"$model\" .mlpackage)\n    if [ ! -d \"$OUT/Models/$name.mlmodelc\" ] || [ -n \"$(find \"$model\" -newer \"$OUT/Models/$name.mlmodelc\" -print -quit)\" ]; then\n        xcrun coremlcompiler compile \"$model\" \"$OUT/Models\" --platform ios --deployment-target \"$IPHONEOS_DEPLOYMENT_TARGET\" >/dev/null\n    fi\ndone\ncp \"$REPO/vendor/ppocr-manga/PPOCRMangaCharacters.txt\" \"$OUT/Models/\"\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\n(cd \"$REPO/web\" && { [ -d node_modules ] || npm install --no-fund --no-audit; } && node build-viewer.mjs)\ncp \"$REPO\"/build/viewer/* \"$OUT/Viewer/\"\n";
+		};
+		B10000000000000000000071 /* libcurl-impersonate */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "libcurl-impersonate";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"$PROJECT_DIR/embed-curl-impersonate.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

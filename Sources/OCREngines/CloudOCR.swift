@@ -1,18 +1,17 @@
 import CoreGraphics
 import Foundation
 import ImageIO
-import OCREngines
 import UniformTypeIdentifiers
 
 /// Online text recognition (Settings → OCR Mode → Cloud recognition (second pass)), with the requests owocr makes: Google
 /// Lens (as Chrome's Lens overlay sends them) and Bing's visual search, both as Chrome (see ImpersonatedSession). Both
 /// find the language by themselves. A request often takes a second or more, so OCR mode only uses them for a final
 /// reading (see OCRController.finishReading).
-enum CloudOCR: String {
+public enum CloudOCR: String, Sendable {
     case googleLens
     case bing
 
-    var name: String {
+    public var name: String {
         switch self {
         case .googleLens: "Google Lens"
         case .bing: "Bing"
@@ -20,19 +19,25 @@ enum CloudOCR: String {
     }
 
     /// The lines of `image`, boxes normalized to it.
-    func recognize(_ image: CGImage, language: String) async throws -> [RecognizedLine] {
+    public func recognize(_ image: CGImage, language: String) async throws -> [RecognizedLine] {
         do {
             switch self {
             case .googleLens: return try await GoogleLens.recognize(image, language: language)
             case .bing: return try await Bing.recognize(image)
             }
         } catch let error as URLError where error.code == .timedOut {
-            throw BridgeError("\(name): the request timed out")
+            throw Failure("\(name): the request timed out")
         } catch let error as CancellationError {
             throw error
         } catch {
-            throw BridgeError("\(name): \(error.localizedDescription)")
+            throw Failure("\(name): \(error.localizedDescription)")
         }
+    }
+
+    struct Failure: LocalizedError {
+        let message: String
+        init(_ message: String) { self.message = message }
+        var errorDescription: String? { message }
     }
 
     /// Each engine's session (Bing's second request needs the cookies of its first), made when it's first used.
@@ -51,8 +56,8 @@ enum CloudOCR: String {
     private static let sessionsLock = NSLock()
 
     /// A response other than the expected one.
-    fileprivate func failure(_ response: ImpersonatedSession.Response, expected: Int) -> BridgeError {
-        BridgeError(response.status == expected ? "\(name): unexpected response" : "\(name): the server answered \(response.status)")
+    fileprivate func failure(_ response: ImpersonatedSession.Response, expected: Int) -> Failure {
+        Failure(response.status == expected ? "\(name): unexpected response" : "\(name): the server answered \(response.status)")
     }
 }
 
@@ -118,7 +123,7 @@ private enum GoogleLens {
 
     /// The text layout of a LensOverlayServerResponse: its paragraphs' lines, with their words.
     static func lines(_ response: ProtoMessage, width: Int, height: Int) throws -> [RecognizedLine] {
-        if response.message(1) != nil, response.message(2) == nil { throw BridgeError("Google Lens: the server returned an error") }
+        if response.message(1) != nil, response.message(2) == nil { throw CloudOCR.Failure("Google Lens: the server returned an error") }
         let layout = response.message(2)?.message(3)?.message(1)  // objects_response.text.text_layout
         var lines: [RecognizedLine] = []
         for paragraph in layout?.messages(1) ?? [] {
@@ -167,7 +172,7 @@ private enum Bing {
     static func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
         let (upload, host) = try await uploaded(try encodedForUpload(image))
         guard let token = URLComponents(string: upload)?.queryItems?.first(where: { $0.name == "insightsToken" })?.value else {
-            throw BridgeError("Bing: no token for the image")
+            throw CloudOCR.Failure("Bing: no token for the image")
         }
         let knowledge: [String: Any] = [
             "imageInfo": ["imageInsightsToken": token, "source": "Url"],
@@ -198,7 +203,7 @@ private enum Bing {
             guard location.hasPrefix("https://"), let next = URL(string: location) else { return (location, url.host ?? "www.bing.com") }
             url = next
         }
-        throw BridgeError("Bing: too many redirects")
+        throw CloudOCR.Failure("Bing: too many redirects")
     }
 
     /// PNG (or JPEG when that's too big), at most `maxBytes`, `minSide` to `maxSide` pixels a side.
@@ -225,7 +230,7 @@ private enum Bing {
                 if jpeg.count <= maxBytes { return jpeg }
             }
         }
-        throw BridgeError("Bing: the image is too big")
+        throw CloudOCR.Failure("Bing: the image is too big")
     }
 
     /// The text recognition action's regions' lines (boxes are normalized to the image).
@@ -266,21 +271,21 @@ private func resized(_ image: CGImage, width: Int, height: Int) throws -> CGImag
               data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
               space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
           )
-    else { throw BridgeError("Couldn’t resize the image") }
+    else { throw CloudOCR.Failure("Couldn’t resize the image") }
     context.interpolationQuality = .high
     context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-    guard let resized = context.makeImage() else { throw BridgeError("Couldn’t resize the image") }
+    guard let resized = context.makeImage() else { throw CloudOCR.Failure("Couldn’t resize the image") }
     return resized
 }
 
 private func encoded(_ image: CGImage, as type: UTType, quality: Double? = nil) throws -> Data {
     let data = NSMutableData()
     guard let destination = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else {
-        throw BridgeError("Couldn’t encode the image")
+        throw CloudOCR.Failure("Couldn’t encode the image")
     }
     let options = quality.map { [kCGImageDestinationLossyCompressionQuality: $0] as CFDictionary }
     CGImageDestinationAddImage(destination, image, options)
-    guard CGImageDestinationFinalize(destination) else { throw BridgeError("Couldn’t encode the image") }
+    guard CGImageDestinationFinalize(destination) else { throw CloudOCR.Failure("Couldn’t encode the image") }
     return data as Data
 }
 
@@ -344,10 +349,10 @@ private struct ProtoMessage {
                 if byte < 0x80 { return value }
                 shift += 7
             }
-            throw BridgeError("Google Lens: malformed response")
+            throw CloudOCR.Failure("Google Lens: malformed response")
         }
         func take(_ count: Int) throws -> ArraySlice<UInt8> {
-            guard count >= 0, data.endIndex - index >= count else { throw BridgeError("Google Lens: malformed response") }
+            guard count >= 0, data.endIndex - index >= count else { throw CloudOCR.Failure("Google Lens: malformed response") }
             defer { index += count }
             return data[index..<(index + count)]
         }
@@ -362,7 +367,7 @@ private struct ProtoMessage {
             case 1: value = .number(littleEndian(try take(8)))
             case 2: value = .bytes(try take(Int(try varint())))
             case 5: value = .number(littleEndian(try take(4)))
-            default: throw BridgeError("Google Lens: malformed response")
+            default: throw CloudOCR.Failure("Google Lens: malformed response")
             }
             fields[Int(key >> 3), default: []].append(value)
         }
