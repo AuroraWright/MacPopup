@@ -108,11 +108,15 @@ async function forgetDeleted(kind, readings) {
 	}
 }
 
-/** The ids of the readings of a kind this browser has kept, newest first (ids are base-36 times). */
+/**
+ * The ids of the readings of a kind this browser has kept, newest first (ids are base-36 times): those with their
+ * reading.json (the list's thumbnails keep some pictures without it).
+ */
 async function keptIds(kind) {
 	const cache = await caches.open(CACHE);
-	const ids = new Set((await cache.keys()).map((request) => new URL(request.url).pathname.split('/')).filter((parts) => parts[1] === kind).map((parts) => parts[2]));
-	return [...ids].filter(Boolean).sort((a, b) => parseInt(b, 36) - parseInt(a, 36));
+	const ids = (await cache.keys()).map((request) => new URL(request.url).pathname.split('/'))
+		.filter((parts) => parts[1] === kind && parts[2] && parts[3] === 'reading.json').map((parts) => parts[2]);
+	return [...new Set(ids)].sort((a, b) => parseInt(b, 36) - parseInt(a, 36));
 }
 
 /** The readings: the app's list while it runs, else the ones this browser has kept. */
