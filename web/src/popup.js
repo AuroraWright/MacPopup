@@ -132,13 +132,75 @@ async function drawMediaToCanvas(item, canvas, color = null) {
  * Yomitan's ElementOverflowController checks whether each definition is long enough to collapse as
  * it's added, reading its height right after changing its classes, so WebKit lays the whole popup out
  * again for every definition (hundreds of milliseconds for a long popup). This checks the definitions
- * added since the last `flush` together, with one layout. Each check only depends on the definition's
- * own size, so the result is the same.
+ * together, with one layout. Each check only depends on the definition's own size, so the result is
+ * the same.
+ *
+ * As in the Yomitan fork, an entry's definitions are only checked once it comes within a popup's height
+ * of the visible part: measuring makes WebKit lay out the entries that `content-visibility: auto` would
+ * otherwise only lay out then. Until then, the ones that start collapsed keep the class the check uses,
+ * so they're as short as they'll be once checked.
  */
-class BatchedOverflowController extends ElementOverflowController {
-	constructor(display) {
+class LazyOverflowController extends ElementOverflowController {
+	constructor(display, scrollElement) {
 		super(display);
+		this.scrollElement = scrollElement;
 		this.pending = [];
+		// Entry → its definitions that haven't been checked.
+		this.unchecked = new Map();
+		// The unchecked entries added since the last `checkAdded`.
+		this.added = [];
+		this.observer = new IntersectionObserver((records) => this.onIntersection(records), { root: scrollElement, rootMargin: '100% 0px' });
+	}
+
+	addElements(entry) {
+		const count = this._elements.length;
+		super.addElements(entry);
+		const elements = this._elements.splice(count);
+		this.pending = [];
+		if (elements.length === 0) return;
+		for (const element of elements) {
+			if (element.classList.contains('collapsed')) element.classList.add('collapse-test');
+		}
+		this.unchecked.set(entry, elements);
+		this.added.push(entry);
+		this.observer.observe(entry);
+	}
+
+	/**
+	 * Checks the entries added since the last call that are already as near the visible part as the
+	 * observer's margin, before the page is drawn: the observer only reports after it's drawn (and while
+	 * entries are being added, only once they all are), which would show their definitions without their
+	 * expansion buttons until then.
+	 */
+	checkAdded() {
+		const added = this.added;
+		this.added = [];
+		if (added.length === 0) return;
+		const { top, height } = this.scrollElement.getBoundingClientRect();
+		for (const entry of added) {
+			const rect = entry.getBoundingClientRect();
+			// Entries are added in order, so the ones after this one are further down.
+			if (rect.top > top + 2 * height) break;
+			if (rect.bottom < top - height) continue;
+			const elements = this.unchecked.get(entry);
+			this.unchecked.delete(entry);
+			this.observer.unobserve(entry);
+			this._elements.push(...elements);
+			this.pending.push(...elements);
+		}
+		this.flush();
+	}
+
+	onIntersection(records) {
+		for (const { target, isIntersecting } of records) {
+			const elements = isIntersecting ? this.unchecked.get(target) : undefined;
+			if (!elements) continue;
+			this.unchecked.delete(target);
+			this.observer.unobserve(target);
+			this._elements.push(...elements);
+			this.pending.push(...elements);
+		}
+		this.flush();
 	}
 
 	_updateElement(element) {
@@ -153,17 +215,26 @@ class BatchedOverflowController extends ElementOverflowController {
 	clearElements() {
 		super.clearElements();
 		this.pending = [];
+		this.unchecked.clear();
+		this.added = [];
+		this.observer.disconnect();
 	}
 
 	flush() {
 		const elements = this.pending;
 		this.pending = [];
+		if (elements.length === 0) return;
+		// WebKit doesn't lay out an entry that `content-visibility: auto` skips (one that isn't in view) to
+		// measure what's in it, and every size in it reads as 0, so the entries are laid out for the check.
+		const entries = new Set(elements.map((element) => element.closest('.entry')));
+		for (const entry of entries) entry?.style.setProperty('content-visibility', 'visible');
 		for (const element of elements) element.classList.add('collapse-test');
 		const collapsible = elements.map((element) => element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth);
 		elements.forEach((element, i) => {
 			element.classList.toggle('collapsible', collapsible[i]);
 			element.classList.remove('collapse-test');
 		});
+		for (const entry of entries) entry?.style.removeProperty('content-visibility');
 	}
 }
 
@@ -259,7 +330,7 @@ class Popup {
 
 		this.contentManager = new PopupContentManager(this);
 		this.generator = new DisplayGenerator(this.contentManager, null);
-		this.overflowController = new BatchedOverflowController(this);
+		this.overflowController = new LazyOverflowController(this, document.querySelector('#content-scroll'));
 		this.container = document.querySelector('#dictionary-entries');
 		this.footer = document.querySelector('#content-footer');
 		this.progressIndicator = document.querySelector('#progress-indicator');
@@ -428,7 +499,7 @@ class Popup {
 		let partEnd = 1;
 		for (let i = 0; i < dictionaryEntries.length; ++i) {
 			if (i === partEnd) {
-				this.overflowController.flush();
+				this.overflowController.checkAdded();
 				// Lays the part out now, to time it.
 				void this.container.offsetHeight;
 				const count = i - partFirst;
@@ -456,20 +527,23 @@ class Popup {
 				void this.playAudio(0, 0);
 			}
 		}
-		this.overflowController.flush();
+		this.overflowController.checkAdded();
 		void this.contentManager.executeMediaRequests();
 
 		await this.updateAnki(token);
 	}
 
 	/**
-	 * Stops rendering the content and loading its media and Anki notes, e.g. when the popup is hidden: the
-	 * page's other work, such as the next lookup, would wait for them. Showing the popup again sets its
-	 * content again.
+	 * Stops rendering the content and loading its media and Anki notes, and removes the entries, when the
+	 * popup is hidden: the page's other work, such as the next lookup, would wait for them (removing a long
+	 * popup's entries takes several milliseconds). Showing the popup again sets its content again.
 	 */
 	stopRendering() {
 		this.renderToken = null;
 		this.contentManager.unloadAll();
+		this.overflowController.clearElements();
+		this.container.textContent = '';
+		this.entryNodes = [];
 	}
 
 	updateNavigation() {
