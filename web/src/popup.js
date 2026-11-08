@@ -451,13 +451,14 @@ class Popup {
 			this.entryNodes.push(entry);
 			if (i === this.index) entry.classList.add('entry-current');
 			this.overflowController.addElements(entry);
+			// Auto-play only needs the first entry, so it doesn't wait for the others.
+			if (i === 0 && settings.audioEnabled !== false && settings.audioAutoPlay && content.type === 'term') {
+				void this.playAudio(0, 0);
+			}
 		}
 		this.overflowController.flush();
 		void this.contentManager.executeMediaRequests();
 
-		if (settings.audioEnabled !== false && settings.audioAutoPlay && content.type === 'term' && dictionaryEntries.length > 0) {
-			void this.playAudio(0, 0);
-		}
 		await this.updateAnki(token);
 	}
 
