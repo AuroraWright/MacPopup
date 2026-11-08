@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var statusItem: NSStatusItem!
     private var toggleItem: NSMenuItem!
     private var ocrItem: NSMenuItem!
+    private var moveItem: NSMenuItem!
     private var ocr: OCRController!
     private var clipboardMonitor: ClipboardMonitor!
     private var sentenceAudio: SentenceAudioController!
@@ -67,10 +68,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         menu.addItem(toggleItem)
         ocrItem = NSMenuItem(title: "OCR Mode", action: #selector(toggleOCR), keyEquivalent: "")
         menu.addItem(ocrItem)
+        moveItem = NSMenuItem(title: "Move to Next Display", action: #selector(moveToNextDisplay), keyEquivalent: "")
+        menu.addItem(moveItem)
         menu.addItem(NSMenuItem(title: "Select Captured Window…", action: #selector(selectOCRWindow), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","))
-        menu.addItem(NSMenuItem(title: "Move to Next Display", action: #selector(moveToNextDisplay), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Reload", action: #selector(reload), keyEquivalent: "r"))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit MacPopup", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -83,6 +85,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     func menuWillOpen(_ menu: NSMenu) {
         toggleItem.title = overlay.isVisible ? "Hide Overlays" : "Show Overlays"
         ocrItem.state = ocr.isEnabled ? .on : .off
+        // Hidden when it would do nothing: with one display, or while screen OCR mode keeps the overlay on the
+        // display of the window it reads.
+        moveItem.isHidden = NSScreen.screens.count < 2 || overlay.preferredScreen != nil
     }
 
     @objc private func toggleOverlay() {
