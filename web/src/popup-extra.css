@@ -1,5 +1,10 @@
 /* Additions on top of Yomitan's popup CSS. */
 
+/* Waits shorter than this, such as for audio a source doesn't have, show no progress bar. */
+:root {
+    --progress-bar-active-transition-start-delay: 0.5s;
+}
+
 /* The entry menu only offers browser-extension actions. */
 .action-button[data-action=menu] {
     display: none;

@@ -255,6 +255,7 @@ class Popup {
 		this.scanSource = null;
 		this.scanToken = 0;
 		this.progressCount = 0;
+		this.progressHideTimer = null;
 
 		this.contentManager = new PopupContentManager(this);
 		this.generator = new DisplayGenerator(this.contentManager, null);
@@ -551,8 +552,22 @@ class Popup {
 	setProgress(active) {
 		this.progressCount = Math.max(0, this.progressCount + (active ? 1 : -1));
 		const visible = this.progressCount > 0;
-		this.progressIndicator.hidden = !visible;
-		this.progressIndicator.dataset.active = `${visible}`;
+		if (visible === (this.progressIndicator.dataset.active === 'true')) return;
+		// As in Yomitan's display: the bar is shown before it's made active, so that it grows in after
+		// --progress-bar-active-transition-start-delay, and it's hidden once it has shrunk.
+		clearTimeout(this.progressHideTimer);
+		this.progressHideTimer = null;
+		if (visible) {
+			this.progressIndicator.hidden = false;
+			getComputedStyle(this.progressIndicator).getPropertyValue('display');
+			this.progressIndicator.dataset.active = 'true';
+		} else {
+			this.progressIndicator.dataset.active = 'false';
+			this.progressHideTimer = setTimeout(() => {
+				this.progressIndicator.hidden = true;
+				this.progressHideTimer = null;
+			}, 250);
+		}
 	}
 
 	getDictionaryMedia() {
