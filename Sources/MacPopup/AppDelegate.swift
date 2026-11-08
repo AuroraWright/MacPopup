@@ -23,8 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         // Both web views share one configuration, so they share the bridge and the asset scheme.
         let configuration = WebViewFactory.makeConfiguration(bridge: bridge, schemeHandler: schemeHandler)
         overlay = OverlayController(configuration: configuration)
-        // From Settings → General: only the window is chosen, screen OCR mode stays as it is.
-        settingsWindow = SettingsWindowController { [weak self] in self?.ocr.selectWindow(enableOCR: false) }
+        settingsWindow = SettingsWindowController { [weak self] in self?.ocr.selectWindow() }
         overlay.onMouseButtonEvent = { [weak self] button, isDown in
             self?.settingsWindow.mouseButtonEvent(button: button, isDown: isDown)
             if isDown { self?.ocr.mouseClicked() }

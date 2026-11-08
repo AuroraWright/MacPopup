@@ -124,7 +124,7 @@ Recording** permission in *System Settings → Privacy & Security*.)
 Choose **Select Captured Window…** from the menu bar (or click **Select…** next to **Captured
 window** in *Settings → General*):
 
-1. **Click the window** you want MacPopup to read (or click **Clear** in Settings to read the entire
+1. **Click the window** you want MacPopup to read (or click **Whole Screen** to read the entire
    screen).
 2. **Optional — Drag over text areas**: Draw rectangles over the specific regions where text
    appears, then click **Done** (`Return`).

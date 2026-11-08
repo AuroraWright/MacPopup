@@ -320,8 +320,9 @@ final class OCRController {
 
     // MARK: Choosing the window
 
-    /// Lets the user pick the captured window and its areas. `enableOCR` also turns screen OCR mode on.
-    func selectWindow(enableOCR: Bool = true) {
+    /// Lets the user pick the captured window and its areas. Screen OCR mode stays as it is: the window is also what
+    /// screenshots for cards capture.
+    func selectWindow() {
         guard !isPicking else { return }
         isPicking = true
         send(["type": "window", "visible": false])
@@ -330,7 +331,7 @@ final class OCRController {
         // up to 2 seconds.
         guard let id = target?.windowID, !Self.onScreenWindows().contains(where: { $0.id == id }),
               let window = Self.windows(onScreenOnly: false).first(where: { $0.id == id }) else {
-            pickWindow(enableOCR: enableOCR)
+            pickWindow()
             return
         }
         Self.raise(window)
@@ -338,31 +339,38 @@ final class OCRController {
             for _ in 0..<40 where !Self.onScreenWindows().contains(where: { $0.id == id && $0.bounds == window.bounds }) {
                 try? await Task.sleep(for: .milliseconds(50))
             }
-            pickWindow(enableOCR: enableOCR)
+            pickWindow()
         }
     }
 
-    private func pickWindow(enableOCR: Bool) {
+    private func pickWindow() {
         let selection = target.flatMap { target in
             Self.onScreenWindows().first { $0.id == target.windowID }.map { (window: $0, regions: regions) }
         }
-        WindowPicker.pick(above: overlay.panel.level, selection: selection) { [weak self] result in
+        WindowPicker.pick(above: overlay.panel.level, selection: selection) { [weak self] choice in
             guard let self else { return }
             self.isPicking = false
-            guard let result else {
+            var changes: [String: Any]
+            switch choice {
+            case nil:
                 self.lastSentWindowState = ""
                 self.trackWindow()
                 return
+            case .wholeScreen:
+                self.target = nil
+                self.readsScreen = true
+                self.regions = []
+                changes = ["ocrWindow": NSNull(), "ocrRegions": [Any]()]
+            case let .window(result):
+                self.target = Target(windowID: result.windowID, ownerName: result.ownerName, title: result.title)
+                self.readsScreen = false
+                self.regions = result.regions
+                changes = [
+                    "ocrWindow": ["ownerName": result.ownerName, "title": result.title],
+                    "ocrRegions": result.regions.map { ["x": $0.minX, "y": $0.minY, "width": $0.width, "height": $0.height] },
+                ]
             }
-            self.target = Target(windowID: result.windowID, ownerName: result.ownerName, title: result.title)
-            self.readsScreen = false
-            self.regions = result.regions
             self.readAgain()
-            var changes: [String: Any] = [
-                "ocrWindow": ["ownerName": result.ownerName, "title": result.title],
-                "ocrRegions": result.regions.map { ["x": $0.minX, "y": $0.minY, "width": $0.width, "height": $0.height] },
-            ]
-            if enableOCR { changes["ocrMode"] = true }
             self.updateSettings(changes)
         }
     }

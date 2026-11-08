@@ -13,6 +13,12 @@ final class WindowPicker {
         var regions: [CGRect]
     }
 
+    enum Choice {
+        case window(Result)
+        /// The whole screen the overlay is on, instead of a window.
+        case wholeScreen
+    }
+
     private static var current: WindowPicker?
 
     static func cancel() {
@@ -24,7 +30,7 @@ final class WindowPicker {
     ///   window), shown to start from when the window is on screen. It's brought to the front, as a window is
     ///   when it's clicked, so the areas are drawn over what it shows.
     static func pick(above level: NSWindow.Level, selection: (window: OCRController.WindowInfo, regions: [CGRect])? = nil,
-                     completion: @escaping (Result?) -> Void) {
+                     completion: @escaping (Choice?) -> Void) {
         guard current == nil else { return }
         let picker = WindowPicker(level: NSWindow.Level(rawValue: level.rawValue + 2), completion: completion)
         if let selection {
@@ -55,7 +61,7 @@ final class WindowPicker {
     private var dragStart: CGPoint?
 
     private let level: NSWindow.Level
-    private let completion: (Result?) -> Void
+    private let completion: (Choice?) -> Void
     private var windows: [PickerWindow] = []
     private var keyMonitor: Any?
     /// Observe apps becoming active and the space changing.
@@ -65,7 +71,7 @@ final class WindowPicker {
     private let debugDirectory = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_PICKER_DIR"]
     private var debugCount = 0
 
-    private init(level: NSWindow.Level, completion: @escaping (Result?) -> Void) {
+    private init(level: NSWindow.Level, completion: @escaping (Choice?) -> Void) {
         self.level = level
         self.completion = completion
     }
@@ -97,7 +103,7 @@ final class WindowPicker {
         redraw()
     }
 
-    private func finish(_ result: Result?) {
+    private func finish(_ result: Choice?) {
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
         }
@@ -131,11 +137,12 @@ final class WindowPicker {
     // MARK: Buttons
 
     enum Button: CaseIterable {
-        case cancel, otherWindow, undo, done
+        case cancel, wholeScreen, otherWindow, undo, done
 
         var title: String {
             switch self {
             case .cancel: "Cancel  esc"
+            case .wholeScreen: "Whole Screen"
             case .otherWindow: "Other Window"
             case .undo: "Undo  ⌫"
             case .done: "Done  ↩"
@@ -146,14 +153,15 @@ final class WindowPicker {
     /// The buttons shown in the current phase.
     var buttons: [Button] {
         switch phase {
-        case .window: [.cancel]
-        case .regions: [.cancel, .otherWindow, .undo, .done]
+        case .window: [.cancel, .wholeScreen]
+        case .regions: [.cancel, .wholeScreen, .otherWindow, .undo, .done]
         }
     }
 
     func press(_ button: Button) {
         switch button {
         case .cancel: finish(nil)
+        case .wholeScreen: finish(.wholeScreen)
         case .otherWindow: chooseWindow()
         case .undo: undo()
         case .done: done()
@@ -169,8 +177,8 @@ final class WindowPicker {
                 width: $0.width / bounds.width, height: $0.height / bounds.height
             )
         }
-        finish(Result(windowID: window.id, ownerName: window.ownerName, ownerPID: window.ownerPID,
-                      title: window.title, regions: normalized))
+        finish(.window(Result(windowID: window.id, ownerName: window.ownerName, ownerPID: window.ownerPID,
+                              title: window.title, regions: normalized)))
     }
 
     /// Removes the last area, or goes back to choosing the window.
