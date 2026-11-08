@@ -256,7 +256,7 @@ final class SentenceAudioController {
         let settings = settings
         guard settings["ankiEnabled"] as? Bool ?? true else { throw SentenceAudioError("Anki integration is off (Settings → Anki)") }
         let audioField = string("sentenceAudioField", "SentenceAudio")
-        guard !audioField.isEmpty else { throw SentenceAudioError("Choose the sentence audio field in Settings → Anki Sentence Audio") }
+        guard !audioField.isEmpty else { throw SentenceAudioError("Choose the sentence audio field in Settings → Anki") }
         let sentenceFields = try await AnkiConnect.sentenceFields(settings: settings)
         guard !sentenceFields.isEmpty else { throw SentenceAudioError("No Yomitan card format has a field with {sentence}") }
         let query = "added:1 \(Self.fieldQuery(audioField))"

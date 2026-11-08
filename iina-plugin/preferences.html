@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<style>
+			body {
+				margin: 0;
+				padding: 16px;
+				font: 13px -apple-system, sans-serif;
+			}
+			input {
+				width: 6em;
+			}
+			.help {
+				margin-top: 4px;
+				font-size: 11px;
+				opacity: 0.6;
+			}
+		</style>
+	</head>
+	<body>
+		<label>WebSocket port <input type="number" min="1" max="65535" data-pref-key="port" data-type="int" /></label>
+		<p class="help">Add ws://localhost:&lt;port&gt; in MacPopup’s Settings → WebSockets. Restart IINA after changing it.</p>
+	</body>
+</html>

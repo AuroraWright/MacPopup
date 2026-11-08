@@ -1,0 +1,16 @@
+{
+  "name": "MacPopup",
+  "identifier": "local.macpopup.iina",
+  "version": "0.1.0",
+  "description": "Sends the subtitles to MacPopup over a WebSocket, with the timing and file MacPopup takes a line's screenshot and sentence audio from for Anki cards.",
+  "author": {
+    "name": "MacPopup"
+  },
+  "entry": "main.js",
+  "globalEntry": "global.js",
+  "preferencesPage": "preferences.html",
+  "preferenceDefaults": {
+    "port": 6680
+  },
+  "permissions": []
+}

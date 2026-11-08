@@ -243,8 +243,8 @@ export const defaultSettings = {
 	sentenceAudioShortcut: null,
 	// The audio input's name ('' for the system's default input).
 	sentenceAudioDevice: '',
-	// Cards added today with the same sentence as the newest one get the recording in this field. Their
-	// sentence field is the one their Yomitan card format fills with {sentence}.
+	// The field for sentence audio, recorded (cards added today with the same sentence as the newest one get the
+	// recording; their sentence field is the one their Yomitan card format fills with {sentence}) or from IINA.
 	sentenceAudioField: 'SentenceAudio',
 	// What's switched to before pressing keys: 'captured' (the captured window, ocrWindow, also outside
 	// OCR mode), 'named' (the app sentenceAudioAppName) or 'none'.
@@ -270,4 +270,9 @@ export const defaultSettings = {
 	// In seconds.
 	sentenceAudioMaxLength: 60,
 	sentenceAudioPlay: true,
+
+	// IINA sentence audio (lib/anki-notes.js): cards made from the lines of iina-plugin/ get the line's audio, cut out
+	// of the video file, in sentenceAudioField, with this much more before and after it (ms).
+	iinaSentenceAudioEnabled: true,
+	iinaSentenceAudioPadding: 500,
 };

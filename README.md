@@ -221,7 +221,7 @@ automatically:
 
 ### Automatic Sentence Audio Recording
 
-**Settings → Anki Sentence Audio** lets you press a single global shortcut after mining a card to
+**Settings → Game Sentence Audio** lets you press a single global shortcut after mining a card to
 automatically record the character's voice line from your game's dialogue backlog:
 
 1. **Focus & Replay**: MacPopup brings your game window to the front and presses your recorded
@@ -232,11 +232,31 @@ automatically record the character's voice line from your game's dialogue backlo
    stops automatically after the voice ends. If no voice is heard in time, nothing is saved. With
    detection off, press the shortcut again to stop recording.
 3. **Return to Game**: Presses your **Keys to close backlog**.
-4. **Attach to Card**: Saves the audio clip into your chosen **Target Anki field** on the newest
+4. **Attach to Card**: Saves the audio clip into the **Sentence audio field** (*Settings → Anki*) on the newest
    card created today, and on any other cards added today with the same sentence, if that field is
    empty. The recording is then played back (optional).
 
 Requires **Microphone** and **Accessibility** permissions (*Settings → Permissions*).
+
+### Videos in IINA
+
+The [IINA](https://iina.io) plugin in `iina-plugin/` sends the subtitles you're watching to MacPopup, and gives cards
+made from them the line's own frame and audio:
+
+1. **Install**: Click **Install** in *Settings → IINA Integration*, which opens the plugin in IINA (or run
+   `iina-plugin link iina-plugin` from IINA's `Contents/MacOS` for development), turn the plugin on in IINA's
+   *Settings → Plugins*, and restart IINA. Don't install it while it's linked: IINA replaces a plugin by deleting its
+   folder, which for a link is `iina-plugin/` itself.
+2. **Connect**: Add `ws://localhost:6680` in MacPopup's *Settings → WebSockets* (the port can be changed in the
+   plugin's settings). Each subtitle line arrives like a text hooker's, so you can read them in the text box, or hover
+   the subtitles on the video in OCR Mode with **Match and fix OCR with WebSocket text** on.
+3. **Cards**: For a sentence from one of these lines, `{screenshot}` is the frame in the middle of the line, without
+   subtitles, at the video's size, and the **Sentence audio field** (*Settings → Anki*) gets the line's audio, with the
+   padding set in *Settings → IINA Integration* (where it can be turned off). Both are taken from the video file by
+   the ffmpeg built into MacPopup, whenever you add the card: nothing is recorded or replayed. Streams have neither
+   (the screenshot is then the usual capture).
+
+IINA's plugin server listens on every network interface; the plugin ignores connections from other devices.
 
 ---
 

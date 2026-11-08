@@ -42,6 +42,19 @@ if [[ ! -f "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" ]]; then
     rm -f "$ARCHIVE"
 fi
 
+# A small ffmpeg for the sentence audio and screenshots of video players' lines (iina-plugin/), built from the
+# source releases of FFmpeg and dav1d, checked against their SHA-256 (scripts/build-ffmpeg.sh; a few minutes the
+# first time).
+FFMPEG_VERSION="9.0.2"
+FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+DAV1D_VERSION="1.5.4"
+DAV1D_SHA256=2abfb0c89212e6e4733a54e0ae509ec00a5b845a6360946f918806e14aedb011
+FFMPEG="build/cache/ffmpeg-$FFMPEG_VERSION-dav1d-$DAV1D_VERSION-$(uname -m)"
+if [[ ! -x "$FFMPEG/ffmpeg" ]]; then
+    scripts/build-ffmpeg.sh "$FFMPEG_VERSION" "$FFMPEG_SHA256" "$DAV1D_VERSION" "$DAV1D_SHA256" "$FFMPEG" \
+        || echo "warning: couldn't build ffmpeg; lines from IINA won't have sentence audio or their own screenshots"
+fi
+
 swift build -c "$CONFIGURATION"
 BIN_DIR="$(swift build -c "$CONFIGURATION" --show-bin-path)"
 
@@ -57,6 +70,13 @@ if [[ -f "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" ]]; then
     cp -L "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" "$APP/Contents/Frameworks/"
     cp "$CURL_IMPERSONATE"/LICENSE* "$APP/Contents/Resources/Licenses/curl-impersonate/"
 fi
+if [[ -x "$FFMPEG/ffmpeg" ]]; then
+    mkdir -p "$APP/Contents/Resources/Licenses/ffmpeg"
+    cp "$FFMPEG/ffmpeg" "$APP/Contents/Helpers/ffmpeg"
+    cp "$FFMPEG"/COPYING.* "$FFMPEG"/LICENSE.md "$FFMPEG"/SOURCE.txt "$APP/Contents/Resources/Licenses/ffmpeg/"
+fi
+# The IINA plugin (iina-plugin/), packaged for IINA to install when it's opened.
+(cd iina-plugin && zip -q -r -X "../$APP/Contents/Resources/MacPopup.iinaplgz" Info.json main.js global.js preferences.html)
 # meikiocr's and PP-OCRv6_manga's models (see vendor/meikiocr and vendor/ppocr-manga), compiled for Core ML.
 mkdir -p "$APP/Contents/Resources/Models"
 for model in vendor/meikiocr/*.mlpackage vendor/ppocr-manga/*.mlpackage; do
@@ -76,6 +96,9 @@ if [[ -d "$APP/Contents/Frameworks" ]]; then
     codesign --force --timestamp=none --sign "$IDENTITY" "$APP"/Contents/Frameworks/*.dylib >/dev/null
 fi
 codesign --force --timestamp=none --sign "$IDENTITY" --identifier local.macpopup.yomitan-api "$APP/Contents/Helpers/yomitan_api" >/dev/null
+if [[ -f "$APP/Contents/Helpers/ffmpeg" ]]; then
+    codesign --force --timestamp=none --sign "$IDENTITY" --identifier local.macpopup.ffmpeg "$APP/Contents/Helpers/ffmpeg" >/dev/null
+fi
 codesign --force --timestamp=none --sign "$IDENTITY" "$APP" >/dev/null
 
 echo "Built $APP"

@@ -260,7 +260,8 @@ function rerenderLines() {
 	if (atEnd) scrollToEnd();
 }
 
-// WebSockets (same message format as texthooker-ui: raw text, or JSON with a `sentence` key)
+// WebSockets (same message format as texthooker-ui: raw text, or JSON with a `sentence` key). A video player's
+// lines (iina-plugin/) also have a `player` key, with their timing and file.
 
 class SocketConnection {
 	constructor(url) {
@@ -289,6 +290,7 @@ class SocketConnection {
 		this.setState(0);
 		try {
 			const socket = new WebSocket(this.url);
+			socket.binaryType = 'arraybuffer';
 			socket.onopen = () => {
 				this.wasConnected = true;
 				this.setState(1);
@@ -333,14 +335,19 @@ class SocketConnection {
 	}
 
 	onMessage(event) {
-		let line = event.data;
+		// IINA's plugin WebSocket server sends text as binary messages.
+		const data = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data);
+		let line = data;
+		let message = null;
 		try {
-			line = JSON.parse(event.data)?.sentence || event.data;
+			message = JSON.parse(data);
+			line = message?.sentence || data;
 		} catch (_) {
 			// Plain text
 		}
 		addLine(line);
 		ocrWebsocketLine(line);
+		if (message?.player) addPlayerLine(line, message.player);
 	}
 
 	setState(value) {
@@ -371,6 +378,30 @@ class SocketConnection {
 }
 
 const sockets = new Map();
+
+// Recent lines from a video player, the newest first, with the player's part of the message (the line's id, timing,
+// and the file and streams of its video and audio).
+const playerLines = [];
+
+const withoutWhitespace = (text) => text.replace(/\s/g, '');
+
+function addPlayerLine(rawText, player) {
+	if (typeof rawText !== 'string' || typeof player.line !== 'string') return;
+	const text = withoutWhitespace(applyReplacements(rawText, getSettings().replacements));
+	if (!text) return;
+	playerLines.unshift({ text, player });
+	playerLines.length = Math.min(playerLines.length, 100);
+}
+
+/**
+ * The video player's line that a sentence was scanned in (in the text box, or matched with OCR Mode's text),
+ * or null.
+ */
+function findPlayerLine(sentence) {
+	const text = withoutWhitespace(sentence ?? '');
+	if (!text) return null;
+	return playerLines.find((line) => line.text.includes(text) || text.includes(line.text))?.player ?? null;
+}
 
 /**
  * In OCR mode with WebSocket lines, WebSockets always reconnect: the box with their icons (which
@@ -796,7 +827,7 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
 	scan.pending = true;
 	try {
 		const [searchResult, documentTitle] = await Promise.all([searchTextSource(source, lookup), getDocumentTitle()]);
-		result = searchResult && { ...searchResult, documentTitle };
+		result = searchResult && { ...searchResult, documentTitle, player: findPlayerLine(searchResult.sentence?.text) };
 	} catch (e) {
 		log('Lookup failed', e);
 		showToast(`Yomitan API: ${e.message ?? e}`);

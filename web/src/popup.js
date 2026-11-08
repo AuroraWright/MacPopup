@@ -369,7 +369,12 @@ class Popup {
 		const content = this.content;
 		const result = await overlay().lookupText(query);
 		if (!result) return;
-		await this.setContent({ ...result, sentence: content?.sentence ?? { text: query, offset: 0 }, documentTitle: content?.documentTitle ?? '' }, 'new');
+		await this.setContent({
+			...result,
+			sentence: content?.sentence ?? { text: query, offset: 0 },
+			documentTitle: content?.documentTitle ?? '',
+			player: content?.player ?? null,
+		}, 'new');
 	}
 
 	async render() {
@@ -531,6 +536,7 @@ class Popup {
 				fullQuery: character,
 				sentence: content?.sentence ?? { text: character, offset: 0 },
 				documentTitle: content?.documentTitle ?? '',
+				player: content?.player ?? null,
 			}, 'new');
 		} catch (e) {
 			this.showError(e);

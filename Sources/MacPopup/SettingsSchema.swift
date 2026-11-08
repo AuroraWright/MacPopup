@@ -70,6 +70,8 @@ struct SettingsField: Identifiable {
         case permission(Permission)
         /// Whether an engine's converted models are loaded, with buttons to load and remove them (not a setting).
         case convertedModels(ConvertedModelsKind)
+        /// A button that opens the IINA plugin in IINA to install it (not a setting).
+        case iinaPlugin
     }
 
     enum ConnectionTest {
@@ -662,6 +664,10 @@ enum SettingsSchema {
                         hint: "Clicking the View added note button shows this window. AnkiConnect releases after around 2022-05-29 support a new note editor window. If an error occurs, Anki and/or AnkiConnect may need to be updated."
                     ),
                     SettingsField(
+                        "sentenceAudioField", "Sentence audio field", .ankiField,
+                        hint: "The Anki field for sentence audio: recorded from a game (Game Sentence Audio) or cut from a video in IINA (IINA Integration). It's only filled when empty."
+                    ),
+                    SettingsField(
                         "screenshotFormat", "Screenshot format", .select([SettingsOption("png", "PNG"), SettingsOption("jpeg", "JPEG")]),
                         hint: "Adjust the format and quality of screenshots created for cards."
                     ),
@@ -674,8 +680,8 @@ enum SettingsSchema {
                 ]
             ),
             SettingsSection(
-                title: "Anki Sentence Audio", symbol: "waveform",
-                description: "Press a shortcut to automatically replay and record voice audio from your game and attach it to the Anki card you just created. MacPopup can switch to the game, press keys to open its dialogue backlog and replay the voice line, record until the character finishes speaking, and close the backlog. Requires Microphone and Accessibility permissions.",
+                title: "Game Sentence Audio", symbol: "waveform",
+                description: "Press a shortcut to automatically replay and record voice audio from your game and attach it to the Anki card you just created, in the sentence audio field chosen in Settings → Anki. MacPopup can switch to the game, press keys to open its dialogue backlog and replay the voice line, record until the character finishes speaking, and close the backlog. Requires Microphone and Accessibility permissions.",
                 fields: [
                     SettingsField("sentenceAudioEnabled", "Enable sentence audio recording", .checkbox),
                     SettingsField(
@@ -684,11 +690,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "sentenceAudioDevice", "Audio input device", .audioInput,
-                        hint: "The audio source to record from—typically a virtual audio device (such as BlackHole or Loopback) routed from your game."
-                    ),
-                    SettingsField(
-                        "sentenceAudioField", "Target Anki field", .ankiField,
-                        hint: "The Anki field where the recorded audio will be saved. Updates the newest card created today, and any other cards from today with the same {sentence}, if this field is empty."
+                        hint: "The audio source to record from—typically a virtual audio device (such as BlackHole or Loopback) routed from your game. The recording is added to the newest card created today, and to any other cards from today with the same {sentence}."
                     ),
                     SettingsField("sentenceAudioApp", "App to focus before recording", .select([
                         SettingsOption("captured", "Captured window"),
@@ -741,6 +743,21 @@ enum SettingsSchema {
                 ]
             ),
             SettingsSection(
+                title: "IINA Integration", symbol: "film",
+                description: "Make cards from videos you watch in IINA. With MacPopup’s plugin installed and connected, cards made from the subtitles get a clean screenshot of the scene, without subtitles, and the audio of the line, in the sentence audio field chosen in Settings → Anki. Doesn’t work with streams.",
+                fields: [
+                    SettingsField(
+                        "iinaPlugin", "IINA plugin", .iinaPlugin,
+                        hint: "Opens MacPopup’s plugin in IINA to install it. Then turn it on in IINA’s Settings → Plugins, restart IINA, and add ws://localhost:6680 in Settings → WebSockets."
+                    ),
+                    SettingsField("iinaSentenceAudioEnabled", "Add the line’s audio to cards", .checkbox),
+                    SettingsField(
+                        "iinaSentenceAudioPadding", "Padding around the line (ms)", .number(min: 0),
+                        hint: "Extra audio kept before the subtitle starts and after it ends, since voices often start a little before their subtitle and end after it."
+                    ),
+                ]
+            ),
+            SettingsSection(
                 title: "Permissions", symbol: "lock.shield",
                 description: "macOS permissions used by MacPopup features. You can grant them here or when first using a feature. If a permission was previously denied, it must be re-enabled in macOS System Settings.",
                 fields: [
@@ -750,11 +767,11 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "permission.microphone", "Microphone", .permission(.microphone),
-                        hint: "Required for Anki Sentence Audio to record from your chosen audio input device."
+                        hint: "Required for Game Sentence Audio to record from your chosen audio input device."
                     ),
                     SettingsField(
                         "permission.accessibility", "Accessibility", .permission(.accessibility),
-                        hint: "Required for Anki Sentence Audio to focus your game window and send keystrokes to replay dialogue."
+                        hint: "Required for Game Sentence Audio to focus your game window and send keystrokes to replay dialogue."
                     ),
                 ]
             ),

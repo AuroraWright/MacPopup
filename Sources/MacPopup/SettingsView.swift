@@ -207,6 +207,12 @@ private struct FieldRow: View {
             } label: {
                 FieldLabel(field: field)
             }
+        case .iinaPlugin:
+            LabeledContent {
+                InstallIINAPluginButton()
+            } label: {
+                FieldLabel(field: field)
+            }
         case .ankiField:
             AnkiFieldPicker(name: value as? String ?? "", settings: model.values) { model.set(field.key, $0) } label: {
                 FieldLabel(field: field)
@@ -996,6 +1002,36 @@ private struct InstallYomitanAPIButton: View {
                 }
                 .keyboardShortcut(.defaultAction)
             }
+        }
+    }
+}
+
+/// Opens MacPopup's IINA plugin (iina-plugin/, packaged by scripts/build.sh) in IINA, which asks to install it.
+private struct InstallIINAPluginButton: View {
+    @State private var error: String?
+
+    var body: some View {
+        Button("Install") {
+            error = nil
+            guard let iina = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.colliderli.iina") else {
+                error = "IINA isn’t installed."
+                return
+            }
+            guard let package = Bundle.main.url(forResource: "MacPopup", withExtension: "iinaplgz") else {
+                error = "This build of MacPopup has no IINA plugin (see scripts/build.sh)."
+                return
+            }
+            NSWorkspace.shared.open([package], withApplicationAt: iina, configuration: NSWorkspace.OpenConfiguration()) { _, openError in
+                if let openError {
+                    Task { @MainActor in error = "IINA couldn’t open the plugin: \(openError.localizedDescription)" }
+                }
+            }
+        }
+        .popover(isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Label(error ?? "", systemImage: "xmark.octagon.fill")
+                .foregroundStyle(.red)
+                .fixedSize()
+                .padding()
         }
     }
 }

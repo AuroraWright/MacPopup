@@ -6,7 +6,7 @@ import { createFuriganaHtml, createFuriganaPlain } from '../../../vendor/yomitan
 import { distributeFuriganaInflected } from '../../../vendor/yomitan/ext/js/language/ja/japanese.js';
 import { ankiInvoke, getRootDeckName } from './anki-connect.js';
 import { ankiReadingMode, renderFields, shouldRenderLocally } from './anki-templates.js';
-import { nativeCall } from './native.js';
+import { log, nativeCall } from './native.js';
 import { getSettings } from './settings.js';
 import { ankiFields, tokenize } from './yomitan-api.js';
 
@@ -162,7 +162,7 @@ async function resolveLocalMarkers(markers, { dictionaryEntry, content, selectio
 				}
 				case 'screenshot': {
 					const format = settings.screenshotFormat === 'png' ? 'png' : 'jpeg';
-					const data = await nativeCall('screenshot', { format, quality: settings.screenshotQuality, resolution: settings.screenshotResolution });
+					const data = await takeScreenshot(content.player, format, settings);
 					const filename = `yomitan_screenshot_${timestamp()}.${format === 'png' ? 'png' : 'jpg'}`;
 					media.push({ filename, data });
 					values.set(marker, `<img src="${filename}" />`);
@@ -172,6 +172,51 @@ async function resolveLocalMarkers(markers, { dictionaryEntry, content, selectio
 		}),
 	);
 	return { values, media };
+}
+
+/** Whether a video player's line has a local file and stream for `track` ('video' or 'audio') and its timing. */
+function hasPlayerTrack(player, track) {
+	return typeof player?.[track]?.file === 'string' && typeof player.start === 'number' && typeof player.end === 'number';
+}
+
+/**
+ * For a video player's line (content.player, see iina-plugin/), the frame in the middle of the line, from the video
+ * file; else the captured window or display.
+ */
+async function takeScreenshot(player, format, settings) {
+	if (hasPlayerTrack(player, 'video')) {
+		try {
+			const { file, stream } = player.video;
+			return await nativeCall('mediaFrame', { file, stream, time: (player.start + player.end) / 2, format, quality: settings.screenshotQuality });
+		} catch (e) {
+			log('The line’s screenshot failed', e);
+		}
+	}
+	return nativeCall('screenshot', { format, quality: settings.screenshotQuality, resolution: settings.screenshotResolution });
+}
+
+/**
+ * The sentence audio of a video player's line (content.player, see iina-plugin/): its time range with the padding
+ * of Settings → IINA Integration, cut out of the video file, for the sentence audio field when it's empty.
+ */
+async function playerSentenceAudio(player, cardFormat, fields) {
+	const settings = getSettings();
+	const field = settings.sentenceAudioField?.trim();
+	if (!settings.iinaSentenceAudioEnabled || !field || !(field in cardFormat.fields) || fields[field]) return null;
+	if (!hasPlayerTrack(player, 'audio')) return null;
+	const padding = (settings.iinaSentenceAudioPadding ?? 500) / 1000;
+	try {
+		const data = await nativeCall('mediaClip', {
+			file: player.audio.file,
+			stream: player.audio.stream,
+			start: Math.max(0, player.start - padding),
+			end: player.end + padding,
+		});
+		return { field, filename: `macpopup_sentence_${timestamp()}.m4a`, data };
+	} catch (e) {
+		log('The sentence audio failed', e);
+		return null;
+	}
 }
 
 export function createNoteOptions(cardFormat) {
@@ -331,6 +376,9 @@ export async function buildNote({ content, entryIndex, cardFormat, selectionText
 		if (replacedAudio) fields[name] = fields[name].replaceAll(replacedAudio.from, replacedAudio.to);
 	}
 
+	const sentenceAudio = await playerSentenceAudio(content.player, cardFormat, fields);
+	if (sentenceAudio) fields[sentenceAudio.field] = `[sound:${sentenceAudio.filename}]`;
+
 	const allText = Object.values(fields).join('\n');
 	const media = local.media.filter(({ filename }) => allText.includes(filename));
 	for (const item of [...(api?.audioMedia ?? []), ...(api?.dictionaryMedia ?? [])]) {
@@ -338,6 +386,7 @@ export async function buildNote({ content, entryIndex, cardFormat, selectionText
 			media.push({ filename: item.ankiFilename, data: item.content });
 		}
 	}
+	if (sentenceAudio) media.push({ filename: sentenceAudio.filename, data: sentenceAudio.data });
 
 	return {
 		note: {
