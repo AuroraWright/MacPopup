@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var ocr: OCRController!
     private var clipboardMonitor: ClipboardMonitor!
     private var sentenceAudio: SentenceAudioController!
+    private var connectedWebsockets: [String] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         schemeHandler = WebAssetsSchemeHandler(root: WebViewFactory.webRoot)
@@ -34,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
 
         setUpStatusItem()
         setUpEditMenu()
-        overlay.show()
+        setOverlayVisible(true)
     }
 
     /// The app has no menu bar of its own, but text fields in Settings need the Edit menu's key
@@ -58,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
 
     private func setUpStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        setConnectedWebsockets([])
+        updateStatusIcon()
 
         let menu = NSMenu()
         menu.delegate = self
@@ -154,14 +155,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         overlay.simulateMouse(x: x, y: y, modifiers: shift ? .shift : [])
     }
 
-    /// The menu bar icon is filled while a WebSocket is connected.
     func setConnectedWebsockets(_ urls: [String]) {
+        connectedWebsockets = urls
+        updateStatusIcon()
+    }
+
+    /// The menu bar icon is filled while the overlay is shown, and has a dot while a WebSocket is connected.
+    private func updateStatusIcon() {
         guard let button = statusItem?.button else { return }
-        button.image = NSImage(
-            systemSymbolName: urls.isEmpty ? "text.bubble" : "text.bubble.fill",
-            accessibilityDescription: urls.isEmpty ? "MacPopup" : "MacPopup, WebSocket connected"
-        )
-        button.toolTip = urls.isEmpty ? "MacPopup: no WebSocket connected" : "MacPopup: connected to " + urls.joined(separator: ", ")
+        let visible = overlay?.isVisible ?? false
+        let connected = !connectedWebsockets.isEmpty
+        button.image = Self.statusIcon(filled: visible, dot: connected)
+        button.image?.accessibilityDescription = "MacPopup" + (visible ? "" : ", overlays hidden") + (connected ? ", WebSocket connected" : "")
+        button.toolTip = connected ? "MacPopup: connected to " + connectedWebsockets.joined(separator: ", ") : "MacPopup: no WebSocket connected"
+    }
+
+    private static func statusIcon(filled: Bool, dot: Bool) -> NSImage? {
+        guard let symbol = NSImage(systemSymbolName: filled ? "text.bubble.fill" : "text.bubble", accessibilityDescription: nil) else {
+            return nil
+        }
+        guard dot else { return symbol }
+        let image = NSImage(size: symbol.size, flipped: false) { rect in
+            symbol.draw(in: rect)
+            let diameter = 5.0
+            let dot = NSRect(x: rect.maxX - diameter, y: rect.minY, width: diameter, height: diameter)
+            // A gap around the dot, so that it stands apart from the bubble.
+            NSGraphicsContext.current?.compositingOperation = .destinationOut
+            NSBezierPath(ovalIn: dot.insetBy(dx: -1.25, dy: -1.25)).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+            NSBezierPath(ovalIn: dot).fill()
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 
     func setOverlayCursor(_ cursor: String?) {
@@ -182,5 +208,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         } else {
             overlay.hide()
         }
+        updateStatusIcon()
     }
 }
