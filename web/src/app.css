@@ -87,8 +87,9 @@ body {
 	overflow: auto;
 	min-height: 0;
 	scrollbar-width: none;
-	/* Leave room for the header that appears on hover. */
+	/* Leave room for the header that appears on hover, and as much below the lines. */
 	padding-top: 12px;
+	padding-bottom: 12px;
 }
 
 #lines::-webkit-scrollbar {

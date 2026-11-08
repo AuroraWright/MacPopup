@@ -201,7 +201,7 @@ function createLineElement(line, animate) {
 	const settings = getSettings();
 	const p = document.createElement('p');
 	p.dataset.lineId = line.id;
-	p.className = 'my-2 cursor-default border-2 border-transparent';
+	p.className = 'cursor-default border-2 border-transparent';
 	const vertical = settings.displayVertical;
 	p.classList.add(vertical ? 'py-2' : 'px-2');
 	if (vertical) {
