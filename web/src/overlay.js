@@ -135,7 +135,8 @@ function addLine(rawText) {
 		removeLine(state.lines[0]);
 	}
 
-	line.element = createLineElement(line, settings.enableLineAnimation);
+	// Not while the box is hidden in OCR mode: it would play when the box is shown again.
+	line.element = createLineElement(line, settings.enableLineAnimation && !box.hidden);
 	if (settings.reverseLineOrder) linesElement.prepend(line.element);
 	else linesElement.append(line.element);
 	if (atEnd) scrollToEnd();
@@ -212,7 +213,13 @@ function createLineElement(line, animate) {
 	}
 	if (settings.preserveWhitespace) p.classList.add('whitespace-pre-wrap');
 	if (settings.showLinePoints) p.classList.add('show-bullet');
-	if (animate) p.classList.add(vertical ? 'line-enter-vertical' : 'line-enter');
+	if (animate) {
+		p.classList.add(vertical ? 'line-enter-vertical' : 'line-enter');
+		// Otherwise it plays again whenever the box is shown again after OCR mode (hiding it cancels the animation).
+		const done = () => p.classList.remove('line-enter', 'line-enter-vertical');
+		p.addEventListener('animationend', done, { once: true });
+		p.addEventListener('animationcancel', done, { once: true });
+	}
 
 	if (line.tokens) {
 		let offset = 0;
@@ -1304,6 +1311,7 @@ function applySettings(settings) {
 	const lang = settings.language === 'xxx' ? '' : settings.language;
 	document.documentElement.lang = lang;
 	$('#ocr-text').lang = lang;
+	const shown = box.hidden && !settings.ocrMode;
 	box.hidden = !!settings.ocrMode;
 	$('#ocr-layer').classList.toggle('show-boxes', !!settings.ocrShowBoxes);
 	if (!settings.ocrMode) setOcrWindow({ visible: false });
@@ -1329,6 +1337,8 @@ function applySettings(settings) {
 		state.renderKey = renderKey;
 		rerenderLines();
 	}
+	// It doesn't scroll while it's hidden in OCR mode, which keeps adding lines.
+	if (shown) scrollToEnd();
 	syncSockets();
 	updateOcrWebsocket();
 	renderClipboardButton();
