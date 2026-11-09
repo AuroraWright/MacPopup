@@ -65,13 +65,43 @@ private struct SectionForm: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(section.title).font(.title2.bold()).foregroundStyle(.primary)
                     if let description = section.description {
-                        Text(description).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        HeaderDescription(text: description)
                     }
                 }
                 .padding(.bottom, 4)
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// A section's description. As a Text, its last line could be cut off: the form measures the header without
+/// the line breaking that keeps a last line from being too short, then draws it with it, which can take a
+/// line more. This label measures and draws its text the same way.
+private struct HeaderDescription: NSViewRepresentable {
+    let text: String
+
+    func makeNSView(context: Context) -> NSTextField {
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = .preferredFont(forTextStyle: .callout)
+        label.textColor = .secondaryLabelColor
+        label.lineBreakStrategy = []
+        label.isSelectable = false
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return label
+    }
+
+    func updateNSView(_ label: NSTextField, context: Context) {
+        label.stringValue = text
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView label: NSTextField, context: Context) -> CGSize? {
+        guard let width = proposal.width, width.isFinite, let cell = label.cell else { return nil }
+        // The size is the label's alignment rectangle, and its frame (where the text goes) is wider.
+        let insets = label.alignmentRectInsets
+        let frameWidth = width + insets.left + insets.right
+        let height = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: frameWidth, height: .greatestFiniteMagnitude)).height
+        return CGSize(width: width, height: ceil(height) - insets.top - insets.bottom)
     }
 }
 

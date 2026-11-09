@@ -41,7 +41,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
             window.contentMinSize = NSSize(width: 640, height: 400)
             window.delegate = self
-            window.contentViewController = NSHostingController(rootView: SettingsView(model: model, recorder: recorder, actions: actions))
+            window.contentViewController = NSHostingController(rootView: SettingsView(model: model, recorder: recorder, actions: actions)
+                .defaultAppStorage(SettingsStore.shared.defaults))
             window.setContentSize(NSSize(width: 820, height: 640))
             window.center()
             self.window = window

@@ -7,7 +7,7 @@ final class SettingsStore {
 
     private let defaultsKey = "settings"
     /// MACPOPUP_SETTINGS_SUITE keeps the settings in another defaults domain (for test runs).
-    private let defaults = ProcessInfo.processInfo.environment["MACPOPUP_SETTINGS_SUITE"].flatMap { UserDefaults(suiteName: $0) } ?? .standard
+    let defaults = ProcessInfo.processInfo.environment["MACPOPUP_SETTINGS_SUITE"].flatMap { UserDefaults(suiteName: $0) } ?? .standard
     private var observers: [(String) -> Void] = []
 
     private(set) var json: String
