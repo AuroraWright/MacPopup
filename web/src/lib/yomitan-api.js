@@ -1,10 +1,23 @@
 // Client for https://github.com/yomidevs/yomitan-api
-import { httpPost } from './native.js';
+import { httpPost, nativeCall } from './native.js';
 import { getSettings } from './settings.js';
+
+// For the Yomitan API's status on the menu bar icon (see YomitanAPIStatus.swift).
+function reportRequest(succeeded) {
+	nativeCall('yomitanApiRequest', { succeeded }).catch(() => {});
+}
 
 async function call(path, body = {}) {
 	const { yomitanApiUrl } = getSettings();
-	const { status, body: text } = await httpPost(`${yomitanApiUrl.replace(/\/+$/, '')}/${path}`, body);
+	let response;
+	try {
+		response = await httpPost(`${yomitanApiUrl.replace(/\/+$/, '')}/${path}`, body);
+	} catch (e) {
+		reportRequest(false);
+		throw e;
+	}
+	const { status, body: text } = response;
+	reportRequest(status === 200);
 	if (status !== 200) {
 		throw new Error(`Yomitan API /${path} failed (${status})${text ? `: ${text.slice(0, 300)}` : ''}`);
 	}

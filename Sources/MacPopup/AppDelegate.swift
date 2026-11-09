@@ -11,10 +11,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var toggleItem: NSMenuItem!
     private var ocrItem: NSMenuItem!
     private var moveItem: NSMenuItem!
+    /// The status lines at the top of the menu (see updateStatusIcon).
+    private var statusLines: [NSMenuItem] = []
     private var ocr: OCRController!
     private var clipboardMonitor: ClipboardMonitor!
     private var sentenceAudio: SentenceAudioController!
     private var connectedWebsockets: [String] = []
+    private var yomitanAPI: YomitanAPIStatus!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         schemeHandler = WebAssetsSchemeHandler(root: WebViewFactory.webRoot)
@@ -32,6 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         ocr = OCRController(overlay: overlay)
         clipboardMonitor = ClipboardMonitor(overlay: overlay)
         sentenceAudio = SentenceAudioController(overlay: overlay)
+        yomitanAPI = YomitanAPIStatus()
+        yomitanAPI.onChange = { [weak self] in self?.updateStatusIcon() }
 
         setUpStatusItem()
         setUpEditMenu()
@@ -59,10 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
 
     private func setUpStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        updateStatusIcon()
 
         let menu = NSMenu()
         menu.delegate = self
+        // Below the status lines (see updateStatusIcon).
+        menu.addItem(.separator())
         toggleItem = NSMenuItem(title: "Hide Overlays", action: #selector(toggleOverlay), keyEquivalent: "")
         menu.addItem(toggleItem)
         ocrItem = NSMenuItem(title: "OCR Mode", action: #selector(toggleOCR), keyEquivalent: "")
@@ -79,9 +85,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
             item.target = self
         }
         statusItem.menu = menu
+        updateStatusIcon()
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        // The status line changes if the check finds something else while the menu is open.
+        yomitanAPI.check()
         toggleItem.title = overlay.isVisible ? "Hide Overlays" : "Show Overlays"
         ocrItem.state = ocr.isEnabled ? .on : .off
         // Hidden when it would do nothing: with one display, or while screen OCR mode keeps the overlay on the
@@ -164,18 +173,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         updateStatusIcon()
     }
 
-    /// The menu bar icon is filled while the overlay is shown, and has a dot while a WebSocket is connected.
+    func reportYomitanAPIRequest(succeeded: Bool) {
+        yomitanAPI.reportRequest(succeeded: succeeded)
+    }
+
+    /// The menu bar icon is filled while the overlay is shown, has an exclamation mark instead of lines
+    /// while the Yomitan API doesn't answer, and has a dot while a WebSocket is connected. Its tooltip and
+    /// the status lines at the top of its menu say the same.
     private func updateStatusIcon() {
         guard let button = statusItem?.button else { return }
         let visible = overlay?.isVisible ?? false
         let connected = !connectedWebsockets.isEmpty
-        button.image = Self.statusIcon(filled: visible, dot: connected)
-        button.image?.accessibilityDescription = "MacPopup" + (visible ? "" : ", overlays hidden") + (connected ? ", WebSocket connected" : "")
-        button.toolTip = connected ? "MacPopup: connected to " + connectedWebsockets.joined(separator: ", ") : "MacPopup: no WebSocket connected"
+        let yomitanStatus: String
+        var yomitanUnreachable = false
+        switch yomitanAPI?.state ?? .unknown {
+        case .unknown:
+            yomitanStatus = "Checking the Yomitan API…"
+        case .reachable(let version):
+            yomitanStatus = "Yomitan \(version) connected"
+        case .unreachable:
+            yomitanStatus = "Yomitan API not connected"
+            yomitanUnreachable = true
+        }
+        let websocketLines = connected ? connectedWebsockets.map { "WebSocket: \($0) connected" } : ["No WebSocket connected"]
+
+        // Lines that can't be chosen, one for each WebSocket.
+        if let menu = statusItem.menu {
+            for item in statusLines { menu.removeItem(item) }
+            statusLines = ([yomitanStatus] + websocketLines).map { title in
+                let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                item.isEnabled = false
+                return item
+            }
+            for (index, item) in statusLines.enumerated() { menu.insertItem(item, at: index) }
+        }
+
+        button.image = Self.statusIcon(filled: visible, warning: yomitanUnreachable, dot: connected)
+        button.image?.accessibilityDescription = "MacPopup" + (visible ? "" : ", overlays hidden")
+            + (yomitanUnreachable ? ", Yomitan API not connected" : "") + (connected ? ", WebSocket connected" : "")
+        let websocketStatus = connected
+            ? (connectedWebsockets.count > 1 ? "WebSockets: " : "WebSocket: ") + connectedWebsockets.joined(separator: ", ") + " connected"
+            : "No WebSocket connected"
+        button.toolTip = "MacPopup\n\(yomitanStatus)\n\(websocketStatus)"
     }
 
-    private static func statusIcon(filled: Bool, dot: Bool) -> NSImage? {
-        guard let symbol = NSImage(systemSymbolName: filled ? "text.bubble.fill" : "text.bubble", accessibilityDescription: nil) else {
+    private static func statusIcon(filled: Bool, warning: Bool, dot: Bool) -> NSImage? {
+        let name = (warning ? "exclamationmark.bubble" : "text.bubble") + (filled ? ".fill" : "")
+        guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil) else {
             return nil
         }
         guard dot else { return symbol }

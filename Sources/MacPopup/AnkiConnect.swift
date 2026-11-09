@@ -48,6 +48,19 @@ enum AnkiConnect {
         }
     }
 
+    /// The version of Yomitan that the Yomitan API answers with.
+    static func yomitanVersion(settings: [String: Any]) async throws -> String {
+        var base = settings["yomitanApiUrl"] as? String ?? "http://127.0.0.1:19633"
+        while base.hasSuffix("/") { base.removeLast() }
+        let response: Any
+        do {
+            response = try await post("\(base)/yomitanVersion", body: [:], timeout: 5)
+        } catch {
+            throw Failure("Yomitan API not connected")
+        }
+        return ((response as? [String: Any])?["version"]).map { "\($0)" } ?? "?"
+    }
+
     /// For each note type of the term card formats, its field filled with the sentence: `{sentence}`,
     /// or else the sentence with furigana, or a cloze.
     static func sentenceFields(settings: [String: Any]) async throws -> [String: String] {
@@ -73,7 +86,8 @@ enum AnkiConnect {
         request.httpMethod = "POST"
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let status = (response as? HTTPURLResponse)?.statusCode, status != 200 { throw Failure("HTTP \(status)") }
         return try JSONSerialization.jsonObject(with: data)
     }
 }
