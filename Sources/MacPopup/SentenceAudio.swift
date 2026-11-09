@@ -4,8 +4,11 @@ import SoundAnalysis
 
 /// Records a game's voice line for the sentence audio of the cards just added (Settings → Sentence
 /// Audio): a shortcut switches to the game, presses the keys that open its backlog (where the line is
-/// replayed), records an audio input until the voice ends, closes the backlog again, and adds the
+/// replayed), records the game's audio until the voice ends, closes the backlog again, and adds the
 /// recording to the newest Anki cards with the same sentence.
+///
+/// The game's audio is the audio of the captured window's app and its helper processes, or of every
+/// app but MacPopup when there's no captured window (see AudioTap).
 ///
 /// The voice is found with Apple's sound classifier (SoundAnalysis), which tells speech from music,
 /// so background music doesn't count. Without voice detection, the shortcut starts and stops the
@@ -27,7 +30,7 @@ final class SentenceAudioController {
     private var player: AVAudioPlayer?
     /// The last recording, deleted when the next one starts.
     private var lastFile: URL?
-    /// MACPOPUP_TEST_AUDIO_FILE: a sound file played in place of the audio input (for test runs).
+    /// MACPOPUP_TEST_AUDIO_FILE: a sound file played in place of the game's audio (for test runs).
     private let testFile = ProcessInfo.processInfo.environment["MACPOPUP_TEST_AUDIO_FILE"]
 
     init(overlay: OverlayController) {
@@ -78,13 +81,6 @@ final class SentenceAudioController {
     }
 
     private func start() async {
-        if testFile == nil {
-            guard await Self.hasMicrophoneAccess() else {
-                showToast("Allow MacPopup to record in System Settings → Privacy & Security → Microphone")
-                state = .idle
-                return
-            }
-        }
         if let lastFile {
             try? FileManager.default.removeItem(at: lastFile)
             self.lastFile = nil
@@ -106,7 +102,7 @@ final class SentenceAudioController {
             if let testFile {
                 try recording.start(testFile: URL(fileURLWithPath: testFile))
             } else {
-                try recording.start(deviceName: string("sentenceAudioDevice"))
+                try recording.start(appPID: capturedWindowPID())
             }
         } catch {
             showToast("Couldn’t record: \(error.localizedDescription)")
@@ -131,7 +127,12 @@ final class SentenceAudioController {
             await pressKeys(settings["sentenceAudioCloseKeys"])
             defer { state = .idle }
             guard let clip = result.clip else {
-                showToast(result.reason == .noVoice ? "No voice heard" : "Nothing was recorded")
+                sentenceAudioLog("\(result.reason)\(result.silent ? ", silent" : ""), nothing kept")
+                if result.silent {
+                    showToast("No sound was recorded. If the game played some, allow MacPopup in System Settings → Privacy & Security → Screen & System Audio Recording")
+                } else {
+                    showToast(result.reason == .noVoice ? "No voice heard" : "Nothing was recorded")
+                }
                 return
             }
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("macpopup-sentence-\(Self.timestamp()).m4a")
@@ -162,12 +163,17 @@ final class SentenceAudioController {
         return formatter.string(from: Date())
     }
 
-    private static func hasMicrophoneAccess() async -> Bool {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: true
-        case .notDetermined: await AVCaptureDevice.requestAccess(for: .audio)
-        default: false
-        }
+    /// The process of the captured window (Settings → General, also outside OCR mode), whose audio is
+    /// recorded, or nil when there isn't one or it isn't open.
+    private func capturedWindowPID() -> pid_t? {
+        guard let saved = settings["ocrWindow"] as? [String: Any], let owner = saved["ownerName"] as? String else { return nil }
+        return findWindow(ownerName: owner, title: saved["title"] as? String ?? "")?.ownerPID
+    }
+
+    private func findWindow(ownerName: String, title: String) -> OCRController.WindowInfo? {
+        let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let windows = list.compactMap(OCRController.windowInfo).filter { $0.ownerName == ownerName && $0.layer == 0 }
+        return windows.first(where: { $0.title == title }) ?? windows.first
     }
 
     // MARK: Keys
@@ -236,9 +242,7 @@ final class SentenceAudioController {
     /// Activates the app of a window, found by its app and title like the captured window, and raises
     /// the window above the app's others (with Accessibility permission).
     private func activateWindow(ownerName: String, title: String) -> Bool {
-        let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        let windows = list.compactMap(OCRController.windowInfo).filter { $0.ownerName == ownerName && $0.layer == 0 }
-        guard let window = windows.first(where: { $0.title == title }) ?? windows.first,
+        guard let window = findWindow(ownerName: ownerName, title: title),
               NSRunningApplication(processIdentifier: window.ownerPID) != nil else {
             showToast("\(ownerName) isn’t running")
             return false
@@ -323,9 +327,9 @@ struct SentenceAudioError: LocalizedError {
     init(_ message: String) { errorDescription = message }
 }
 
-/// One recording of an audio input (or, for tests, a sound file played at its own pace), and the voice
+/// One recording of an app's audio (or, for tests, a sound file played at its own pace), and the voice
 /// found in it. Everything but `start` and `stop` runs on its own queue.
-final class AudioRecording: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
+final class AudioRecording: NSObject, @unchecked Sendable {
     enum Reason: String {
         /// The voice ended.
         case voiceEnded
@@ -339,6 +343,8 @@ final class AudioRecording: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     struct Result {
         var reason: Reason
         var clip: AudioClip?
+        /// Every sample was 0, as when MacPopup may not record other apps' audio (or nothing played).
+        var silent = false
     }
 
     var onEnd: ((Result) -> Void)?
@@ -351,7 +357,8 @@ final class AudioRecording: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     private let padding: Double
     private let maxLength: Double
     private let queue = DispatchQueue(label: "local.macpopup.sentence-audio")
-    private var session: AVCaptureSession?
+    /// The AudioTap (macOS 14.2).
+    private var tap: AnyObject?
     private var testTimer: DispatchSourceTimer?
     private var format: AVAudioFormat?
     private var buffers: [AVAudioPCMBuffer] = []
@@ -361,6 +368,7 @@ final class AudioRecording: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     private var voiceStart: Double?
     private var voiceEnd: Double?
     private var ended = false
+    private var heardSound = false
     /// Input is only kept once `record` is called (the input is started before).
     private var isRecording = false
 
@@ -372,28 +380,21 @@ final class AudioRecording: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         self.maxLength = maxLength
     }
 
-    /// Records the input named (the system's default input when empty or not connected).
-    func start(deviceName: String) throws {
-        let devices = AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified).devices
-        guard let device = devices.first(where: { $0.localizedName == deviceName }) ?? AVCaptureDevice.default(for: .audio) else {
-            throw SentenceAudioError("No audio input")
+    /// Records the audio of the app with the process `pid` and its helpers, or, when it's nil, of every
+    /// app but MacPopup (whose popups play audio too).
+    func start(appPID pid: pid_t?) throws {
+        guard #available(macOS 14.2, *) else { throw SentenceAudioError("Recording needs macOS 14.2 or later") }
+        if let pid {
+            sentenceAudioLog("recording \(NSRunningApplication(processIdentifier: pid)?.localizedName ?? "process \(pid)")")
+        } else {
+            sentenceAudioLog("recording every app")
         }
-        let session = AVCaptureSession()
-        let input = try AVCaptureDeviceInput(device: device)
-        guard session.canAddInput(input) else { throw SentenceAudioError("Can’t record from \(device.localizedName)") }
-        session.addInput(input)
-        let output = AVCaptureAudioDataOutput()
-        output.audioSettings = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVLinearPCMBitDepthKey: 32,
-            AVLinearPCMIsFloatKey: true,
-            AVLinearPCMIsNonInterleaved: true,
-        ]
-        output.setSampleBufferDelegate(self, queue: queue)
-        guard session.canAddOutput(output) else { throw SentenceAudioError("Can’t record from \(device.localizedName)") }
-        session.addOutput(output)
-        self.session = session
-        session.startRunning()
+        let tap = AudioTap(processes: pid.map { .app($0) } ?? .allBut(ProcessInfo.processInfo.processIdentifier), queue: queue) { [weak self] buffer in
+            guard let self, !ended, isRecording else { return }
+            append(buffer)
+        }
+        try tap.start()
+        self.tap = tap
     }
 
     /// Plays a sound file in place of an input, in real time.
@@ -424,16 +425,6 @@ final class AudioRecording: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         queue.async { self.end(reason) }
     }
 
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        guard !ended, isRecording, let description = sampleBuffer.formatDescription else { return }
-        let format = AVAudioFormat(cmAudioFormatDescription: description)
-        let count = AVAudioFrameCount(sampleBuffer.numSamples)
-        guard count > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: count) else { return }
-        buffer.frameLength = count
-        guard CMSampleBufferCopyPCMDataIntoAudioBufferList(sampleBuffer, at: 0, frameCount: Int32(count), into: buffer.mutableAudioBufferList) == noErr else { return }
-        append(buffer)
-    }
-
     private func append(_ buffer: AVAudioPCMBuffer) {
         if format == nil {
             format = buffer.format
@@ -444,8 +435,13 @@ final class AudioRecording: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
                 if detector == nil { sentenceAudioLog("voice detection unavailable") }
             }
         }
-        // The input's format may change (e.g. another device); keep to the first.
+        // Keeps to the first format, in case it changes.
         guard buffer.format == format else { return }
+        if !heardSound, let channels = buffer.floatChannelData {
+            heardSound = (0..<Int(buffer.format.channelCount)).contains { channel in
+                UnsafeBufferPointer(start: channels[channel], count: Int(buffer.frameLength)).contains { $0 != 0 }
+            }
+        }
         buffers.append(buffer)
         detector?.analyze(buffer, at: frames)
         frames += AVAudioFramePosition(buffer.frameLength)
@@ -469,7 +465,7 @@ final class AudioRecording: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     private func end(_ reason: Reason) {
         guard !ended else { return }
         ended = true
-        session?.stopRunning()
+        if #available(macOS 14.2, *) { (tap as? AudioTap)?.stop() }
         testTimer?.cancel()
         detector?.finish()
         var clip: AudioClip?
@@ -487,7 +483,11 @@ final class AudioRecording: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
             }
         }
         buffers = []
-        let result = Result(reason: reason == .inputEnded && voiceStart == nil && detector != nil ? .noVoice : reason, clip: clip)
+        let result = Result(
+            reason: reason == .inputEnded && voiceStart == nil && detector != nil ? .noVoice : reason,
+            clip: clip,
+            silent: frames > 0 && !heardSound
+        )
         DispatchQueue.main.async { self.onEnd?(result) }
     }
 }

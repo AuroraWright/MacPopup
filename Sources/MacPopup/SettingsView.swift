@@ -188,10 +188,6 @@ private struct FieldRow: View {
             KeySequenceControl(items: (value as? [Any] ?? []).compactMap { $0 as? [String: Any] }) { model.set(field.key, $0) } label: {
                 FieldLabel(field: field)
             }
-        case .audioInput:
-            AudioInputPicker(name: value as? String ?? "") { model.set(field.key, $0) } label: {
-                FieldLabel(field: field)
-            }
         case let .permission(permission):
             // The status and buttons on their own line, so they're in the same place whatever their width.
             VStack(alignment: .leading, spacing: 6) {
@@ -369,33 +365,6 @@ private struct DisplayPicker<Label: View>: View {
     }
 }
 
-/// The audio inputs, by name: the default input when none is chosen.
-private struct AudioInputPicker<Label: View>: View {
-    let name: String
-    let commit: (String) -> Void
-    @ViewBuilder let label: Label
-    @State private var inputs: [String] = Self.connectedInputs()
-
-    private static func connectedInputs() -> [String] {
-        AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified).devices.map(\.localizedName)
-    }
-
-    var body: some View {
-        Picker(selection: Binding(get: { name }, set: commit)) {
-            Text("System default").tag("")
-            ForEach(inputs, id: \.self) { Text($0).tag($0) }
-            // Kept until another is chosen: it's used again when it's connected.
-            if !name.isEmpty && !inputs.contains(name) {
-                Text("\(name) (disconnected)").tag(name)
-            }
-        } label: {
-            label
-        }
-        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in inputs = Self.connectedInputs() }
-        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { _ in inputs = Self.connectedInputs() }
-    }
-}
-
 /// Whether a permission is granted (checked again every second, as it's changed in System Settings),
 /// and buttons to ask for it.
 private struct PermissionControl: View {
@@ -409,13 +378,10 @@ private struct PermissionControl: View {
                     Label("Granted", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                 } else {
                     Label("Not granted", systemImage: "exclamationmark.circle.fill").foregroundStyle(.orange)
-                    // Once turned off, only System Settings turns it on.
-                    if !(permission == .microphone && status == .notGranted) {
-                        Button("Request Access") {
-                            Task {
-                                await permission.request()
-                                self.status = permission.status
-                            }
+                    Button("Request Access") {
+                        Task {
+                            await permission.request()
+                            self.status = permission.status
                         }
                     }
                     if status == .notGranted {

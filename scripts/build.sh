@@ -83,8 +83,8 @@ for model in vendor/meikiocr/*.mlpackage vendor/ppocr-manga/*.mlpackage; do
     xcrun coremlcompiler compile "$model" "$APP/Contents/Resources/Models" >/dev/null
 done
 cp vendor/ppocr-manga/PPOCRMangaCharacters.txt "$APP/Contents/Resources/Models/"
-# Signed with a certificate, macOS keeps the privacy permissions (Screen Recording, Microphone,
-# Accessibility) across builds; ad-hoc signatures change with every build, so they'd be asked for again.
+# Signed with a certificate, macOS keeps the privacy permissions (Screen Recording, Accessibility) across
+# builds; ad-hoc signatures change with every build, so they'd be asked for again.
 # MACPOPUP_SIGN_IDENTITY overrides the identity ("-" for ad-hoc).
 IDENTITY="${MACPOPUP_SIGN_IDENTITY:-Apple Development: Your Name (TEAMID)}"
 if [[ "$IDENTITY" != "-" ]] && ! security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\""; then

@@ -62,8 +62,6 @@ struct SettingsField: Identifiable {
         /// Settings shown together in one row, a line each with its own short label (e.g. Width and Height). The
         /// row's key isn't a setting. Only menus and numbers can be grouped.
         case group([SettingsField])
-        /// An audio input's name ("" for the system's default input).
-        case audioInput
         /// A field name of the note types in Anki (from AnkiConnect).
         case ankiField
         /// Whether a macOS permission is granted, with buttons to ask for it (not a setting).
@@ -681,16 +679,12 @@ enum SettingsSchema {
             ),
             SettingsSection(
                 title: "Game Sentence Audio", symbol: "waveform",
-                description: "Press a shortcut to automatically replay and record voice audio from your game and attach it to the Anki card you just created, in the sentence audio field chosen in Settings → Anki. MacPopup can switch to the game, press keys to open its dialogue backlog and replay the voice line, record until the character finishes speaking, and close the backlog. Requires Microphone and Accessibility permissions.",
+                description: "Press a shortcut to automatically record voice audio from your game to attach it to the Anki card you just created, in the sentence audio field chosen in Settings → Anki. MacPopup can switch to the game, press keys to open its dialogue backlog and wait for you to replay the voice line, record until the character finishes speaking, and close the backlog. It records the audio of the captured window (Settings → General), or of every app. Requires Accessibility permission, and permission to record system audio.",
                 fields: [
                     SettingsField("sentenceAudioEnabled", "Enable sentence audio recording", .checkbox),
                     SettingsField(
                         "sentenceAudioShortcut", "Recording shortcut", .shortcut,
-                        hint: "Works globally from any app. Press the shortcut again while recording to stop early and save."
-                    ),
-                    SettingsField(
-                        "sentenceAudioDevice", "Audio input device", .audioInput,
-                        hint: "The audio source to record from—typically a virtual audio device (such as BlackHole or Loopback) routed from your game. The recording is added to the newest card created today, and to any other cards from today with the same {sentence}."
+                        hint: "Works globally from any app. Press the shortcut again while recording to stop early and save. The recording is added to the newest card created today, and to any other cards from today with the same {sentence}."
                     ),
                     SettingsField("sentenceAudioApp", "App to focus before recording", .select([
                         SettingsOption("captured", "Captured window"),
@@ -766,8 +760,8 @@ enum SettingsSchema {
                         hint: "Required for OCR Mode and for taking Anki {screenshot} captures. You may need to reopen MacPopup after granting access."
                     ),
                     SettingsField(
-                        "permission.microphone", "Microphone", .permission(.microphone),
-                        hint: "Required for Game Sentence Audio to record from your chosen audio input device."
+                        "permission.audioCapture", "System Audio Recording", .permission(.audioCapture),
+                        hint: "Required for Game Sentence Audio to record your game’s voice lines. Listed under Screen & System Audio Recording in System Settings."
                     ),
                     SettingsField(
                         "permission.accessibility", "Accessibility", .permission(.accessibility),

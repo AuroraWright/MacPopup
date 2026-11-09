@@ -241,8 +241,6 @@ export const defaultSettings = {
 	sentenceAudioEnabled: false,
 	// {key, modifiers} as in hotkeys, or null.
 	sentenceAudioShortcut: null,
-	// The audio input's name ('' for the system's default input).
-	sentenceAudioDevice: '',
 	// The field for sentence audio, recorded (cards added today with the same sentence as the newest one get the
 	// recording; their sentence field is the one their Yomitan card format fills with {sentence}) or from IINA.
 	sentenceAudioField: 'SentenceAudio',

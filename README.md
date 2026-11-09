@@ -40,7 +40,7 @@ open build/MacPopup.app
 
 - Run `scripts/build.sh debug` for a debug build.
 - The first build automatically downloads Yomitan's kanji stroke-order font into `build/cache`.
-- **Code Signing & Permissions**: To prevent macOS from asking for Screen Recording, Microphone, and
+- **Code Signing & Permissions**: To prevent macOS from asking for Screen Recording and
   Accessibility permissions again after every rebuild, `scripts/build.sh` signs the app with a fixed
   certificate, "Apple Development: Your Name (TEAMID)". Set `MACPOPUP_SIGN_IDENTITY` to your own
   certificate's name, or to `-` for ad-hoc signing (macOS then asks for the permissions again after
@@ -226,8 +226,9 @@ automatically record the character's voice line from your game's dialogue backlo
 
 1. **Focus & Replay**: MacPopup brings your game window to the front and presses your recorded
    **Keys to open backlog and replay voice**.
-2. **Smart Voice Recording**: Records from your selected **Audio input device** (such as BlackHole
-   or Loopback). With **Automatically detect start and end of speech** enabled, macOS's sound
+2. **Smart Voice Recording**: Records the game's own audio with a Core Audio process tap: the audio of the
+   captured window's app (*Settings → General*) and its helper processes (such as a browser's, or Parallels' VM), or of
+   every app but MacPopup when no window is captured, so no virtual audio device (such as BlackHole) is needed. With **Automatically detect start and end of speech** enabled, macOS's sound
    classifier ignores background music and sound effects, starts recording when speech begins, and
    stops automatically after the voice ends. If no voice is heard in time, nothing is saved. With
    detection off, press the shortcut again to stop recording.
@@ -236,7 +237,8 @@ automatically record the character's voice line from your game's dialogue backlo
    card created today, and on any other cards added today with the same sentence, if that field is
    empty. The recording is then played back (optional).
 
-Requires **Microphone** and **Accessibility** permissions (*Settings → Permissions*).
+Requires macOS 14.2, the **Accessibility** permission (*Settings → Permissions*), and permission to record other apps'
+audio, which the first recording asks for (*System Settings → Privacy & Security → Screen & System Audio Recording*).
 
 ### Videos in IINA
 
