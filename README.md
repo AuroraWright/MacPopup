@@ -1,36 +1,38 @@
 # MacPopup
 
-MacPopup is a native macOS overlay for looking up words with
+The creatively-named MacPopup is a native macOS overlay for looking up words with
 [Yomitan](https://github.com/yomidevs/yomitan) and mining flashcards to Anki—even over fullscreen
 games and apps. It works in two modes:
 
-- **Window Mode**: Receives text over WebSockets (from tools like Textractor, Agent, or
-  LunaTranslator) and displays it in a customizable floating text box (similar to
-  [texthooker-ui](https://github.com/Renji-XD/texthooker-ui)).
-- **OCR Mode**: Hides the text box and reads text directly from any app or game window on screen
-  using Apple Live Text, [meikiocr](https://github.com/rtr46/meikiocr),
+- **Window Mode**: Inspired by [JL](https://github.com/rampaa/JL). Receives text over WebSockets
+  (from tools like Textractor, Agent, or LunaTranslator) and displays it in a customizable floating
+  text box (similar to [texthooker-ui](https://github.com/Renji-XD/texthooker-ui)).
+- **OCR Mode**: Inspired by [meikipop](https://github.com/rtr46/meikipop). Hides the text box and
+  reads text directly from any app or game window on screen using Apple Live Text, [meikiocr](https://github.com/rtr46/meikiocr),
   [PP-OCRv6 Manga](https://huggingface.co/Kellenok/PP-OCRv6_manga), Chrome's Screen AI, or Windows' OneOCR
   (with optional Google Lens or Bing cloud passes). Simply hover over the game's own
   text to open dictionary popups.
 
 All dictionary lookups and Anki card templates are powered by your existing browser installation of
-Yomitan through the [Yomitan API](https://github.com/yomidevs/yomitan-api).
+Yomitan through the [Yomitan API](https://github.com/yomidevs/yomitan-api), which you can install
+directly from MacPopup (*Settings → Scanning*).
 
 ---
 
 ## Requirements
 
 - **macOS 14 (Sonoma)** or later
-- **Xcode** (or Xcode Command Line Tools with Swift 5.9+) and **Node.js 18+** to build
 - **Yomitan** with the [Yomitan API](https://github.com/yomidevs/yomitan-api) native messaging host
   installed (default: `http://127.0.0.1:19633`). **Install** next to the Yomitan API URL (*Settings → Scanning*)
   installs MacPopup's own version of it, which doesn't need Python, for Chrome, Chromium, Brave or Firefox. Then restart
   the browser and turn on *Enable Yomitan API* in Yomitan's settings (*General*, with advanced options shown).
-- **Anki** with the **AnkiConnect** add-on for flashcard creation (default: `http://127.0.0.1:8765`)
+- **Anki** with the **AnkiConnect** add-on for flashcard creation
 
 ---
 
 ## Build and Run
+
+Building needs Swift 5.9+ (the Xcode Command Line Tools) and Node.js 18+.
 
 ```sh
 cd web && npm install && cd ..
@@ -90,6 +92,9 @@ In Window Mode, MacPopup listens to every WebSocket URL listed in **Settings →
 
 ## Looking Up Words & Using Popups
 
+MacPopup is designed to be a "system-wide Yomitan": its popups look and behave like Yomitan's in
+the browser, with your own dictionaries, settings and Anki templates, over any app or game.
+
 - **Hover to Look Up**: Move your cursor over a word to open a Yomitan popup. By default, no
   modifier key is needed. You can require a key (`Option`, `Control`, `Shift`, `Command`) or
   configure **Other** in **Settings → Scanning** to combine keys and mouse buttons (e.g.,
@@ -144,8 +149,8 @@ on Anki cards (even when you are using Window Mode).
 
 ### OCR Engines
 
-Choose your engine in **Settings → OCR Mode → Text recognition engine**. Whatever the engine, lines
-without any characters of the language set in *Settings → General* are skipped (e.g. an English menu
+Choose your engine in **Settings → OCR Mode → Text recognition engine**. Lines without any characters
+of the language set in *Settings → General* are skipped (e.g. an English menu
 in a Japanese game).
 
 - **Live Text** *(Default)*: Built into macOS. Recognizes the language selected in *Settings
@@ -166,10 +171,7 @@ in a Japanese game).
 - **Cloud recognition (second pass)**: Optionally enable **Google Lens** or **Bing**. Local OCR
   reads the text first for fast responsiveness; once a dialogue line settles, an image of the
   dialogue area is sent to Google Lens or Bing for a higher-accuracy reading. Lines matched with a
-  WebSocket line keep its text. The requests are made like
-  [owocr](https://github.com/AuroraWright/owocr)'s, as Chrome makes them, through
-  [curl-impersonate](https://github.com/lexiforest/curl-impersonate), which `scripts/build.sh`
-  downloads into the app.
+  WebSocket line keep its text.
 
 ### Hybrid WebSocket + OCR Matching
 
@@ -182,19 +184,6 @@ WebSocket text** enabled—you get the best of both worlds:
   screen at once (**Previous WebSocket lines to match**).
 - Furigana is automatically stripped in Japanese (**Ignore furigana**) so small readings above kanji
   don't interfere with recognition.
-
-### Performance & Troubleshooting
-
-- **CPU Saving**: By default, **Only check for changes after mouse activity** checks the window for
-  new text for 2 seconds after you click or move the mouse (such as clicking to advance dialogue),
-  rather than polling constantly while you read.
-- **Visual Debugging**: Turn on **Highlight recognized text boxes (debug)** in *Settings → OCR Mode*
-  to outline detected text on screen (**Red** = local OCR, **Orange** = cloud OCR, **Green** =
-  WebSocket-corrected) and write detailed logs to `~/Library/Application
-  Support/MacPopup/ocr-debug.jsonl`.
-
-For an in-depth technical explanation of the OCR pipeline and timing settings, see
-[docs/ocr-mode.md](docs/ocr-mode.md).
 
 ---
 
