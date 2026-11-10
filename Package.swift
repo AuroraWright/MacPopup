@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "MacPopup",
-    platforms: [.macOS(.v14), .iOS("18.0")],
+    platforms: [.macOS("15.0"), .iOS("18.0")],
     products: [
         // For the iOS app (an Xcode project under ios/).
         .library(name: "OCREngines", targets: ["OCREngines"]),

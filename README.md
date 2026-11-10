@@ -21,7 +21,7 @@ directly from MacPopup (*Settings → Scanning*).
 
 ## Requirements
 
-- **macOS 14 (Sonoma)** or later
+- **macOS 15 (Sequoia)** or later on an Apple Silicon Mac
 - **Yomitan** with the [Yomitan API](https://github.com/yomidevs/yomitan-api) native messaging host
   installed (default: `http://127.0.0.1:19633`). **Install** next to the Yomitan API URL (*Settings → Scanning*)
   installs MacPopup's own version of it, which doesn't need Python, for Chrome, Chromium, Brave or Firefox. Then restart
@@ -226,7 +226,7 @@ automatically record the character's voice line from your game's dialogue backlo
    card created today, and on any other cards added today with the same sentence, if that field is
    empty. The recording is then played back (optional).
 
-Requires macOS 14.2, the **Accessibility** permission (*Settings → Permissions*), and permission to record other apps'
+Requires the **Accessibility** permission (*Settings → Permissions*), and permission to record other apps'
 audio, which the first recording asks for (*System Settings → Privacy & Security → Screen & System Audio Recording*).
 
 ### Videos in IINA

@@ -2,7 +2,7 @@ import AVFoundation
 import CoreAudio
 import Darwin
 
-/// Records what some processes play, with a Core Audio process tap (macOS 14.2): an app with its helper
+/// Records what some processes play, with a Core Audio process tap: an app with its helper
 /// processes, or every process but some. Apps often play their sound from another process (WebKit's GPU
 /// process for web views, a browser's helpers, Parallels' VM process), which ScreenCaptureKit's
 /// recording of an app leaves out.
@@ -17,7 +17,6 @@ import Darwin
 ///
 /// The first recording asks for permission to record other apps' audio. Without it, the tap only
 /// records silence.
-@available(macOS 14.2, *)
 final class AudioTap {
     /// Which processes are recorded, by process ID.
     enum Processes {

@@ -357,8 +357,7 @@ final class AudioRecording: NSObject, @unchecked Sendable {
     private let padding: Double
     private let maxLength: Double
     private let queue = DispatchQueue(label: "local.macpopup.sentence-audio")
-    /// The AudioTap (macOS 14.2).
-    private var tap: AnyObject?
+    private var tap: AudioTap?
     private var testTimer: DispatchSourceTimer?
     private var format: AVAudioFormat?
     private var buffers: [AVAudioPCMBuffer] = []
@@ -383,7 +382,6 @@ final class AudioRecording: NSObject, @unchecked Sendable {
     /// Records the audio of the app with the process `pid` and its helpers, or, when it's nil, of every
     /// app but MacPopup (whose popups play audio too).
     func start(appPID pid: pid_t?) throws {
-        guard #available(macOS 14.2, *) else { throw SentenceAudioError("Recording needs macOS 14.2 or later") }
         if let pid {
             sentenceAudioLog("recording \(NSRunningApplication(processIdentifier: pid)?.localizedName ?? "process \(pid)")")
         } else {
@@ -465,7 +463,7 @@ final class AudioRecording: NSObject, @unchecked Sendable {
     private func end(_ reason: Reason) {
         guard !ended else { return }
         ended = true
-        if #available(macOS 14.2, *) { (tap as? AudioTap)?.stop() }
+        tap?.stop()
         testTimer?.cancel()
         detector?.finish()
         var clip: AudioClip?

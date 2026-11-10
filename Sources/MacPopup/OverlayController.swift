@@ -362,12 +362,8 @@ final class OverlayController: NSObject {
         case "context-menu": return .contextualMenu
         case "ew-resize", "col-resize", "e-resize", "w-resize": return .resizeLeftRight
         case "ns-resize", "row-resize", "n-resize", "s-resize": return .resizeUpDown
-        case "nwse-resize", "se-resize", "nw-resize":
-            if #available(macOS 15, *) { return .frameResize(position: .bottomRight, directions: .all) }
-            return .crosshair
-        case "nesw-resize", "sw-resize", "ne-resize":
-            if #available(macOS 15, *) { return .frameResize(position: .bottomLeft, directions: .all) }
-            return .crosshair
+        case "nwse-resize", "se-resize", "nw-resize": return .frameResize(position: .bottomRight, directions: .all)
+        case "nesw-resize", "sw-resize", "ne-resize": return .frameResize(position: .bottomLeft, directions: .all)
         default: return .arrow
         }
     }
