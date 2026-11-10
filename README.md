@@ -1,5 +1,7 @@
 # MacPopup
 
+<img src="Resources/AppIcon.png" alt="MacPopup’s icon" width="128" align="right">
+
 The creatively-named MacPopup is a native macOS overlay for looking up words with
 [Yomitan](https://github.com/yomidevs/yomitan) and mining flashcards to Anki—even over fullscreen
 games and apps. It works in two modes:

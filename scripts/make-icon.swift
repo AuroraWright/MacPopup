@@ -1,6 +1,7 @@
 // Draws the app icon (a pink あ in a speech bubble on a blue tile, after the trans flag's colors) and writes it as an .icns.
 // usage: swift scripts/make-icon.swift Resources/AppIcon.icns
 //        swift scripts/make-icon.swift ios/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+// The README's Resources/AppIcon.png is the .icns's 512 px image (iconutil -c iconset, icon_256x256@2x.png).
 // Drawn on the 1024 grid of macOS icons (an 824 tile with its shadow); 16 and 32 px get a bigger tile, bubble and あ,
 // without the shadow. The iOS one (a .png) is the tile alone, square and opaque, as iOS rounds the corners itself. あ is Noto Sans JP ExtraBold's outline (SIL Open Font License), in font units with y up.
 import CoreGraphics
