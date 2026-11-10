@@ -308,7 +308,7 @@ final class AudioTap {
     private static func get<T>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector, _ value: inout T) -> OSStatus {
         var address = address(selector)
         var size = UInt32(MemoryLayout<T>.size)
-        return AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value)
+        return withUnsafeMutablePointer(to: &value) { AudioObjectGetPropertyData(object, &address, 0, nil, &size, $0) }
     }
 
     /// A copy of `buffer` (which Core Audio reuses) with a buffer for each channel.

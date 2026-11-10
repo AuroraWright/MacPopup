@@ -397,7 +397,7 @@ final class AudioRecording: NSObject, @unchecked Sendable {
         self.tap = tap
     }
 
-    /// Plays a sound file in place of an input, in real time.
+    /// Plays a sound file in place of the game's audio, in real time.
     func start(testFile url: URL) throws {
         let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false)
         let chunk = AVAudioFrameCount(file.processingFormat.sampleRate / 10)

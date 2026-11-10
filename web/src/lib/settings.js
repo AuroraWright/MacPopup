@@ -44,8 +44,3 @@ export async function saveSettings(partial) {
 	current = { ...current, ...partial };
 	await nativeCall('setSettings', { json: JSON.stringify(current) });
 }
-
-export async function resetSettings() {
-	current = merge(null);
-	await nativeCall('setSettings', { json: '{}' });
-}

@@ -24,11 +24,6 @@ export function isValidInputName(name) {
 	return modifierNames.includes(base) || isMouseButton(base);
 }
 
-/** Input names for a MouseEvent.buttons bitmask. */
-export function mouseButtonNames(buttons) {
-	return [0, 1, 2, 3, 4, 5].filter((bit) => (buttons & (1 << bit)) !== 0).map((bit) => `mouse${bit}`);
-}
-
 /** "ctrl, mouse1" → ['ctrl', 'mouse1'] */
 export function parseScanInput(input) {
 	return `${input ?? ''}`.split(/[,\s]+/).filter(Boolean);
@@ -46,12 +41,6 @@ export function formatScanInput(names) {
 		return (excluded ? 100 : 0) + (isMouseButton(base) ? 10 + Number(base.slice(5)) : modifierNames.indexOf(base));
 	};
 	return [...new Set(names)].sort((a, b) => rank(a) - rank(b)).join(' ');
-}
-
-/** The input name for a KeyboardEvent.code, or null for keys that can't be used. */
-export function keyNameFromCode(code) {
-	const modifier = /^(Meta|Control|Alt|Shift)(Left|Right)$/.exec(code);
-	return modifier ? { Meta: 'meta', Control: 'ctrl', Alt: 'alt', Shift: 'shift' }[modifier[1]] : null;
 }
 
 /**
