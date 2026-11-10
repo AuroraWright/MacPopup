@@ -355,7 +355,7 @@ enum SettingsSchema {
             SettingsSection(title: "Scanning", symbol: "cursorarrow.rays", fields: [
                 SettingsField(
                     "yomitanApiUrl", "Yomitan API URL", .text(test: .yomitan),
-                    hint: "To activate the Yomitan API, a native messaging component must be installed (Install), and Enable Yomitan API turned on in Yomitan’s settings."
+                    hint: "To activate the Yomitan API, you need to install a native messaging component for your browser (Install), go to Yomitan’s settings and enable Advanced settings, and turn on Enable Yomitan API (no need to follow the other steps Yomitan mentions: Install here takes care of them)."
                 ),
                 SettingsField("scanModifier", "Scan modifier key (text box/OCR Mode text)", .select(scanModifierOptions)),
                 SettingsField("scanInputs", "Advanced scanning inputs", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
