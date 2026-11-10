@@ -1,19 +1,13 @@
 #import "LiveText.h"
 #import <TargetConditionals.h>
-#if TARGET_OS_OSX
-#import <AppKit/AppKit.h>
-#else
+#if !TARGET_OS_OSX
 #import <dlfcn.h>
 #endif
 
 // VisionKitCore's analyzer, as used by owocr's Apple Live Text engine.
 @interface NSObject (MPVisionKitCore)
-#if TARGET_OS_OSX
-- (instancetype)initWithImage:(NSImage *)image requestType:(NSInteger)requestType;
-#else
-// iOS has no NSImage: the request takes the CGImage (orientation 0, up).
+/// Orientation 0 is up.
 - (instancetype)initWithCGImage:(CGImageRef)image orientation:(NSInteger)orientation requestType:(NSUInteger)requestType;
-#endif
 - (void)setLocales:(NSArray<NSString *> *)locales;
 - (void)processRequest:(id)request
        progressHandler:(void (^)(double progress))progressHandler
@@ -84,12 +78,7 @@ static const NSInteger MPAnalysisTypeText = 1;
         completion(nil, [NSError errorWithDomain:@"MacPopup" code:1 userInfo:@{NSLocalizedDescriptionKey: message}]);
         return;
     }
-#if TARGET_OS_OSX
-    NSImage *nsImage = [[NSImage alloc] initWithCGImage:image size:NSMakeSize(CGImageGetWidth(image), CGImageGetHeight(image))];
-    id request = [[NSClassFromString(@"VKCImageAnalyzerRequest") alloc] initWithImage:nsImage requestType:MPAnalysisTypeText];
-#else
     id request = [[NSClassFromString(@"VKCImageAnalyzerRequest") alloc] initWithCGImage:image orientation:0 requestType:MPAnalysisTypeText];
-#endif
     [request setLocales:locales];
     [[self analyzer] processRequest:request
                     progressHandler:^(double progress) {}
