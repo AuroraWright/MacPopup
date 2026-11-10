@@ -7,7 +7,8 @@ games and apps. It works in two modes:
 - **Window Mode**: Inspired by [JL](https://github.com/rampaa/JL). Receives text over WebSockets
   (from tools like Textractor, Agent, or LunaTranslator) and displays it in a customizable floating
   text box (similar to [texthooker-ui](https://github.com/Renji-XD/texthooker-ui)).
-- **OCR Mode**: Inspired by [meikipop](https://github.com/rtr46/meikipop). Hides the text box and
+- **OCR Mode**: Inspired by [meikipop](https://github.com/rtr46/meikipop) and
+  [GameSentenceMiner](https://github.com/bpwhelan/GameSentenceMiner). Hides the text box and
   reads text directly from any app or game window on screen using Apple Live Text, [meikiocr](https://github.com/rtr46/meikiocr),
   [PP-OCRv6 Manga](https://huggingface.co/Kellenok/PP-OCRv6_manga), Chrome's Screen AI, or Windows' OneOCR
   (with optional Google Lens or Bing cloud passes). Simply hover over the game's own
