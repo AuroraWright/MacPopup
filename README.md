@@ -5,7 +5,7 @@ The creatively-named MacPopup is a native macOS overlay for looking up words wit
 games and apps. It works in two modes:
 
 - **Window Mode**: Inspired by [JL](https://github.com/rampaa/JL). Receives text over WebSockets
-  (from tools like Textractor, Agent, or LunaTranslator) and displays it in a customizable floating
+  or from the clipboard (from tools like Textractor, Agent, or LunaTranslator) and displays it in a customizable floating
   text box (similar to [texthooker-ui](https://github.com/Renji-XD/texthooker-ui)).
 - **OCR Mode**: Inspired by [meikipop](https://github.com/rtr46/meikipop) and
   [GameSentenceMiner](https://github.com/bpwhelan/GameSentenceMiner). Hides the text box and
@@ -16,7 +16,7 @@ games and apps. It works in two modes:
 
 All dictionary lookups and Anki card templates are powered by your existing browser installation of
 Yomitan through the [Yomitan API](https://github.com/yomidevs/yomitan-api), which you can install
-directly from MacPopup (*Settings → Scanning*).
+directly from MacPopup.
 
 ---
 
@@ -31,28 +31,11 @@ directly from MacPopup (*Settings → Scanning*).
 
 ---
 
-## Build and Run
+## Running
 
-Building needs Swift 5.9+ (the Xcode Command Line Tools) and Node.js 18+.
-
-```sh
-cd web && npm install && cd ..
-scripts/build.sh            # Builds release app at build/MacPopup.app
-open build/MacPopup.app
-```
-
-- Run `scripts/build.sh debug` for a debug build.
-- The first build automatically downloads Yomitan's kanji stroke-order font into `build/cache`.
-- **Code Signing & Permissions**: To prevent macOS from asking for Screen Recording and
-  Accessibility permissions again after every rebuild, sign the app with your own certificate: write
-  its name (as listed by `security find-identity -v -p codesigning`, e.g. "Apple Development: Your
-  Name (TEAMID)") in a `.signing-identity` file at the top of the repository (it's kept out of git),
-  or set `MACPOPUP_SIGN_IDENTITY`. Otherwise the build signs ad-hoc, and macOS asks for the
-  permissions again after each build.
-
-MacPopup runs in the background without a Dock icon. Click the **speech bubble icon in the menu
-bar** to open Settings, switch between Window Mode and OCR Mode, select a target window, hide the
-overlay, move between displays, or quit.
+MacPopup runs in the background without a Dock icon. Click the **speech bubble icon in the menu bar** to open Settings,
+switch between Window Mode and OCR Mode, select a target window, hide the overlay, move between
+displays, or quit.
 
 ---
 
@@ -237,8 +220,7 @@ made from them the line's own frame and audio:
 
 1. Click **Install** in *Settings → IINA Integration*, which opens the plugin in IINA (or run
    `iina-plugin link iina-plugin` from IINA's `Contents/MacOS` for development), turn the plugin on in IINA's
-   *Settings → Plugins*, and restart IINA. Don't install it while it's linked: IINA replaces a plugin by deleting its
-   folder, which for a link is `iina-plugin/` itself.
+   *Settings → Plugins*, and restart IINA.
 2. Add `ws://localhost:6680` in MacPopup's *Settings → WebSockets* (the port can be changed in the
    plugin's settings). Each subtitle line arrives like a text hooker's, so you can read them in the text box, or hover
    the subtitles on the video in OCR Mode with **Match and fix OCR with WebSocket text** on.
@@ -261,6 +243,26 @@ in Safari for a dictionary extension such as Yomitan. It's separate from MacPopu
   unavailable.
 - **Profile Switching Shortcuts**: Yomitan's keyboard shortcuts for switching profiles inside a
   popup are not supported.
+
+---
+
+## Building
+
+Building needs Swift 5.9+ (the Xcode Command Line Tools) and Node.js 18+.
+
+```sh
+cd web && npm install && cd ..
+scripts/build.sh            # Builds release app at build/MacPopup.app
+```
+
+- Run `scripts/build.sh debug` for a debug build.
+- The first build automatically downloads Yomitan's kanji stroke-order font into `build/cache`.
+- **Code Signing & Permissions**: To prevent macOS from asking for Screen Recording and
+  Accessibility permissions again after every rebuild, sign the app with your own certificate: write
+  its name (as listed by `security find-identity -v -p codesigning`, e.g. "Apple Development: Your
+  Name (TEAMID)") in a `.signing-identity` file at the top of the repository (it's kept out of git),
+  or set `MACPOPUP_SIGN_IDENTITY`. Otherwise the build signs ad-hoc, and macOS asks for the
+  permissions again after each build.
 
 ---
 
