@@ -263,6 +263,11 @@ scripts/build.sh            # Builds release app at build/MacPopup.app
   Name (TEAMID)") in a `.signing-identity` file at the top of the repository (it's kept out of git),
   or set `MACPOPUP_SIGN_IDENTITY`. Otherwise the build signs ad-hoc, and macOS asks for the
   permissions again after each build.
+- **Notarization**: `scripts/notarize.sh` builds a notarized copy to hand out, in `build/notarized`
+  (the app and a zip of it). It needs a "Developer ID Application" certificate (or set
+  `MACPOPUP_NOTARY_IDENTITY`) and a notarytool keychain profile, made with `xcrun notarytool
+  store-credentials`, whose name goes in a `.notary-profile` file (kept out of git) or
+  `MACPOPUP_NOTARY_PROFILE`.
 
 ---
 

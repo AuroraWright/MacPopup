@@ -1,5 +1,7 @@
 #!/bin/zsh
 # Builds build/MacPopup.app. Usage: scripts/build.sh [debug|release]
+# MACPOPUP_APP builds it elsewhere, and MACPOPUP_HARDENED=1 signs it for notarization (the hardened runtime and a secure
+# timestamp; scripts/notarize.sh sets both).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -8,7 +10,7 @@ if [[ "$(uname -m)" != arm64 ]]; then
     exit 1
 fi
 CONFIGURATION="${1:-release}"
-APP="build/MacPopup.app"
+APP="${MACPOPUP_APP:-build/MacPopup.app}"
 YOMITAN_COMMIT="d3c54c10264673eca0d66b970ef74cd5c8b048e3"
 
 # Kanji stroke order font used by Yomitan's kanji entries (17 MB, so it's downloaded rather than vendored).
@@ -102,13 +104,19 @@ elif [[ "$IDENTITY" != "-" ]] && ! security find-identity -v -p codesigning | gr
     IDENTITY="-"
 fi
 # Nested code is signed first.
+SIGN=(codesign --force --timestamp=none --sign "$IDENTITY")
+ENTITLEMENTS=()
+if [[ "${MACPOPUP_HARDENED:-}" == 1 ]]; then
+    SIGN=(codesign --force --timestamp --options runtime --sign "$IDENTITY")
+    ENTITLEMENTS=(--entitlements Resources/MacPopup.entitlements)
+fi
 if [[ -d "$APP/Contents/Frameworks" ]]; then
-    codesign --force --timestamp=none --sign "$IDENTITY" "$APP"/Contents/Frameworks/*.dylib >/dev/null
+    "${SIGN[@]}" "$APP"/Contents/Frameworks/*.dylib >/dev/null
 fi
-codesign --force --timestamp=none --sign "$IDENTITY" --identifier com.aury.macpopup.yomitan-api "$APP/Contents/Helpers/yomitan_api" >/dev/null
+"${SIGN[@]}" --identifier com.aury.macpopup.yomitan-api "$APP/Contents/Helpers/yomitan_api" >/dev/null
 if [[ -f "$APP/Contents/Helpers/ffmpeg" ]]; then
-    codesign --force --timestamp=none --sign "$IDENTITY" --identifier com.aury.macpopup.ffmpeg "$APP/Contents/Helpers/ffmpeg" >/dev/null
+    "${SIGN[@]}" --identifier com.aury.macpopup.ffmpeg "$APP/Contents/Helpers/ffmpeg" >/dev/null
 fi
-codesign --force --timestamp=none --sign "$IDENTITY" "$APP" >/dev/null
+"${SIGN[@]}" "${ENTITLEMENTS[@]}" "$APP" >/dev/null
 
 echo "Built $APP"

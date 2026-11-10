@@ -8,3 +8,4 @@ test-corpus/
 docs/
 .signing-identity
 ios/Signing.local.xcconfig
+.notary-profile
