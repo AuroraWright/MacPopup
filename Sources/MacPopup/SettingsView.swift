@@ -78,7 +78,7 @@ private struct SectionForm: View {
 /// A section's description. As a Text, its last line could be cut off: the form measures the header without
 /// the line breaking that keeps a last line from being too short, then draws it with it, which can take a
 /// line more. This label measures and draws its text the same way.
-private struct HeaderDescription: NSViewRepresentable {
+struct HeaderDescription: NSViewRepresentable {
     let text: String
 
     func makeNSView(context: Context) -> NSTextField {
@@ -219,14 +219,7 @@ private struct FieldRow: View {
                 FieldLabel(field: field)
             }
         case let .permission(permission):
-            // The status and buttons on their own line, so they're in the same place whatever their width.
-            VStack(alignment: .leading, spacing: 6) {
-                FieldLabel(field: field)
-                HStack {
-                    Spacer()
-                    PermissionControl(permission: permission)
-                }
-            }
+            PermissionRow(field: field, permission: permission)
         case let .convertedModels(kind):
             LabeledContent {
                 ConvertedModelsControl(kind: kind, load: actions.loadModels, remove: actions.removeModels)
@@ -391,6 +384,23 @@ private struct DisplayPicker<Label: View>: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
             displays = Self.connectedDisplays()
+        }
+    }
+}
+
+/// A permission's row in Settings → Permissions and the welcome window: its status and buttons on their own line, so
+/// they're in the same place whatever their width.
+struct PermissionRow: View {
+    let field: SettingsField
+    let permission: Permission
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            FieldLabel(field: field)
+            HStack {
+                Spacer()
+                PermissionControl(permission: permission)
+            }
         }
     }
 }

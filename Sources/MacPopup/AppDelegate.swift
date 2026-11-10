@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var sentenceAudio: SentenceAudioController!
     private var connectedWebsockets: [String] = []
     private var yomitanAPI: YomitanAPIStatus!
+    private var welcomeWindow: WelcomeWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         schemeHandler = WebAssetsSchemeHandler(root: WebViewFactory.webRoot)
@@ -41,6 +42,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         setUpStatusItem()
         setUpEditMenu()
         setOverlayVisible(true)
+
+        if WelcomeWindowController.isFirstLaunch {
+            welcomeWindow = WelcomeWindowController(yomitanAPI: yomitanAPI) { [weak self] section in
+                guard let self else { return }
+                settingsWindow.show(above: overlay.panel.level, section: section)
+            }
+            welcomeWindow?.show(above: overlay.panel.level)
+        }
     }
 
     /// The app has no menu bar of its own, but text fields in Settings need the Edit menu's key

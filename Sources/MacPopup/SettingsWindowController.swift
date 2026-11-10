@@ -20,7 +20,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         recorder.mouseButton(button, isDown: isDown)
     }
 
-    func show(above level: NSWindow.Level) {
+    /// Opens the window, on a section (its title) when given.
+    func show(above level: NSWindow.Level, section: String? = nil) {
+        if let section {
+            // SettingsView's selection, which follows it while the window is open too.
+            SettingsStore.shared.defaults.set(section, forKey: "settingsSection")
+        }
         if window == nil {
             let actions = SettingsActions(
                 selectOCRWindow: { [weak self] in self?.selectOCRWindow() },

@@ -1,17 +1,18 @@
+import Combine
 import Foundation
 
 /// Whether the Yomitan API answers, shown on the menu bar icon and in its menu. Each request is on its
 /// own, so this checks every 30 seconds, when the menu opens and when its URL changes, and again when
 /// the web side's requests stop or start working (see `reportRequest`).
 @MainActor
-final class YomitanAPIStatus {
+final class YomitanAPIStatus: ObservableObject {
     enum State: Equatable {
         case unknown
         case reachable(version: String)
         case unreachable
     }
 
-    private(set) var state = State.unknown {
+    @Published private(set) var state = State.unknown {
         didSet { if state != oldValue { onChange?() } }
     }
 
