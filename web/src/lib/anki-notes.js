@@ -174,20 +174,20 @@ async function resolveLocalMarkers(markers, { dictionaryEntry, content, selectio
 	return { values, media };
 }
 
-/** Whether a video player's line has a local file and stream for `track` ('video' or 'audio') and its timing. */
+/** Whether a video player's line has a source for `track` ('video' or 'audio') and its timing. */
 function hasPlayerTrack(player, track) {
-	return typeof player?.[track]?.file === 'string' && typeof player.start === 'number' && typeof player.end === 'number';
+	return !!player?.[track] && typeof player[track] === 'object' && typeof player.start === 'number' && typeof player.end === 'number';
 }
 
 /**
  * For a video player's line (content.player, see iina-plugin/), the frame in the middle of the line, from the video
- * file; else the captured window or display.
+ * file or stream; else the captured window or display.
  */
 async function takeScreenshot(player, format, settings) {
 	if (hasPlayerTrack(player, 'video')) {
 		try {
-			const { file, stream } = player.video;
-			return await nativeCall('mediaFrame', { file, stream, time: (player.start + player.end) / 2, format, quality: settings.screenshotQuality });
+			const time = (player.start + player.end) / 2;
+			return await nativeCall('mediaFrame', { source: player.video, socket: player.socket, time, format, quality: settings.screenshotQuality });
 		} catch (e) {
 			log('The line’s screenshot failed', e);
 		}
@@ -197,7 +197,7 @@ async function takeScreenshot(player, format, settings) {
 
 /**
  * The sentence audio of a video player's line (content.player, see iina-plugin/): its time range with the padding
- * of Settings → IINA Integration, cut out of the video file, for the sentence audio field when it's empty.
+ * of Settings → IINA Integration, cut out of the video file or stream, for the sentence audio field when it's empty.
  */
 async function playerSentenceAudio(player, cardFormat, fields) {
 	const settings = getSettings();
@@ -207,8 +207,8 @@ async function playerSentenceAudio(player, cardFormat, fields) {
 	const padding = (settings.iinaSentenceAudioPadding ?? 500) / 1000;
 	try {
 		const data = await nativeCall('mediaClip', {
-			file: player.audio.file,
-			stream: player.audio.stream,
+			source: player.audio,
+			socket: player.socket,
 			start: Math.max(0, player.start - padding),
 			end: player.end + padding,
 		});

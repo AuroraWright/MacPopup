@@ -12,5 +12,5 @@
   "preferenceDefaults": {
     "port": 6680
   },
-  "permissions": []
+  "permissions": ["file-system"]
 }

@@ -84,17 +84,18 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             let data = try await ScreenCapture.capture(displayID: displayID, fullResolution: fullResolution, format: format, quality: quality)
             return data.base64EncodedString()
         case "mediaClip":
-            guard let file = body["file"] as? String, let stream = (body["stream"] as? NSNumber)?.intValue,
+            guard let source = body["source"] as? [String: Any],
                   let start = (body["start"] as? NSNumber)?.doubleValue, let end = (body["end"] as? NSNumber)?.doubleValue
-            else { throw BridgeError("Missing file, stream or range") }
-            return try await MediaClip.audio(file: file, stream: stream, start: start, end: end).base64EncodedString()
+            else { throw BridgeError("Missing source or range") }
+            let audio = try MediaClip.Source(source, socket: body["socket"] as? String)
+            return try await MediaClip.audio(audio, start: start, end: end).base64EncodedString()
         case "mediaFrame":
-            guard let file = body["file"] as? String, let stream = (body["stream"] as? NSNumber)?.intValue,
-                  let time = (body["time"] as? NSNumber)?.doubleValue
-            else { throw BridgeError("Missing file, stream or time") }
+            guard let source = body["source"] as? [String: Any], let time = (body["time"] as? NSNumber)?.doubleValue
+            else { throw BridgeError("Missing source or time") }
+            let video = try MediaClip.Source(source, socket: body["socket"] as? String)
             let png = body["format"] as? String == "png"
             let quality = (body["quality"] as? NSNumber)?.doubleValue ?? 92
-            return try await MediaClip.frame(file: file, stream: stream, time: time, png: png, quality: quality).base64EncodedString()
+            return try await MediaClip.frame(video, time: time, png: png, quality: quality).base64EncodedString()
         case "clipboard":
             let pasteboard = NSPasteboard.general
             var result: [String: Any] = [:]

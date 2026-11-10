@@ -220,13 +220,17 @@ made from them the line's own frame and audio:
 
 1. Click **Install** in *Settings → IINA Integration*, which opens the plugin in IINA (or run
    `iina-plugin link iina-plugin` from IINA's `Contents/MacOS` for development), turn the plugin on in IINA's
-   *Settings → Plugins*, and restart IINA.
+   *Settings → Plugins*, and restart IINA. The plugin requests the permission to access files for the live stream and
+   cookie support (see 3).
 2. Add `ws://localhost:6680` in MacPopup's *Settings → WebSockets* (the port can be changed in the
    plugin's settings). Each subtitle line arrives like a text hooker's, so you can read them in the text box, or hover
    the subtitles on the video in OCR Mode with **Match and fix OCR with WebSocket text** on.
 3. For a sentence from one of these lines, `{screenshot}` is the frame in the middle of the line, without
    subtitles, at the video's size, and the **Sentence audio field** (*Settings → Anki*) gets the line's audio, with the
-   padding set in *Settings → IINA Integration* (where it can be turned off). Streams don't work, only local files.
+   padding set in *Settings → IINA Integration* (where it can be turned off). This works for network streams too
+   (including web videos IINA plays through yt-dlp): MacPopup will access them over the network using IINA's configured
+   headers, cookies and proxy, and for live streams it takes the line from IINA's cache, which holds roughly the last
+   minute played.
 
 ---
 

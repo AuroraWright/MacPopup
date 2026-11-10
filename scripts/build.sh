@@ -52,7 +52,8 @@ FFMPEG_VERSION="9.0.2"
 FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
 DAV1D_VERSION="1.5.4"
 DAV1D_SHA256=2abfb0c89212e6e4733a54e0ae509ec00a5b845a6360946f918806e14aedb011
-FFMPEG="build/cache/ffmpeg-$FFMPEG_VERSION-dav1d-$DAV1D_VERSION-arm64"
+# (The folder is named after the versions and the build-ffmpeg.sh options, so a change builds it again.)
+FFMPEG="build/cache/ffmpeg-$FFMPEG_VERSION-dav1d-$DAV1D_VERSION-network-proxy-arm64"
 if [[ ! -x "$FFMPEG/ffmpeg" ]]; then
     scripts/build-ffmpeg.sh "$FFMPEG_VERSION" "$FFMPEG_SHA256" "$DAV1D_VERSION" "$DAV1D_SHA256" "$FFMPEG" \
         || echo "warning: couldn't build ffmpeg; lines from IINA won't have sentence audio or their own screenshots"

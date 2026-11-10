@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Builds a small LGPL ffmpeg for the cards made from video players' lines (see iina-plugin/): the sentence audio cut
-# out of the video file (AAC in .m4a) and a frame of the line (JPEG or PNG). Local files only, the usual containers
-# and codecs; AV1 video through dav1d, which needs meson and ninja (without them, no AV1).
+# out of the video (AAC in .m4a) and a frame of the line (JPEG or PNG). Local files and http(s) streams, HLS included
+# (TLS through macOS's Secure Transport, through http proxies too), the usual containers and codecs; AV1 video through
+# dav1d, which needs meson and ninja (without them, no AV1).
 # Usage: scripts/build-ffmpeg.sh <ffmpeg version> <sha256> <dav1d version> <sha256> <out dir>; leaves
 # <out dir>/ffmpeg and the licenses.
 set -euo pipefail
@@ -29,18 +30,18 @@ download "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" "$FFMPEG_SH
 tar -xJf "$WORK/ffmpeg.tar.xz" -C "$WORK"
 SRC="$WORK/ffmpeg-$FFMPEG_VERSION"
 
-DEMUXERS=matroska,mov,mpegts,mpegps,avi,flv,ogg,asf,mp3,aac,flac,wav,ac3,eac3,dts,truehd
+DEMUXERS=matroska,mov,mpegts,mpegps,avi,flv,ogg,asf,mp3,aac,flac,wav,ac3,eac3,dts,truehd,hls
 DECODERS=aac,aac_latm,ac3,eac3,dca,truehd,mlp,flac,alac,opus,vorbis,mp1,mp2,mp3,wmav1,wmav2
 DECODERS=$DECODERS,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_f32le,pcm_u8,pcm_bluray,pcm_dvd
 DECODERS=$DECODERS,h264,hevc,vp8,vp9,mpeg1video,mpeg2video,mpeg4
 PARSERS=aac,aac_latm,ac3,dca,flac,mlp,mpegaudio,opus,vorbis,h264,hevc,vp8,vp9,av1,mpeg4video,mpegvideo
 flags=(
-    --disable-everything --disable-autodetect --disable-network --disable-doc --disable-debug
+    --disable-everything --disable-autodetect --enable-network --enable-securetransport --disable-doc --disable-debug
     --disable-ffplay --disable-ffprobe --disable-avdevice
     --enable-small --enable-zlib
-    --enable-protocol=file,pipe
+    --enable-protocol=file,pipe,http,https,tcp,tls,crypto,httpproxy
     --enable-demuxer=$DEMUXERS --enable-decoder=$DECODERS --enable-parser=$PARSERS
-    --enable-encoder=aac,mjpeg,png --enable-muxer=ipod,image2
+    --enable-encoder=aac,mjpeg,png --enable-muxer=ipod,image2,null
     --enable-filter=abuffer,abuffersink,aformat,anull,aresample,atrim,buffer,buffersink,format,null,scale
 )
 if command -v meson >/dev/null && command -v ninja >/dev/null && command -v pkg-config >/dev/null; then

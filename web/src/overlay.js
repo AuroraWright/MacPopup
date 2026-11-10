@@ -354,7 +354,8 @@ class SocketConnection {
 		}
 		addLine(line);
 		ocrWebsocketLine(line);
-		if (message?.player) addPlayerLine(line, message.player);
+		// The socket too: the line's video or audio may have to be asked of the player on it (MediaClip.swift).
+		if (message?.player) addPlayerLine(line, { ...message.player, socket: this.url });
 	}
 
 	setState(value) {
@@ -387,7 +388,7 @@ class SocketConnection {
 const sockets = new Map();
 
 // Recent lines from a video player, the newest first, with the player's part of the message (the line's id, timing,
-// and the file and streams of its video and audio).
+// and where its video and audio are read from) and the WebSocket it came on.
 const playerLines = [];
 
 const withoutWhitespace = (text) => text.replace(/\s/g, '');
