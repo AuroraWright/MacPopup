@@ -43,18 +43,11 @@ flags=(
     --enable-encoder=aac,mjpeg,png --enable-muxer=ipod,image2
     --enable-filter=abuffer,abuffersink,aformat,anull,aresample,atrim,buffer,buffersink,format,null,scale
 )
-# x86's assembly needs nasm; without it, the plain C code.
-asm=true
-if [[ "$(uname -m)" == x86_64 ]] && ! command -v nasm >/dev/null; then
-    flags+=(--disable-x86asm)
-    asm=false
-fi
-
 if command -v meson >/dev/null && command -v ninja >/dev/null && command -v pkg-config >/dev/null; then
     download "https://code.videolan.org/videolan/dav1d/-/archive/$DAV1D_VERSION/dav1d-$DAV1D_VERSION.tar.bz2" "$DAV1D_SHA256" "$WORK/dav1d.tar.bz2"
     tar -xjf "$WORK/dav1d.tar.bz2" -C "$WORK"
     meson setup "$WORK/dav1d-build" "$WORK/dav1d-$DAV1D_VERSION" --prefix="$WORK/dav1d" --libdir=lib \
-        --buildtype=release --default-library=static -Denable_asm=$asm \
+        --buildtype=release --default-library=static -Denable_asm=true \
         -Denable_tools=false -Denable_tests=false -Denable_examples=false >"$WORK/dav1d.log"
     ninja -C "$WORK/dav1d-build" install >>"$WORK/dav1d.log"
     export PKG_CONFIG_PATH="$WORK/dav1d/lib/pkgconfig"

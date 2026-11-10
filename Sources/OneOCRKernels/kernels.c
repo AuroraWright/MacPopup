@@ -1,6 +1,5 @@
 #include "OneOCRKernels.h"
 
-#if defined(__ARM_FEATURE_DOTPROD)
 #include <arm_neon.h>
 
 void oneocr_dot_u8_rows(const uint8_t *q, const uint8_t *w, int rows, int n, uint32_t *out) {
@@ -54,20 +53,3 @@ void oneocr_dot_u8_rows4(const uint8_t *q, const uint8_t *w, int rows, int n, ui
         out[3 * rows + r] = vaddvq_u32(a3);
     }
 }
-
-#else
-
-void oneocr_dot_u8_rows(const uint8_t *q, const uint8_t *w, int rows, int n, uint32_t *out) {
-    for (int r = 0; r < rows; r++) {
-        const uint8_t *wr = w + (long)r * n;
-        uint32_t s = 0;
-        for (int k = 0; k < n; k++) s += (uint32_t)q[k] * wr[k];
-        out[r] = s;
-    }
-}
-
-void oneocr_dot_u8_rows4(const uint8_t *q, const uint8_t *w, int rows, int n, uint32_t *out) {
-    for (int j = 0; j < 4; j++) oneocr_dot_u8_rows(q + (long)j * n, w, rows, n, out + (long)j * rows);
-}
-
-#endif

@@ -3,6 +3,10 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+if [[ "$(uname -m)" != arm64 ]]; then
+    echo "error: MacPopup is built on and for Apple Silicon Macs" >&2
+    exit 1
+fi
 CONFIGURATION="${1:-release}"
 APP="build/MacPopup.app"
 YOMITAN_COMMIT="d3c54c10264673eca0d66b970ef74cd5c8b048e3"
@@ -21,17 +25,14 @@ fi
 # libcurl-impersonate, for the cloud OCR engines' requests (Sources/CurlImpersonate): a release of
 # github.com/lexiforest/curl-impersonate, checked against its SHA-256.
 CURL_IMPERSONATE_VERSION="v2.2.3"
-case "$(uname -m)" in
-    arm64) CURL_IMPERSONATE_ARCH=arm64 CURL_IMPERSONATE_SHA256=16a73c8dfc55cb8c2354f93f43525529d0df6cbfc484fb7a4357b3891f9dbb6a ;;
-    *) CURL_IMPERSONATE_ARCH=x86_64 CURL_IMPERSONATE_SHA256=32634096e31e879d0a193f87e4a4083e2eb44b9b9318eb5b32f85f495104a049 ;;
-esac
-CURL_IMPERSONATE="build/cache/libcurl-impersonate-$CURL_IMPERSONATE_VERSION-$CURL_IMPERSONATE_ARCH"
+CURL_IMPERSONATE_SHA256=16a73c8dfc55cb8c2354f93f43525529d0df6cbfc484fb7a4357b3891f9dbb6a
+CURL_IMPERSONATE="build/cache/libcurl-impersonate-$CURL_IMPERSONATE_VERSION-arm64"
 # (libcurl-impersonate.4.dylib is a link to the file with the full version.)
 if [[ ! -f "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" ]]; then
-    ARCHIVE="build/cache/libcurl-impersonate-$CURL_IMPERSONATE_VERSION.$CURL_IMPERSONATE_ARCH-macos.tar.gz"
+    ARCHIVE="build/cache/libcurl-impersonate-$CURL_IMPERSONATE_VERSION.arm64-macos.tar.gz"
     mkdir -p build/cache
     if curl -fsSL -o "$ARCHIVE" \
-        "https://github.com/lexiforest/curl-impersonate/releases/download/$CURL_IMPERSONATE_VERSION/libcurl-impersonate-$CURL_IMPERSONATE_VERSION.$CURL_IMPERSONATE_ARCH-macos.tar.gz" \
+        "https://github.com/lexiforest/curl-impersonate/releases/download/$CURL_IMPERSONATE_VERSION/libcurl-impersonate-$CURL_IMPERSONATE_VERSION.arm64-macos.tar.gz" \
         && [[ "$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1)" == "$CURL_IMPERSONATE_SHA256" ]]; then
         rm -rf "$CURL_IMPERSONATE"
         mkdir -p "$CURL_IMPERSONATE"
@@ -49,7 +50,7 @@ FFMPEG_VERSION="9.0.2"
 FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
 DAV1D_VERSION="1.5.4"
 DAV1D_SHA256=2abfb0c89212e6e4733a54e0ae509ec00a5b845a6360946f918806e14aedb011
-FFMPEG="build/cache/ffmpeg-$FFMPEG_VERSION-dav1d-$DAV1D_VERSION-$(uname -m)"
+FFMPEG="build/cache/ffmpeg-$FFMPEG_VERSION-dav1d-$DAV1D_VERSION-arm64"
 if [[ ! -x "$FFMPEG/ffmpeg" ]]; then
     scripts/build-ffmpeg.sh "$FFMPEG_VERSION" "$FFMPEG_SHA256" "$DAV1D_VERSION" "$DAV1D_SHA256" "$FFMPEG" \
         || echo "warning: couldn't build ffmpeg; lines from IINA won't have sentence audio or their own screenshots"
