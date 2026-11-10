@@ -213,16 +213,15 @@ automatically:
 **Settings → Game Sentence Audio** lets you press a single global shortcut after mining a card to
 automatically record the character's voice line from your game's dialogue backlog:
 
-1. **Focus & Replay**: MacPopup brings your game window to the front and presses your recorded
-   **Keys to open backlog and replay voice**.
-2. **Smart Voice Recording**: Records the game's own audio with a Core Audio process tap: the audio of the
-   captured window's app (*Settings → General*) and its helper processes (such as a browser's, or Parallels' VM), or of
-   every app but MacPopup when no window is captured, so no virtual audio device (such as BlackHole) is needed. With **Automatically detect start and end of speech** enabled, macOS's sound
+1. MacPopup brings your game window to the front and presses your recorded
+   **Keys to open backlog**, and waits for you to replay the voice line.
+2. Records the game's own audio, or of
+   every app but MacPopup when no window is captured. With **Automatically detect start and end of speech** enabled, macOS's sound
    classifier ignores background music and sound effects, starts recording when speech begins, and
    stops automatically after the voice ends. If no voice is heard in time, nothing is saved. With
    detection off, press the shortcut again to stop recording.
-3. **Return to Game**: Presses your **Keys to close backlog**.
-4. **Attach to Card**: Saves the audio clip into the **Sentence audio field** (*Settings → Anki*) on the newest
+3. Presses your **Keys to close backlog**.
+4. Saves the audio clip into the **Sentence audio field** (*Settings → Anki*) on the newest
    card created today, and on any other cards added today with the same sentence, if that field is
    empty. The recording is then played back (optional).
 
@@ -234,20 +233,16 @@ audio, which the first recording asks for (*System Settings → Privacy & Securi
 The [IINA](https://iina.io) plugin in `iina-plugin/` sends the subtitles you're watching to MacPopup, and gives cards
 made from them the line's own frame and audio:
 
-1. **Install**: Click **Install** in *Settings → IINA Integration*, which opens the plugin in IINA (or run
+1. Click **Install** in *Settings → IINA Integration*, which opens the plugin in IINA (or run
    `iina-plugin link iina-plugin` from IINA's `Contents/MacOS` for development), turn the plugin on in IINA's
    *Settings → Plugins*, and restart IINA. Don't install it while it's linked: IINA replaces a plugin by deleting its
    folder, which for a link is `iina-plugin/` itself.
-2. **Connect**: Add `ws://localhost:6680` in MacPopup's *Settings → WebSockets* (the port can be changed in the
+2. Add `ws://localhost:6680` in MacPopup's *Settings → WebSockets* (the port can be changed in the
    plugin's settings). Each subtitle line arrives like a text hooker's, so you can read them in the text box, or hover
    the subtitles on the video in OCR Mode with **Match and fix OCR with WebSocket text** on.
-3. **Cards**: For a sentence from one of these lines, `{screenshot}` is the frame in the middle of the line, without
+3. For a sentence from one of these lines, `{screenshot}` is the frame in the middle of the line, without
    subtitles, at the video's size, and the **Sentence audio field** (*Settings → Anki*) gets the line's audio, with the
-   padding set in *Settings → IINA Integration* (where it can be turned off). Both are taken from the video file by
-   the ffmpeg built into MacPopup, whenever you add the card: nothing is recorded or replayed. Streams have neither
-   (the screenshot is then the usual capture).
-
-IINA's plugin server listens on every network interface; the plugin ignores connections from other devices.
+   padding set in *Settings → IINA Integration* (where it can be turned off). Streams don't work, only local files.
 
 ---
 
@@ -258,28 +253,24 @@ in Safari for a dictionary extension such as Yomitan. It's separate from MacPopu
 
 ---
 
-## Known Limitations
+## Limitations compared to Yomitan
 
 - **No Prefix Matching**: The Yomitan API only supports exact term lookups, so prefix search is
   unavailable.
-- **CSS `:hover` Highlights**: Because macOS WebKit only sends CSS hover events to the active
-  application, button hover highlights inside popups only appear when MacPopup itself is focused.
-  Word lookups and nested popups work normally regardless of focus.
 - **Profile Switching Shortcuts**: Yomitan's keyboard shortcuts for switching profiles inside a
   popup are not supported.
-- **Keyboard Focus**: The overlay never takes keyboard focus; popup shortcuts work through global
-  hotkeys while a popup is open.
-- **Window Mode Lookups**: Outside OCR Mode, lookups work on the text box's own text, not on other
-  apps.
-- **Live Text**: Live Text is used through a private VisionKit interface (the same one owocr uses),
-  so a future macOS version could change it.
 
 ---
 
 ## License
 
-Licensed under the **GPL-3.0** as it includes code from
-[Yomitan](https://github.com/yomidevs/yomitan) (see `vendor/yomitan/README.md` and `LICENSE`).
+Licensed under the **GPL-3.0**.
+
+Large parts of the codebase are derived from [Yomitan](https://github.com/yomidevs/yomitan) (see `vendor/yomitan/README.md` and `LICENSE`).
+
+The text box's line processing, settings and replacements are adapted from
+[texthooker-ui](https://github.com/Renji-XD/texthooker-ui) under the **MIT License** (see `vendor/texthooker-ui/README.md`
+and `vendor/texthooker-ui/LICENSE`).
 
 The `meikiocr` Core ML models (`vendor/meikiocr`) are licensed under the **LGPL-3.0**, and
 `Sources/OCREngines/MeikiOCR.swift` is adapted from `meikiocr` under the **Apache License 2.0** (see
