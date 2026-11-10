@@ -65,6 +65,8 @@ cp "$BIN_DIR/MacPopup" "$APP/Contents/MacOS/MacPopup"
 # The Yomitan API's native messaging host, which Settings → Scanning → Install copies next to a browser's manifest.
 cp "$BIN_DIR/yomitan-api" "$APP/Contents/Helpers/yomitan_api"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# Made by scripts/make-icon.swift.
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp -R build/web "$APP/Contents/Resources/web"
 if [[ -f "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" ]]; then
     mkdir -p "$APP/Contents/Frameworks" "$APP/Contents/Resources/Licenses/curl-impersonate"
