@@ -59,6 +59,7 @@
 		B10000000000000000000011 /* Controls.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Controls.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000000000000000000012 /* Share.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Share.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000000000000000000013 /* Broadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Broadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000014 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -113,6 +114,7 @@
 				B10000000000000000000022 /* Controls */,
 				B10000000000000000000024 /* Share */,
 				B10000000000000000000025 /* Broadcast */,
+				B10000000000000000000014 /* Signing.xcconfig */,
 				B10000000000000000000041 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -527,6 +529,7 @@
 		};
 		B10000000000000000000321 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B10000000000000000000014 /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ENABLE_MODULES = YES;
@@ -546,6 +549,7 @@
 		};
 		B10000000000000000000322 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B10000000000000000000014 /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ENABLE_MODULES = YES;

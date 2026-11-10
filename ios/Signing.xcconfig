@@ -1,0 +1,3 @@
+// Signing for a device: your development team goes in Signing.local.xcconfig next to this file (kept out of git),
+// e.g. DEVELOPMENT_TEAM = ABCDE12345. The simulator doesn't need it.
+#include? "Signing.local.xcconfig"

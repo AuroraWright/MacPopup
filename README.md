@@ -43,10 +43,11 @@ open build/MacPopup.app
 - Run `scripts/build.sh debug` for a debug build.
 - The first build automatically downloads Yomitan's kanji stroke-order font into `build/cache`.
 - **Code Signing & Permissions**: To prevent macOS from asking for Screen Recording and
-  Accessibility permissions again after every rebuild, `scripts/build.sh` signs the app with a fixed
-  certificate, "Apple Development: Your Name (TEAMID)". Set `MACPOPUP_SIGN_IDENTITY` to your own
-  certificate's name, or to `-` for ad-hoc signing (macOS then asks for the permissions again after
-  each build). Without the certificate in your keychain, the build signs ad-hoc with a warning.
+  Accessibility permissions again after every rebuild, sign the app with your own certificate: write
+  its name (as listed by `security find-identity -v -p codesigning`, e.g. "Apple Development: Your
+  Name (TEAMID)") in a `.signing-identity` file at the top of the repository (it's kept out of git),
+  or set `MACPOPUP_SIGN_IDENTITY`. Otherwise the build signs ad-hoc, and macOS asks for the
+  permissions again after each build.
 
 MacPopup runs in the background without a Dock icon. Click the **speech bubble icon in the menu
 bar** to open Settings, switch between Window Mode and OCR Mode, select a target window, hide the

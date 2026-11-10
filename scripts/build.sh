@@ -85,9 +85,16 @@ done
 cp vendor/ppocr-manga/PPOCRMangaCharacters.txt "$APP/Contents/Resources/Models/"
 # Signed with a certificate, macOS keeps the privacy permissions (Screen Recording, Accessibility) across
 # builds; ad-hoc signatures change with every build, so they'd be asked for again.
-# MACPOPUP_SIGN_IDENTITY overrides the identity ("-" for ad-hoc).
-IDENTITY="${MACPOPUP_SIGN_IDENTITY:-Apple Development: Your Name (TEAMID)}"
-if [[ "$IDENTITY" != "-" ]] && ! security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\""; then
+# The certificate is MACPOPUP_SIGN_IDENTITY, or else the first line of .signing-identity (kept out of git), such as
+# "Apple Development: Your Name (TEAMID)". Without either, or with "-", the app is signed ad-hoc.
+IDENTITY="${MACPOPUP_SIGN_IDENTITY:-}"
+if [[ -z "$IDENTITY" && -f .signing-identity ]]; then
+    IDENTITY="$(head -n 1 .signing-identity)"
+fi
+if [[ -z "$IDENTITY" ]]; then
+    echo "note: no code signing identity set (MACPOPUP_SIGN_IDENTITY or .signing-identity); signing ad-hoc"
+    IDENTITY="-"
+elif [[ "$IDENTITY" != "-" ]] && ! security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\""; then
     echo "warning: no code signing identity \"$IDENTITY\"; signing ad-hoc (permissions will be asked for again)"
     IDENTITY="-"
 fi
