@@ -716,7 +716,7 @@ private struct BroadcastButton: UIViewRepresentable {
 
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
-        picker.preferredExtension = "local.macpopup.ios.broadcast"
+        picker.preferredExtension = "com.aury.macpopup.ios.broadcast"
         picker.showsMicrophoneButton = false
         Self.picker = picker
         return picker

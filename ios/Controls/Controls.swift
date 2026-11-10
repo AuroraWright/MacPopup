@@ -12,7 +12,7 @@ struct Controls: WidgetBundle {
 /// A Control Center (and Lock Screen, Action button) button: reads the newest screenshot and opens it in Safari.
 struct ReadScreenshotControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
-        StaticControlConfiguration(kind: "local.macpopup.ios.read-latest-screenshot") {
+        StaticControlConfiguration(kind: "com.aury.macpopup.ios.read-latest-screenshot") {
             ControlWidgetButton(action: ReadLatestScreenshotIntent()) {
                 Label("Read Screenshot", systemImage: "text.viewfinder")
             }

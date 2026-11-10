@@ -8,10 +8,10 @@ import os
 /// magic, pixel format, width, height, orientation, plane count, then each plane's bytes per row and height, and the
 /// frame's number as a UInt64 at 56), then the planes' bytes.
 enum SharedFrame {
-    static let notification = "local.macpopup.ios.frame"
+    static let notification = "com.aury.macpopup.ios.frame"
     /// Posted when a broadcast starts and finishes.
-    static let startedNotification = "local.macpopup.ios.broadcast-started"
-    static let finishedNotification = "local.macpopup.ios.broadcast-finished"
+    static let startedNotification = "com.aury.macpopup.ios.broadcast-started"
+    static let finishedNotification = "com.aury.macpopup.ios.broadcast-finished"
     static let magic: UInt32 = 0x3146_504D  // "MPF1"
     static let headerSize = 64
 

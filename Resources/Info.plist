@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>MacPopup</string>
     <key>CFBundleIdentifier</key>
-    <string>local.macpopup</string>
+    <string>com.aury.macpopup</string>
     <key>CFBundleExecutable</key>
     <string>MacPopup</string>
     <key>CFBundlePackageType</key>
@@ -15,7 +15,9 @@
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>1.0</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>©2026 Aurora Wright and contributors</string>
     <key>LSMinimumSystemVersion</key>
     <string>15.0</string>
     <key>LSUIElement</key>

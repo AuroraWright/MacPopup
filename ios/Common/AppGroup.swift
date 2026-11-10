@@ -2,7 +2,7 @@ import Foundation
 
 /// The App Group the app and its extensions share.
 enum AppGroup {
-    static let identifier = "group.local.macpopup.ios"
+    static let identifier = "group.com.aury.macpopup.ios"
 
     static var folder: URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier)

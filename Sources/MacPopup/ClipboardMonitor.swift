@@ -5,7 +5,7 @@ import AppKit
 @MainActor
 final class ClipboardMonitor {
     /// Marks what MacPopup copies itself (e.g. the "copy host selection" shortcut), which isn't a new line.
-    static let ownType = NSPasteboard.PasteboardType("local.macpopup.copy")
+    static let ownType = NSPasteboard.PasteboardType("com.aury.macpopup.copy")
     /// Types password managers and other apps add to data that shouldn't be recorded
     /// (http://nspasteboard.org).
     /// The general pasteboard; MACPOPUP_PASTEBOARD names another one, for testing.

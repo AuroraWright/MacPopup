@@ -394,7 +394,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = local.macpopup.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aury.macpopup.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -416,7 +416,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = local.macpopup.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aury.macpopup.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -432,7 +432,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MacPopup;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = local.macpopup.ios.controls;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aury.macpopup.ios.controls;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG CONTROLS_EXTENSION";
@@ -450,7 +450,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MacPopup;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = local.macpopup.ios.controls;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aury.macpopup.ios.controls;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "CONTROLS_EXTENSION";
@@ -468,7 +468,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MacPopup;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = local.macpopup.ios.share;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aury.macpopup.ios.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -485,7 +485,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MacPopup;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = local.macpopup.ios.share;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aury.macpopup.ios.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -502,7 +502,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MacPopup;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = local.macpopup.ios.broadcast;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aury.macpopup.ios.broadcast;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
@@ -520,7 +520,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MacPopup;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = local.macpopup.ios.broadcast;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aury.macpopup.ios.broadcast;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 1;

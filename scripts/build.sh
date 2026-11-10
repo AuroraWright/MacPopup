@@ -103,9 +103,9 @@ fi
 if [[ -d "$APP/Contents/Frameworks" ]]; then
     codesign --force --timestamp=none --sign "$IDENTITY" "$APP"/Contents/Frameworks/*.dylib >/dev/null
 fi
-codesign --force --timestamp=none --sign "$IDENTITY" --identifier local.macpopup.yomitan-api "$APP/Contents/Helpers/yomitan_api" >/dev/null
+codesign --force --timestamp=none --sign "$IDENTITY" --identifier com.aury.macpopup.yomitan-api "$APP/Contents/Helpers/yomitan_api" >/dev/null
 if [[ -f "$APP/Contents/Helpers/ffmpeg" ]]; then
-    codesign --force --timestamp=none --sign "$IDENTITY" --identifier local.macpopup.ffmpeg "$APP/Contents/Helpers/ffmpeg" >/dev/null
+    codesign --force --timestamp=none --sign "$IDENTITY" --identifier com.aury.macpopup.ffmpeg "$APP/Contents/Helpers/ffmpeg" >/dev/null
 fi
 codesign --force --timestamp=none --sign "$IDENTITY" "$APP" >/dev/null
 

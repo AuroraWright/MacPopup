@@ -356,7 +356,7 @@ final class AudioRecording: NSObject, @unchecked Sendable {
     /// Seconds kept before and after the voice.
     private let padding: Double
     private let maxLength: Double
-    private let queue = DispatchQueue(label: "local.macpopup.sentence-audio")
+    private let queue = DispatchQueue(label: "com.aury.macpopup.sentence-audio")
     private var tap: AudioTap?
     private var testTimer: DispatchSourceTimer?
     private var format: AVAudioFormat?
