@@ -10,7 +10,7 @@ import { correctWithText, decodeLines, lineText, renderLines } from './lib/ocr-l
 import { applyReplacements } from './lib/replacements.js';
 import { cursorAt } from './lib/cursor.js';
 import { getSettings, loadSettings, onSettingsChanged, saveSettings } from './lib/settings.js';
-import { ankiCardFormats, kanjiEntries, termEntries, tokenize } from './lib/yomitan-api.js';
+import { ankiCardFormats, kanjiEntries, termEntries, tokenize, YomitanAPITimeout } from './lib/yomitan-api.js';
 import { convertHiraganaToKatakana, convertKatakanaToHiragana } from '../../vendor/yomitan/ext/js/language/ja/japanese.js';
 import { convertToRomaji } from '../../vendor/yomitan/ext/js/language/ja/japanese-wanakana.js';
 
@@ -128,7 +128,7 @@ function addLine(rawText) {
 		removeLine(previous);
 	}
 
-	const line = { id: `${state.nextId++}`, text, tokens: null, element: null };
+	const line = { id: `${state.nextId++}`, text, tokens: null, element: null, tokenizing: new AbortController() };
 	state.lines.push(line);
 	countLine(text, 1);
 	while (settings.maxLines > 0 && state.lines.length > settings.maxLines) {
@@ -149,19 +149,21 @@ function removeLine(line) {
 	state.lines.splice(index, 1);
 	countLine(line.text, -1);
 	line.element?.remove();
+	line.tokenizing.abort();
 }
 
 function clearLines() {
+	for (const line of state.lines) line.tokenizing.abort();
 	state.lines = [];
 	state.lineTextCounts.clear();
 	linesElement.textContent = '';
 	popupManager.closeAll();
 }
 
-async function tokenizeLine(line) {
+async function tokenizeLine(line, retry = true) {
 	const displayText = formatLineText(line.text, getSettings().preserveWhitespace);
 	try {
-		const result = await tokenize(displayText);
+		const result = await tokenize(displayText, line.tokenizing.signal);
 		const tokens = result?.content ?? [];
 		// Only use the tokens if they cover the text exactly; otherwise keep point scanning.
 		if (tokens.flat().map((segment) => segment.text).join('') !== displayText) return;
@@ -171,6 +173,10 @@ async function tokenizeLine(line) {
 		line.element.replaceWith(element);
 		line.element = element;
 	} catch (e) {
+		if (line.tokenizing.signal.aborted) return;
+		// Yomitan keeps working on a request it didn't answer in time, and keeps what it found in its parse cache: once
+		// more is quick.
+		if (retry && e instanceof YomitanAPITimeout) return tokenizeLine(line, false);
 		log('Tokenize failed', e);
 	}
 }

@@ -39,6 +39,8 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: configuration)
     }()
+    /// The `http` requests that the web side can cancel, by the id it gave them.
+    private var httpRequests: [String: Task<[String: Any], Error>] = [:]
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -63,7 +65,15 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             SettingsStore.shared.update(json: json)
             return nil
         case "http":
-            return try await http(body)
+            guard let id = body["id"] as? String else { return try await http(body) }
+            let task = Task { try await http(body) }
+            httpRequests[id] = task
+            defer { httpRequests[id] = nil }
+            return try await task.value
+        case "cancelHttp":
+            // (Cancelling closes the connection: the Yomitan API then drops a request that's still waiting its turn.)
+            (body["id"] as? String).flatMap { httpRequests[$0] }?.cancel()
+            return nil
         case "setHitRects":
             let rects = (body["rects"] as? [[NSNumber]] ?? []).compactMap { values -> CGRect? in
                 guard values.count == 4 else { return nil }

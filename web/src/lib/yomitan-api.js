@@ -7,19 +7,24 @@ function reportRequest(succeeded) {
 	nativeCall('yomitanApiRequest', { succeeded }).catch(() => {});
 }
 
-async function call(path, body = {}) {
+/** A request the API answered 504: it reached Yomitan (or its turn), which didn't answer in time. */
+export class YomitanAPITimeout extends Error {}
+
+async function call(path, body = {}, signal = null) {
 	const { yomitanApiUrl } = getSettings();
 	let response;
 	try {
-		response = await httpPost(`${yomitanApiUrl.replace(/\/+$/, '')}/${path}`, body);
+		response = await httpPost(`${yomitanApiUrl.replace(/\/+$/, '')}/${path}`, body, { signal });
 	} catch (e) {
-		reportRequest(false);
+		if (!signal?.aborted) reportRequest(false);
 		throw e;
 	}
 	const { status, body: text } = response;
-	reportRequest(status === 200);
+	// A 504 is a slow request, not an API that's gone; a 503 (from OwOtan's app) is the API off or Safari not running.
+	reportRequest(status === 200 || status === 504);
 	if (status !== 200) {
-		throw new Error(`Yomitan API /${path} failed (${status})${text ? `: ${text.slice(0, 300)}` : ''}`);
+		const Failure = status === 504 ? YomitanAPITimeout : Error;
+		throw new Failure(`Yomitan API /${path} failed (${status})${text ? `: ${text.slice(0, 300)}` : ''}`);
 	}
 	return JSON.parse(text);
 }
@@ -28,9 +33,10 @@ export function yomitanVersion() {
 	return call('yomitanVersion');
 }
 
-export async function tokenize(text) {
+/** Aborting `signal` (for a line that's gone) drops the request if it's still waiting its turn. */
+export async function tokenize(text, signal = null) {
 	const { scanLength, parser } = getSettings();
-	const results = await call('tokenize', { text, scanLength, parser });
+	const results = await call('tokenize', { text, scanLength, parser }, signal);
 	return results.find((result) => result.index === 0) ?? results[0] ?? null;
 }
 

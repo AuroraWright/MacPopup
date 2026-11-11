@@ -17,8 +17,22 @@ export function nativeCall(cmd, args = {}) {
 	return handler.postMessage({ cmd, ...args });
 }
 
-export async function httpPost(url, body, timeout = 30) {
-	return nativeCall('http', { url, body: JSON.stringify(body), timeout });
+/** Aborting `signal` closes the request's connection, and the promise rejects with the signal's reason. */
+export async function httpPost(url, body, { timeout = 30, signal = null } = {}) {
+	if (!signal) return nativeCall('http', { url, body: JSON.stringify(body), timeout });
+	signal.throwIfAborted();
+	// (Each frame's own counter would repeat another's.)
+	const id = Math.random().toString(36).slice(2);
+	const cancel = () => nativeCall('cancelHttp', { id }).catch(() => {});
+	signal.addEventListener('abort', cancel, { once: true });
+	try {
+		return await nativeCall('http', { url, body: JSON.stringify(body), timeout, id });
+	} catch (e) {
+		signal.throwIfAborted();
+		throw e;
+	} finally {
+		signal.removeEventListener('abort', cancel);
+	}
 }
 
 export function log(...args) {
