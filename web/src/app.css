@@ -70,19 +70,6 @@ body {
 	cursor: move;
 }
 
-/* What a header button does (see showHeaderTip in overlay.js). */
-#header-tip {
-	position: absolute;
-	z-index: 11;
-	padding: 1px 6px;
-	white-space: nowrap;
-	pointer-events: none;
-}
-
-#header-tip[hidden] {
-	display: none;
-}
-
 #lines {
 	overflow: auto;
 	min-height: 0;

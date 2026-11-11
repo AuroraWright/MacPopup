@@ -381,7 +381,7 @@ class SocketConnection {
 		} catch (_) {
 			// Shown as given
 		}
-		el.dataset.tip = `WebSocket ${address}`;
+		el.title = `WebSocket ${address}`;
 		if (this.state === 0 && !this.retrying) {
 			el.innerHTML = '<span class="animate-ping relative inline-flex rounded-full h-3 w-3 mx-1 bg-primary"></span>';
 			el.classList.remove('text-red-500', 'text-green-700');
@@ -913,30 +913,8 @@ function setPointerHover(x, y) {
 	}
 	for (const element of hovered) element.classList.add('pointer-hover');
 	pointerHovered = hovered;
-	showHeaderTip(target?.closest('#box-header .header-button') ?? null);
-	// The box's titles (its drag and resize handles).
+	// The box's titles (its header buttons, drag and resize handles).
 	tooltip.update(x, y);
-}
-
-/**
- * Shows what a header button does under it. Native tooltips (title) don't show: the overlay's app is never
- * active.
- */
-function showHeaderTip(button) {
-	const tip = $('#header-tip');
-	const text = button?.dataset.tip;
-	if (!text) {
-		tip.hidden = true;
-		return;
-	}
-	tip.textContent = text;
-	tip.hidden = false;
-	// Centered under the button, within the box.
-	const box = $('#box').getBoundingClientRect();
-	const rect = button.getBoundingClientRect();
-	const left = rect.left + rect.width / 2 - tip.offsetWidth / 2 - box.left;
-	tip.style.left = `${Math.max(4, Math.min(left, box.width - tip.offsetWidth - 4))}px`;
-	tip.style.top = `${rect.bottom - box.top + 2}px`;
 }
 
 // The cursor the app shows over the box and popups (null: whatever the app below shows).
@@ -1362,14 +1340,14 @@ function renderClipboardButton() {
 	const button = $('#clipboard-button');
 	const enabled = !!getSettings().clipboardMonitor;
 	button.innerHTML = icon(enabled ? mdiClipboardTextOutline : mdiClipboardOffOutline);
-	button.dataset.tip = 'Clipboard';
+	button.title = 'Clipboard';
 	button.classList.toggle('text-green-700', enabled);
 }
 
 function renderPauseButton() {
 	const button = $('#pause-button');
 	button.innerHTML = icon(state.paused ? mdiPlay : mdiPause);
-	button.dataset.tip = state.paused ? 'Resume' : 'Pause';
+	button.title = state.paused ? 'Resume' : 'Pause';
 	button.classList.toggle('text-warning', state.paused);
 }
 
