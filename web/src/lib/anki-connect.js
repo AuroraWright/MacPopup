@@ -4,7 +4,11 @@ import { getSettings } from './settings.js';
 export async function ankiInvoke(action, params = {}) {
 	const { ankiConnectUrl, ankiConnectKey } = getSettings();
 	const body = { action, version: 6, params };
-	if (ankiConnectKey) body.key = ankiConnectKey;
+	if (ankiConnectKey) {
+		body.key = ankiConnectKey;
+		// AnkiConnect checks the key of each of multi's actions too (as Yomitan's _invokeMulti sends them).
+		if (action === 'multi') body.params = { ...params, actions: params.actions.map((subaction) => ({ ...subaction, key: ankiConnectKey })) };
+	}
 	let response;
 	try {
 		response = await httpPost(ankiConnectUrl, body);
@@ -50,6 +54,8 @@ export async function findNoteIds(notes) {
 	const byQuery = new Map();
 	queries.forEach((query, i) => {
 		const result = results[i];
+		// (Rather than no duplicates, e.g. for an action AnkiConnect turned down.)
+		if (typeof result?.error === 'string') throw new Error(result.error);
 		byQuery.set(query, Array.isArray(result) ? result : Array.isArray(result?.result) ? result.result : []);
 	});
 	return notes.map((note) => byQuery.get(getNoteQuery(note)) ?? []);
