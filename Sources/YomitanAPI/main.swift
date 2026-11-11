@@ -3,8 +3,10 @@
 // on macOS (next to the browser's native messaging manifest), as yomitan_api.
 //
 // The browser starts it when Yomitan's "Enable Yomitan API" is on. It serves http://127.0.0.1:19633 and passes each
-// POST to Yomitan over stdin and stdout ({action, params, body} out, {responseStatusCode, data} back), one at a time.
-// Unlike the script, it quits when the browser closes its stdin.
+// POST to Yomitan over stdin and stdout ({action, params, body} out, {params, responseStatusCode, data} back).
+// Unlike the script, it quits when the browser closes its stdin, and as OwOtan's Safari app does, Yomitan works on
+// several requests at once, a request whose client went away while it waited its turn is dropped, and a client that
+// waits too long gets a 504.
 import Darwin
 import Foundation
 
@@ -15,6 +17,16 @@ let processStartupWait: TimeInterval = 5
 let nativeMessagingVersion = 1
 let blacklistedPaths: Set = ["favicon.ico"]
 let invalidMethods: Set = ["GET", "HEAD", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH"]
+/// How many requests Yomitan works on at once, so that quick ones (a version check, a lookup) aren't held up by a long
+/// one (a tokenize of a long text). Further ones wait their turn, in the order they came.
+let maxConcurrentRequests = 4
+/// How long a client waits for Yomitan's answer from when its request came, before it gets a 504.
+let requestTimeout: TimeInterval = 30
+/// How long a request handed to Yomitan keeps its place among those it works on, when its answer doesn't come.
+let workTimeout: TimeInterval = 120
+/// The parameter that tells Yomitan's answers apart: Yomitan sends each request's params back with its answer, and
+/// answers in the order it finishes.
+let requestIdParam = "__macpopupRequestId"
 
 let directory = URL(fileURLWithPath: Bundle.main.executablePath ?? CommandLine.arguments[0]).resolvingSymlinksInPath()
     .deletingLastPathComponent()
@@ -135,28 +147,94 @@ func sendMessage(_ message: [String: Any]) {
     guard writeAll(STDOUT_FILENO, length + [UInt8](data)) else { quit(0) }
 }
 
-/// The browser's replies, read as they come so the host quits when the browser closes stdin.
-final class Replies {
+/// Whether a client closed its connection.
+func isClosed(_ client: Int32) -> Bool {
+    var descriptor = pollfd(fd: client, events: Int16(POLLIN), revents: 0)
+    guard poll(&descriptor, 1, 0) > 0 else { return false }
+    var byte: UInt8 = 0
+    let count = recv(client, &byte, 1, MSG_PEEK | MSG_DONTWAIT)
+    return count == 0 || count < 0 && errno != EAGAIN && errno != EINTR
+}
+
+/// A request for Yomitan.
+final class Request {
+    let id: Int
+    let message: [String: Any]
+    /// When it was handed to Yomitan, or nil while it waits its turn.
+    var handedOut: Date?
+    /// Yomitan's answer, as members(of:) gives them.
+    var answer: [String: ArraySlice<UInt8>]?
+
+    init(id: Int, message: [String: Any]) {
+        self.id = id
+        self.message = message
+    }
+}
+
+/// The requests waiting for Yomitan and those it works on, with the browser's replies, read as they come so the host
+/// quits when the browser closes stdin.
+final class Requests {
     private let condition = NSCondition()
-    private var queue: [[UInt8]] = []
+    private var lastId = 0
+    private var waiting: [Request] = []
+    private var working: [Int: Request] = [:]
 
     func start() {
         Thread.detachNewThread {
             while let message = getMessage() {
-                self.condition.lock()
-                self.queue.append(message)
-                self.condition.signal()
-                self.condition.unlock()
+                self.received(message)
             }
             quit(0)
         }
     }
 
-    func next() -> [UInt8] {
+    /// Yomitan's answer to a request, or nil when it didn't come in time or the client closed its connection first.
+    func send(action: String, params: [String: [String]], body: String, client: Int32) -> [String: ArraySlice<UInt8>]? {
         condition.lock()
         defer { condition.unlock() }
-        while queue.isEmpty { condition.wait() }
-        return queue.removeFirst()
+        lastId += 1
+        var params = params
+        params[requestIdParam] = [String(lastId)]
+        let request = Request(id: lastId, message: ["action": action, "params": params, "body": body])
+        waiting.append(request)
+        let deadline = Date().addingTimeInterval(requestTimeout)
+        // (Also looks at the client's connection, and at requests Yomitan never answered, now and then.)
+        while request.answer == nil, Date() < deadline, !isClosed(client) {
+            handOut()
+            _ = condition.wait(until: min(deadline, Date().addingTimeInterval(0.25)))
+        }
+        // One still waiting its turn isn't worth Yomitan's time any more; one Yomitan works on keeps its place until
+        // it's answered, and the answer is dropped.
+        waiting.removeAll { $0 === request }
+        return request.answer
+    }
+
+    /// Hands the requests waiting their turn to Yomitan, as far as it has room for them. Called with the lock held.
+    private func handOut() {
+        let now = Date()
+        working = working.filter { now.timeIntervalSince($0.value.handedOut ?? now) < workTimeout }
+        while working.count < maxConcurrentRequests, !waiting.isEmpty {
+            let request = waiting.removeFirst()
+            request.handedOut = now
+            working[request.id] = request
+            sendMessage(request.message)
+        }
+    }
+
+    private func received(_ message: [UInt8]) {
+        let answer = members(of: message)
+        let params = answer?["params"].flatMap { try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any] }
+        guard let answer, let id = (params?[requestIdParam] as? [String])?.first.flatMap({ Int($0) }) else {
+            errorLog("Unexpected reply from Yomitan: \(String(decoding: message.prefix(1000), as: UTF8.self))")
+            return
+        }
+        condition.lock()
+        defer { condition.unlock() }
+        // (Not one that Yomitan took too long with.)
+        guard let request = working.removeValue(forKey: id) else { return }
+        request.answer = answer
+        handOut()
+        condition.broadcast()
     }
 }
 
@@ -274,7 +352,7 @@ func parseQuery(_ query: Substring) -> [String: [String]] {
 
 let reasons = [
     200: "OK", 400: "Bad Request", 404: "Not Found", 405: "Method Not Allowed", 413: "Payload Too Large",
-    431: "Request Header Fields Too Large", 500: "Internal Server Error", 501: "Not Implemented",
+    431: "Request Header Fields Too Large", 500: "Internal Server Error", 501: "Not Implemented", 504: "Gateway Timeout",
 ]
 
 /// Sends a response; the API's own responses allow any page to read them, as the script's do.
@@ -291,7 +369,7 @@ func respond(_ client: Int32, status: Int, contentType: String, body: [UInt8], c
     writeAll(client, Array((headers.joined(separator: "\r\n") + "\r\n\r\n").utf8) + body)
 }
 
-func handle(_ client: Int32, replies: Replies) {
+func handle(_ client: Int32, requests: Requests) {
     // Up to 64 KB of headers, as Python's http.server allows.
     let headerEnd = Array("\r\n\r\n".utf8)
     var received: [UInt8] = []
@@ -356,19 +434,23 @@ func handle(_ client: Int32, replies: Replies) {
         return
     }
 
-    sendMessage(["action": path, "params": parseQuery(query), "body": String(decoding: body, as: UTF8.self)])
-    let reply = replies.next()
-    guard let response = members(of: reply), let status = response["responseStatusCode"].flatMap({ Int(String(decoding: $0, as: UTF8.self)) }),
+    let text = String(decoding: body, as: UTF8.self)
+    guard let response = requests.send(action: path, params: parseQuery(query), body: text, client: client) else {
+        // (Or the client is gone, and gets nothing.)
+        respond(client, status: 504, contentType: "application/json", body: Array("\"Yomitan did not answer in time\"".utf8))
+        return
+    }
+    guard let status = response["responseStatusCode"].flatMap({ Int(String(decoding: $0, as: UTF8.self)) }),
           let data = response["data"]
     else {
-        errorLog("Unexpected reply from Yomitan: \(String(decoding: reply.prefix(1000), as: UTF8.self))")
+        errorLog("Unexpected reply from Yomitan: \(response.keys.sorted())")
         respond(client, status: 500, contentType: "application/json", body: [])
         return
     }
     respond(client, status: status, contentType: "application/json", body: Array(data))
 }
 
-func serve(replies: Replies) throws -> Never {
+func serve(requests: Requests) throws -> Never {
     let server = socket(AF_INET, SOCK_STREAM, 0)
     guard server >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     var yes: Int32 = 1
@@ -388,24 +470,25 @@ func serve(replies: Replies) throws -> Never {
     }
     guard listen(server, 16) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
 
-    // Requests are handled one at a time, as Yomitan's replies come back in order.
     while true {
         let client = accept(server, nil, nil)
         guard client >= 0 else { continue }
         setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout<Int32>.size))
         var timeout = timeval(tv_sec: 30, tv_usec: 0)
         setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-        handle(client, replies: replies)
-        close(client)
+        Thread.detachNewThread {
+            handle(client, requests: requests)
+            close(client)
+        }
     }
 }
 
 signal(SIGPIPE, SIG_IGN)
 ensureSingleInstance()
-let replies = Replies()
-replies.start()
+let requests = Requests()
+requests.start()
 do {
-    try serve(replies: replies)
+    try serve(requests: requests)
 } catch {
     errorLog("Couldn't serve http://\(address):\(port): \(error)")
     quit(1)
