@@ -432,5 +432,16 @@ export async function overwriteNote(noteId, note, cardFormat) {
 		const existing = info.fields?.[name]?.value ?? '';
 		fields[name] = getOverwrittenField(existing, value, cardFormat.fields[name]?.overwriteMode);
 	}
-	await ankiInvoke('updateNoteFields', { note: { id: noteId, fields } });
+	// A note selected in Anki's card browser is open in its editor, and AnkiConnect doesn't change a note open in an
+	// editor (older versions did, and the editor then saved its old fields over the change). So while it changes, the
+	// browser shows no note, and then this one; a closed browser isn't opened. Other editors (Edit Current, AnkiConnect's
+	// Edit dialog) can't be closed from here.
+	const selected = await ankiInvoke('guiSelectedNotes').catch(() => []);
+	const inBrowser = Array.isArray(selected) && selected.includes(noteId);
+	if (inBrowser) await ankiInvoke('guiBrowse', { query: 'nid:1' }).catch(() => {});
+	try {
+		await ankiInvoke('updateNoteFields', { note: { id: noteId, fields } });
+	} finally {
+		if (inBrowser) await ankiInvoke('guiBrowse', { query: `nid:${noteId}` }).catch(() => {});
+	}
 }

@@ -288,11 +288,29 @@ final class SentenceAudioController {
         let stored = try await AnkiConnect.invoke(
             "storeMediaFile", ["filename": url.lastPathComponent, "data": data.base64EncodedString()], settings: settings
         ) as? String ?? url.lastPathComponent
-        for note in targets {
-            _ = try await AnkiConnect.invoke(
-                "updateNoteFields", ["note": ["id": noteId(note), "fields": [audioField: "[sound:\(stored)]"]]], settings: settings
-            )
+        // A note selected in Anki's card browser is open in its editor, and AnkiConnect doesn't change a note open in an
+        // editor (older versions did, and the editor then saved its old fields over the change). So while they change,
+        // the browser shows no note, and then the changed ones; a closed browser isn't opened. Other editors (Edit
+        // Current, AnkiConnect's Edit dialog) can't be closed from here.
+        let targetIds = targets.map(noteId)
+        let selected = ((try? await AnkiConnect.invoke("guiSelectedNotes", settings: settings)) as? [NSNumber]) ?? []
+        let inBrowser = selected.contains { targetIds.contains($0.int64Value) }
+        func browse(_ query: String) async {
+            if inBrowser { _ = try? await AnkiConnect.invoke("guiBrowse", ["query": query], settings: settings) }
         }
+        let changed = "nid:" + targetIds.map(String.init).joined(separator: ",")
+        await browse("nid:1")
+        do {
+            for id in targetIds {
+                _ = try await AnkiConnect.invoke(
+                    "updateNoteFields", ["note": ["id": id, "fields": [audioField: "[sound:\(stored)]"]]], settings: settings
+                )
+            }
+        } catch {
+            await browse(changed)
+            throw error
+        }
+        await browse(changed)
         return targets.count
     }
 
