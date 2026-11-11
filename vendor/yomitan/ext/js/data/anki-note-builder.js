@@ -269,7 +269,6 @@ export class AnkiNoteBuilder {
             return str;
         }
         parts.push(str.substring(index));
-        // eslint-disable-next-line @typescript-eslint/await-thenable
         return (await Promise.all(parts)).join('');
     }
 
@@ -301,12 +300,39 @@ export class AnkiNoteBuilder {
         const {commonDataRequestsMap} = this._getBatchedTemplateGroup(template);
         let requests = commonDataRequestsMap.get(commonData);
         if (typeof requests === 'undefined') {
+            // The notes of other card formats for the same dictionary entry render the same
+            for (const [commonData2, requests2] of commonDataRequestsMap) {
+                if (this._isSameRenderData(commonData, commonData2)) {
+                    requests = requests2;
+                    break;
+                }
+            }
+        }
+        if (typeof requests === 'undefined') {
             requests = [];
             commonDataRequestsMap.set(commonData, requests);
         }
         requests.push({resolve, reject, marker});
         this._runBatchedRequestsDelayed();
         return promise;
+    }
+
+    /**
+     * Checks whether a field renders the same with either data. The card format is not used in rendering.
+     * @param {import('anki-note-builder').CommonData} commonData1
+     * @param {import('anki-note-builder').CommonData} commonData2
+     * @returns {boolean}
+     */
+    _isSameRenderData(commonData1, commonData2) {
+        return (
+            commonData1.dictionaryEntry === commonData2.dictionaryEntry &&
+            commonData1.context === commonData2.context &&
+            commonData1.resultOutputMode === commonData2.resultOutputMode &&
+            commonData1.glossaryLayoutMode === commonData2.glossaryLayoutMode &&
+            commonData1.compactTags === commonData2.compactTags &&
+            commonData1.media === commonData2.media &&
+            commonData1.dictionaryStylesMap === commonData2.dictionaryStylesMap
+        );
     }
 
     /**
@@ -327,6 +353,7 @@ export class AnkiNoteBuilder {
     _runBatchedRequests() {
         if (this._batchedRequests.length === 0) { return; }
 
+        /** @type {import('anki-note-builder').BatchedRequestData[][]} */
         const allRequests = [];
         /** @type {import('template-renderer').RenderMultiItem[]} */
         const items = [];
@@ -336,10 +363,21 @@ export class AnkiNoteBuilder {
             for (const [commonData, requests] of commonDataRequestsMap.entries()) {
                 /** @type {import('template-renderer').PartialOrCompositeRenderData[]} */
                 const datas = [];
-                for (const {marker} of requests) {
+                // Each marker is rendered once, for all the requests for it
+                /** @type {Map<string, import('anki-note-builder').BatchedRequestData[]>} */
+                const markerRequests = new Map();
+                for (const request of requests) {
+                    const {marker} = request;
+                    const sameRequests = markerRequests.get(marker);
+                    if (typeof sameRequests !== 'undefined') {
+                        sameRequests.push(request);
+                        continue;
+                    }
+                    const newRequests = [request];
+                    markerRequests.set(marker, newRequests);
                     datas.push({marker});
+                    allRequests.push(newRequests);
                 }
-                allRequests.push(...requests);
                 templateItems.push({
                     type: /** @type {import('anki-templates').RenderMode} */ ('ankiNote'),
                     commonData,
@@ -356,31 +394,34 @@ export class AnkiNoteBuilder {
 
     /**
      * @param {import('template-renderer').RenderMultiItem[]} items
-     * @param {import('anki-note-builder').BatchedRequestData[]} requests
+     * @param {import('anki-note-builder').BatchedRequestData[][]} requests The requests for each rendered item.
      */
     async _resolveBatchedRequests(items, requests) {
         let responses;
         try {
             responses = await this._templateRenderer.renderMulti(items);
         } catch (e) {
-            for (const {reject} of requests) {
-                reject(e);
+            for (const sameRequests of requests) {
+                for (const {reject} of sameRequests) {
+                    reject(e);
+                }
             }
             return;
         }
 
         for (let i = 0, ii = requests.length; i < ii; ++i) {
-            const request = requests[i];
-            try {
-                const response = responses[i];
-                const {error} = response;
-                if (typeof error !== 'undefined') {
-                    throw ExtensionError.deserialize(error);
-                } else {
-                    request.resolve(response.result);
+            for (const request of requests[i]) {
+                try {
+                    const response = responses[i];
+                    const {error} = response;
+                    if (typeof error !== 'undefined') {
+                        throw ExtensionError.deserialize(error);
+                    } else {
+                        request.resolve(response.result);
+                    }
+                } catch (e) {
+                    request.reject(e);
                 }
-            } catch (e) {
-                request.reject(e);
             }
         }
     }

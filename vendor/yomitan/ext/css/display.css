@@ -71,7 +71,8 @@
     --progress-bar-height-no-units: 4;
     --progress-bar-height: calc(1em * (var(--progress-bar-height-no-units) / var(--font-size-no-units)));
     --progress-bar-active-transition-duration: 0.125s;
-    --progress-bar-active-transition-start-delay: 0.0625s;
+    /* Waits shorter than this, such as for audio a source does not have, show no progress bar */
+    --progress-bar-active-transition-start-delay: 0.5s;
     --progress-bar-animation-duration: 2s;
 
     --entry-current-indicator-width-no-units: 4;
@@ -317,28 +318,40 @@ a:has(rt) {
 #content-scroll-focus::-moz-focus-inner {
     border: 0;
 }
+/* Safari selects furigana with the text it is over (see safari-page.css). */
+:root[data-browser=safari] rt {
+    -webkit-user-select: none;
+}
 
 
 /* Scrollbars */
+/* Safari on macOS before 26 lacks scrollbar-color, so these styles would draw square scrollbars that always show. It
+ * keeps its own scrollbars instead, made dark for the dark theme. */
+:root[data-browser=safari][data-theme=dark] .scrollbar {
+    color-scheme: dark;
+}
+:root[data-browser=safari][data-theme=dark] .scrollbar>* {
+    color-scheme: normal;
+}
 :root:not([data-theme=light]) .scrollbar {
     scrollbar-color: var(--scrollbar-thumb-color) var(--scrollbar-track-color);
 }
-:root:not([data-theme=light]) .scrollbar::-webkit-scrollbar {
+:root:not([data-theme=light]):not([data-browser=safari]) .scrollbar::-webkit-scrollbar {
     width: auto;
 }
-:root:not([data-theme=light]) .scrollbar::-webkit-scrollbar-button {
+:root:not([data-theme=light]):not([data-browser=safari]) .scrollbar::-webkit-scrollbar-button {
     height: 0;
 }
-:root:not([data-theme=light]) .scrollbar::-webkit-scrollbar-thumb {
+:root:not([data-theme=light]):not([data-browser=safari]) .scrollbar::-webkit-scrollbar-thumb {
     background-color: var(--scrollbar-thumb-color);
 }
-:root:not([data-theme=light]) .scrollbar::-webkit-scrollbar-track {
+:root:not([data-theme=light]):not([data-browser=safari]) .scrollbar::-webkit-scrollbar-track {
     background-color: var(--scrollbar-thumb-color);
 }
-:root:not([data-theme=light]) .scrollbar::-webkit-scrollbar-track-piece {
+:root:not([data-theme=light]):not([data-browser=safari]) .scrollbar::-webkit-scrollbar-track-piece {
     background-color: var(--scrollbar-track-color);
 }
-:root:not([data-theme=light]) .scrollbar::-webkit-scrollbar-corner {
+:root:not([data-theme=light]):not([data-browser=safari]) .scrollbar::-webkit-scrollbar-corner {
     background-color: var(--scrollbar-track-color);
 }
 :root .scrollbar-inverse {
@@ -639,6 +652,9 @@ button.sidebar-button.sidebar-button-highlight {
     margin: -0.25em;
     position: relative;
     z-index: 1;
+    /* A long press opens the menus of some buttons, and Safari on iOS would otherwise go on to select text. */
+    user-select: none;
+    -webkit-user-select: none;
 }
 .actions::after {
     clear: both;
@@ -1227,6 +1243,10 @@ button.action-button:active:not(:disabled) {
 .gloss-content {
     display: block;
     white-space: pre-line;
+}
+/* Safari leaves out the drop-shadow of structured-content.css's filter, so these are colored when they are drawn (DisplayContentManager). */
+:root[data-browser=safari] .gloss-image-link[data-appearance=monochrome] .gloss-image {
+    filter: none;
 }
 .definition-disambiguation-list {
     color: var(--text-color-light3);

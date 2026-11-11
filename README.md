@@ -281,7 +281,8 @@ scripts/build.sh            # Builds release app at build/MacPopup.app
 
 Licensed under the **GPL-3.0**.
 
-Large parts of the codebase are derived from [Yomitan](https://github.com/yomidevs/yomitan) (see `vendor/yomitan/README.md` and `LICENSE`).
+Large parts of the codebase are derived from [Yomitan](https://github.com/yomidevs/yomitan) (with extra changes from the
+[OwOtan](https://github.com/AuroraWright/owotan) fork; see `vendor/yomitan/README.md` and `LICENSE`).
 
 The text box's line processing, settings and replacements are adapted from
 [texthooker-ui](https://github.com/Renji-XD/texthooker-ui) under the **MIT License** (see `vendor/texthooker-ui/README.md`

@@ -21,12 +21,19 @@ import {EventListenerCollection} from '../core/event-listener-collection.js';
 export class ElementOverflowController {
     /**
      * @param {import('./display.js').Display} display
+     * @param {Element} scrollElement
      */
-    constructor(display) {
+    constructor(display, scrollElement) {
         /** @type {import('./display.js').Display} */
         this._display = display;
+        /** @type {Element} */
+        this._scrollElement = scrollElement;
         /** @type {Element[]} */
         this._elements = [];
+        /** @type {Map<Element, Element[]>} */
+        this._observedEntries = new Map();
+        /** @type {?IntersectionObserver} */
+        this._intersectionObserver = null;
         /** @type {?(number|import('core').Timeout)} */
         this._checkTimer = null;
         /** @type {EventListenerCollection} */
@@ -87,6 +94,8 @@ export class ElementOverflowController {
             ...entry.querySelectorAll('.definition-item-inner'),
             ...entry.querySelectorAll('.kanji-glyph-data'),
         ];
+        /** @type {Element[]} */
+        const elementsToUpdate = [];
         for (const element of elements) {
             const {parentNode} = element;
             if (parentNode === null) { continue; }
@@ -98,8 +107,7 @@ export class ElementOverflowController {
             if (dictionaryInfo.force) {
                 element.classList.add('collapsible', 'collapsible-forced');
             } else {
-                this._updateElement(element);
-                this._elements.push(element);
+                elementsToUpdate.push(element);
             }
 
             if (dictionaryInfo.collapsed) {
@@ -111,15 +119,54 @@ export class ElementOverflowController {
                 this._eventListeners.addEventListener(button, 'click', this._onToggleButtonClickBind, false);
             }
         }
+        if (elementsToUpdate.length > 0) {
+            // Measuring the elements makes the browser lay out the page, including entries far from the visible part of
+            // it, which it otherwise only lays out once they come near it (they have `content-visibility: auto`). So each
+            // entry is measured once it comes near it, and until then, the elements that start collapsed are kept as
+            // short as the test makes them.
+            for (const element of elementsToUpdate) {
+                if (element.classList.contains('collapsed')) {
+                    element.classList.add('collapse-test');
+                }
+            }
+            if (this._intersectionObserver === null) {
+                this._intersectionObserver = new IntersectionObserver(this._onIntersection.bind(this), {root: this._scrollElement, rootMargin: '100% 0px'});
+            }
+            this._intersectionObserver.observe(entry);
+            this._observedEntries.set(entry, elementsToUpdate);
+        }
 
-        if (this._elements.length > 0 && this._windowEventListeners.size === 0) {
+        if (elementsToUpdate.length > 0 && this._windowEventListeners.size === 0) {
             this._windowEventListeners.addEventListener(window, 'resize', this._onWindowResizeBind, false);
         }
+    }
+
+    /**
+     * Checks an entry's elements now if it is in the visible part of the page. The observer only reports it after the
+     * page has been drawn, which would show it without its expansion buttons until then. The display only does this for
+     * the first entry: measuring the others before the page is drawn would make the browser lay out every entry added
+     * with them.
+     * @param {Element} entry
+     */
+    checkEntryIfVisible(entry) {
+        const elements = this._observedEntries.get(entry);
+        if (typeof elements === 'undefined') { return; }
+        const {top, bottom} = this._scrollElement.getBoundingClientRect();
+        const rect = entry.getBoundingClientRect();
+        if (rect.bottom <= top || rect.top >= bottom) { return; }
+        this._observedEntries.delete(entry);
+        /** @type {IntersectionObserver} */ (this._intersectionObserver).unobserve(entry);
+        this._elements.push(...elements);
+        this._updateElements(elements);
     }
 
     /** */
     clearElements() {
         this._elements.length = 0;
+        this._observedEntries.clear();
+        if (this._intersectionObserver !== null) {
+            this._intersectionObserver.disconnect();
+        }
         this._eventListeners.removeAllEventListeners();
         this._windowEventListeners.removeAllEventListeners();
     }
@@ -155,20 +202,58 @@ export class ElementOverflowController {
 
     /** */
     _update() {
-        for (const element of this._elements) {
-            this._updateElement(element);
-        }
+        this._updateElements(this._elements);
     }
 
     /**
-     * @param {Element} element
+     * @param {IntersectionObserverEntry[]} records
      */
-    _updateElement(element) {
-        const {classList} = element;
-        classList.add('collapse-test');
-        const collapsible = element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth;
-        classList.toggle('collapsible', collapsible);
-        classList.remove('collapse-test');
+    _onIntersection(records) {
+        /** @type {Element[]} */
+        const elements = [];
+        for (const {target, isIntersecting} of records) {
+            if (!isIntersecting) { continue; }
+            const entryElements = this._observedEntries.get(target);
+            if (typeof entryElements === 'undefined') { continue; }
+            this._observedEntries.delete(target);
+            /** @type {IntersectionObserver} */ (this._intersectionObserver).unobserve(target);
+            elements.push(...entryElements);
+        }
+        this._elements.push(...elements);
+        this._updateElements(elements);
+    }
+
+    /**
+     * Checks which elements are long enough to be collapsible. All of them are measured together:
+     * reading an element's size right after changing its classes makes the browser lay out the whole
+     * page again, so checking them one at a time costs a layout for each.
+     * Their entries are laid out while they are measured: Safari before 26 reads every size in an entry that
+     * `content-visibility: auto` skips as 0, and the observer can report elements in such entries, which then were
+     * not made collapsible. Later versions lay out a skipped entry to measure it anyway.
+     * @param {Element[]} elements
+     */
+    _updateElements(elements) {
+        /** @type {Set<HTMLElement>} */
+        const entries = new Set();
+        for (const element of elements) {
+            const entry = element.closest('.entry');
+            if (entry instanceof HTMLElement) { entries.add(entry); }
+        }
+        for (const entry of entries) {
+            entry.style.setProperty('content-visibility', 'visible');
+        }
+        for (const element of elements) {
+            element.classList.add('collapse-test');
+        }
+        const collapsible = elements.map((element) => element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth);
+        for (let i = 0, ii = elements.length; i < ii; ++i) {
+            const {classList} = elements[i];
+            classList.toggle('collapsible', collapsible[i]);
+            classList.remove('collapse-test');
+        }
+        for (const entry of entries) {
+            entry.style.removeProperty('content-visibility');
+        }
     }
 
     /**

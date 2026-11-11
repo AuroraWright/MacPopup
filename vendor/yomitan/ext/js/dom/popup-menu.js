@@ -196,6 +196,8 @@ export class PopupMenu extends EventDispatcher {
 
         // Position
         const menu = this._node;
+        // Items that are too long for the space to the right of the menu wrap, so the menu is measured from the left.
+        menu.style.left = '0';
         const containerNodeRect = this._containerNode.getBoundingClientRect();
         const sourceElementRect = this._sourceElement.getBoundingClientRect();
         const menuRect = menu.getBoundingClientRect();

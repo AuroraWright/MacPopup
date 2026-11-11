@@ -7,7 +7,6 @@ import { DisplayGenerator } from '../../vendor/yomitan/ext/js/display/display-ge
 import { DisplayNotification } from '../../vendor/yomitan/ext/js/display/display-notification.js';
 import { ElementOverflowController } from '../../vendor/yomitan/ext/js/display/element-overflow-controller.js';
 import { PopupMenu } from '../../vendor/yomitan/ext/js/dom/popup-menu.js';
-import { base64ToArrayBuffer } from '../../vendor/yomitan/ext/js/data/array-buffer-util.js';
 import { addScopeToCss } from '../../vendor/yomitan/ext/js/core/utilities.js';
 import { ankiInvoke, findNoteIds, getNoteInfos, suspendCardsForNote } from './lib/anki-connect.js';
 import { buildFirstFieldNotes, buildNote, overwriteNote, storeMedia } from './lib/anki-notes.js';
@@ -46,50 +45,26 @@ function getCardState(cardStates) {
 	return 'new';
 }
 
-// The canvas element each OffscreenCanvas came from, since media requests only carry the latter.
-const canvasElements = new WeakMap();
-const transferControlToOffscreen = HTMLCanvasElement.prototype.transferControlToOffscreen;
-HTMLCanvasElement.prototype.transferControlToOffscreen = function () {
-	const offscreen = transferControlToOffscreen.call(this);
-	canvasElements.set(offscreen, this);
-	return offscreen;
-};
-
-/** Loads structured-content images through the Yomitan API instead of the extension backend. */
+/**
+ * Loads structured-content images through the Yomitan API instead of the extension backend. OwOtan's
+ * DisplayContentManager draws them, as on its pages without the media drawing worker, coloring monochrome ones
+ * (whose CSS filter WebKit leaves the drop-shadow out of).
+ */
 class PopupContentManager extends DisplayContentManager {
 	constructor(popup) {
-		super(null);
+		super({ application: { api: { canDrawMedia: false, getMedia: (targets) => this.getMedia(targets) } } });
 		this._popup = popup;
 	}
 
-	async executeMediaRequests() {
-		const requests = this._loadMediaRequests;
-		this._loadMediaRequests = [];
-		if (requests.length === 0) return;
-		const token = this._token;
+	async getMedia(targets) {
 		let media;
 		try {
 			media = await this._popup.getDictionaryMedia();
 		} catch (e) {
 			log('Failed to load dictionary media', e);
-			return;
+			return [];
 		}
-		if (token !== this._token) return;
-		for (const { path, dictionary, canvas } of requests) {
-			const item = media.find((value) => value.path === path && value.dictionary === dictionary);
-			if (!item) continue;
-			// Yomitan colors monochrome images with a CSS filter whose drop-shadow WebKit leaves out
-			// when it draws the canvas on the GPU (they show black), so they're colored here instead.
-			const element = canvasElements.get(canvas);
-			const color = element?.closest('.gloss-image-link')?.dataset.appearance === 'monochrome'
-				? getComputedStyle(element).getPropertyValue('--text-color').trim() || getComputedStyle(element).color
-				: null;
-			try {
-				await drawMediaToCanvas(item, canvas, color);
-			} catch (e) {
-				log('Failed to draw dictionary media', e);
-			}
-		}
+		return media.filter((item) => targets.some(({ path, dictionary }) => item.path === path && item.dictionary === dictionary));
 	}
 
 	async openMediaInTab() {}
@@ -105,136 +80,50 @@ class PopupContentManager extends DisplayContentManager {
 	}
 }
 
-/** @param {string | null} color Fills the image's shape with this color (for monochrome images). */
-async function drawMediaToCanvas(item, canvas, color = null) {
-	const blob = new Blob([base64ToArrayBuffer(item.content)], { type: item.mediaType });
-	let image;
-	try {
-		image = await createImageBitmap(blob);
-	} catch (_) {
-		// createImageBitmap can't decode SVG.
-		image = new Image();
-		image.src = URL.createObjectURL(blob);
-		await image.decode();
-	}
-	const context = canvas.getContext('2d');
-	context.clearRect(0, 0, canvas.width, canvas.height);
-	context.drawImage(image, 0, 0, canvas.width, canvas.height);
-	if (color) {
-		context.globalCompositeOperation = 'source-in';
-		context.fillStyle = color;
-		context.fillRect(0, 0, canvas.width, canvas.height);
-		context.globalCompositeOperation = 'source-over';
-	}
-}
-
 /**
- * Yomitan's ElementOverflowController checks whether each definition is long enough to collapse as
- * it's added, reading its height right after changing its classes, so WebKit lays the whole popup out
- * again for every definition (hundreds of milliseconds for a long popup). This checks the definitions
- * together, with one layout. Each check only depends on the definition's own size, so the result is
- * the same.
- *
- * As in the Yomitan fork, an entry's definitions are only checked once it comes within a popup's height
- * of the visible part: measuring makes WebKit lay out the entries that `content-visibility: auto` would
- * otherwise only lay out then. Until then, the ones that start collapsed keep the class the check uses,
- * so they're as short as they'll be once checked.
+ * OwOtan's ElementOverflowController checks an entry's collapsible definitions once it comes within a popup's
+ * height of the visible part. In addition, the entries added since the last `checkAdded` that are already that near
+ * are checked together before the page is drawn (the controller's checkEntryIfVisible does one visible entry): the
+ * observer only reports after it's drawn, and while entries are being added, only once they all are, which would show
+ * their definitions without their expansion buttons until then.
  */
-class LazyOverflowController extends ElementOverflowController {
+class OverflowController extends ElementOverflowController {
 	constructor(display, scrollElement) {
-		super(display);
-		this.scrollElement = scrollElement;
-		this.pending = [];
-		// Entry → its definitions that haven't been checked.
-		this.unchecked = new Map();
-		// The unchecked entries added since the last `checkAdded`.
+		super(display, scrollElement);
+		// The entries with unchecked definitions added since the last `checkAdded`.
 		this.added = [];
-		this.observer = new IntersectionObserver((records) => this.onIntersection(records), { root: scrollElement, rootMargin: '100% 0px' });
 	}
 
 	addElements(entry) {
-		const count = this._elements.length;
 		super.addElements(entry);
-		const elements = this._elements.splice(count);
-		this.pending = [];
-		if (elements.length === 0) return;
-		for (const element of elements) {
-			if (element.classList.contains('collapsed')) element.classList.add('collapse-test');
-		}
-		this.unchecked.set(entry, elements);
-		this.added.push(entry);
-		this.observer.observe(entry);
+		if (this._observedEntries.has(entry)) this.added.push(entry);
 	}
 
-	/**
-	 * Checks the entries added since the last call that are already as near the visible part as the
-	 * observer's margin, before the page is drawn: the observer only reports after it's drawn (and while
-	 * entries are being added, only once they all are), which would show their definitions without their
-	 * expansion buttons until then.
-	 */
 	checkAdded() {
 		const added = this.added;
 		this.added = [];
 		if (added.length === 0) return;
-		const { top, height } = this.scrollElement.getBoundingClientRect();
+		const { top, height } = this._scrollElement.getBoundingClientRect();
+		const elements = [];
 		for (const entry of added) {
+			const entryElements = this._observedEntries.get(entry);
+			if (!entryElements) continue;
 			const rect = entry.getBoundingClientRect();
 			// Entries are added in order, so the ones after this one are further down.
 			if (rect.top > top + 2 * height) break;
 			if (rect.bottom < top - height) continue;
-			const elements = this.unchecked.get(entry);
-			this.unchecked.delete(entry);
-			this.observer.unobserve(entry);
-			this._elements.push(...elements);
-			this.pending.push(...elements);
+			this._observedEntries.delete(entry);
+			this._intersectionObserver.unobserve(entry);
+			elements.push(...entryElements);
 		}
-		this.flush();
-	}
-
-	onIntersection(records) {
-		for (const { target, isIntersecting } of records) {
-			const elements = isIntersecting ? this.unchecked.get(target) : undefined;
-			if (!elements) continue;
-			this.unchecked.delete(target);
-			this.observer.unobserve(target);
-			this._elements.push(...elements);
-			this.pending.push(...elements);
-		}
-		this.flush();
-	}
-
-	_updateElement(element) {
-		this.pending.push(element);
-	}
-
-	_update() {
-		super._update();
-		this.flush();
+		if (elements.length === 0) return;
+		this._elements.push(...elements);
+		this._updateElements(elements);
 	}
 
 	clearElements() {
 		super.clearElements();
-		this.pending = [];
-		this.unchecked.clear();
 		this.added = [];
-		this.observer.disconnect();
-	}
-
-	flush() {
-		const elements = this.pending;
-		this.pending = [];
-		if (elements.length === 0) return;
-		// WebKit doesn't lay out an entry that `content-visibility: auto` skips (one that isn't in view) to
-		// measure what's in it, and every size in it reads as 0, so the entries are laid out for the check.
-		const entries = new Set(elements.map((element) => element.closest('.entry')));
-		for (const entry of entries) entry?.style.setProperty('content-visibility', 'visible');
-		for (const element of elements) element.classList.add('collapse-test');
-		const collapsible = elements.map((element) => element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth);
-		elements.forEach((element, i) => {
-			element.classList.toggle('collapsible', collapsible[i]);
-			element.classList.remove('collapse-test');
-		});
-		for (const entry of entries) entry?.style.removeProperty('content-visibility');
 	}
 }
 
@@ -330,7 +219,7 @@ class Popup {
 
 		this.contentManager = new PopupContentManager(this);
 		this.generator = new DisplayGenerator(this.contentManager, null);
-		this.overflowController = new LazyOverflowController(this, document.querySelector('#content-scroll'));
+		this.overflowController = new OverflowController(this, document.querySelector('#content-scroll'));
 		this.container = document.querySelector('#dictionary-entries');
 		this.footer = document.querySelector('#content-footer');
 		this.progressIndicator = document.querySelector('#progress-indicator');

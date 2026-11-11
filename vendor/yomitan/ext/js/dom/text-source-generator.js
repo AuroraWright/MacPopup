@@ -518,6 +518,7 @@ export class TextSourceGenerator {
                 if (nextElement instanceof HTMLElement) {
                     this._recordPreviousStyle(previousStyles, nextElement);
                     nextElement.style.setProperty('user-select', 'text', 'important');
+                    nextElement.style.setProperty('-webkit-user-select', 'text', 'important');
                 }
 
                 const position = /** @type {(x: number, y: number) => ?{offsetNode: Node, offset: number}} */ (document.caretPositionFromPoint)(x, y);
@@ -685,7 +686,9 @@ export class TextSourceGenerator {
      * @returns {boolean}
      */
     _isElementUserSelectAll(element) {
-        return getComputedStyle(element).userSelect === 'all';
+        const style = getComputedStyle(element);
+        // Safari supports user-select only with its prefix.
+        return (style.userSelect ?? style.webkitUserSelect) === 'all';
     }
 
     /**

@@ -577,11 +577,10 @@ function getTermDictionaryEntryCommonInfo(dictionaryEntry, type, dictionaryStyle
         let glossaryScopedStyles = '';
         let dictScopedStyles = '';
         if (dictionaryStyles) {
-            glossaryScopedStyles = addGlossaryScopeToCss(dictionaryStyles);
-            dictScopedStyles = addGlossaryScopeToCss(addDictionaryScopeToCss(dictionaryStyles, dictionary));
+            ({glossaryScopedStyles, dictScopedStyles} = getScopedStyles(dictionaryStyles, dictionary));
         }
         if (glossaryLayoutMode === 'compact-popup-anki') {
-            dictScopedStyles += addGlossaryScopeToCss(getAnkiCompactGlossStyles());
+            dictScopedStyles += getScopedCompactGlossStyles();
         }
         const definitionTags2 = [];
         for (const tag of tags) {
@@ -608,6 +607,45 @@ function getTermDictionaryEntryCommonInfo(dictionaryEntry, type, dictionaryStyle
         definitionTags,
         definitions: hasDefinitions ? definitions : void 0,
     };
+}
+
+/**
+ * The styles of each dictionary scoped to its glossaries, by dictionary. Scoping parses the styles twice, and each
+ * definition of an entry needs its dictionary's, every time a field reads the definitions, so an entry with many
+ * definitions would otherwise take a long time to make a note for.
+ * @type {Map<string, {dictionaryStyles: string, glossaryScopedStyles: string, dictScopedStyles: string}>}
+ */
+const scopedStylesCache = new Map();
+
+/** @type {?string} */
+let scopedCompactGlossStyles = null;
+
+/**
+ * @param {string} dictionaryStyles
+ * @param {string} dictionary
+ * @returns {{glossaryScopedStyles: string, dictScopedStyles: string}}
+ */
+function getScopedStyles(dictionaryStyles, dictionary) {
+    let scopedStyles = scopedStylesCache.get(dictionary);
+    if (typeof scopedStyles === 'undefined' || scopedStyles.dictionaryStyles !== dictionaryStyles) {
+        scopedStyles = {
+            dictionaryStyles,
+            glossaryScopedStyles: addGlossaryScopeToCss(dictionaryStyles),
+            dictScopedStyles: addGlossaryScopeToCss(addDictionaryScopeToCss(dictionaryStyles, dictionary)),
+        };
+        scopedStylesCache.set(dictionary, scopedStyles);
+    }
+    return scopedStyles;
+}
+
+/**
+ * @returns {string}
+ */
+function getScopedCompactGlossStyles() {
+    if (scopedCompactGlossStyles === null) {
+        scopedCompactGlossStyles = addGlossaryScopeToCss(getAnkiCompactGlossStyles());
+    }
+    return scopedCompactGlossStyles;
 }
 
 /**
@@ -871,8 +909,9 @@ function getTermStyles(dictionaryEntry, type, dictionaryStylesMap) {
     for (const {dictionary} of dictionaryEntry.definitions) {
         const dictionaryStyles = dictionaryStylesMap.get(dictionary);
         if (dictionaryStyles) {
-            glossaryScopedStyles += addGlossaryScopeToCss(dictionaryStyles);
-            dictScopedStyles += addGlossaryScopeToCss(addDictionaryScopeToCss(dictionaryStyles, dictionary));
+            const scopedStyles = getScopedStyles(dictionaryStyles, dictionary);
+            glossaryScopedStyles += scopedStyles.glossaryScopedStyles;
+            dictScopedStyles += scopedStyles.dictScopedStyles;
         }
     }
     return {glossaryScopedStyles, dictScopedStyles};

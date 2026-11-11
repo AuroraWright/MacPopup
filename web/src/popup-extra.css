@@ -1,10 +1,5 @@
 /* Additions on top of Yomitan's popup CSS. */
 
-/* Waits shorter than this, such as for audio a source doesn't have, show no progress bar. */
-:root {
-    --progress-bar-active-transition-start-delay: 0.5s;
-}
-
 /* The entry menu only offers browser-extension actions. */
 .action-button[data-action=menu] {
     display: none;
@@ -22,8 +17,8 @@
     background-color: -apple-system-selected-text-background;
 }
 
-/* Monochrome images are colored when they're drawn (see popup.js); Yomitan's filter for it doesn't
-   work in WebKit. */
+/* Monochrome images are colored when they're drawn (OwOtan's DisplayContentManager); Yomitan's
+   filter for it doesn't work in WebKit. */
 .gloss-image-link[data-appearance=monochrome] .gloss-image {
     filter: none;
 }

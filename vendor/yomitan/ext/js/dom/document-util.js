@@ -26,6 +26,12 @@ let cssZoomSupported = null;
 const FIREFOX_RECT_EXCLUDED_LANGUAGES = new Set(['th']);
 
 /**
+ * The flag in `MouseEvent.buttons` of each `MouseEvent.button`, whose middle and right buttons are in the other order.
+ * @type {number[]}
+ */
+const MOUSE_BUTTON_FLAGS = [0x1, 0x4, 0x2, 0x8, 0x10];
+
+/**
  * Computes the scaling adjustment that is necessary for client space coordinates based on the
  * CSS zoom level.
  * @param {?Node} node A node in the document.
@@ -464,6 +470,12 @@ export function normalizeModifierKey(value) {
  */
 function getActiveButtonsInternal(event, array) {
     let {buttons} = event;
+    if (event.type === 'mousedown' || event.type === 'pointerdown') {
+        // A press's own button can be missing from `buttons`: Safari on macOS reads them as the event is made, by which
+        // time a short press, or one whose release the mouse sends with it, is over.
+        const buttonFlag = MOUSE_BUTTON_FLAGS[event.button];
+        if (typeof buttonFlag === 'number') { buttons |= buttonFlag; }
+    }
     if (typeof buttons === 'number' && buttons > 0) {
         for (let i = 0; i < 6; ++i) {
             const buttonFlag = (1 << i);

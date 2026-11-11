@@ -172,7 +172,7 @@ export class StructuredContentGenerator {
                 this._contentManager.loadMedia(
                     path,
                     dictionary,
-                    (/** @type {HTMLCanvasElement} */(image)).transferControlToOffscreen(),
+                    /** @type {HTMLCanvasElement} */ (image),
                 );
             } else if (this._contentManager instanceof AnkiTemplateRendererContentManager) {
                 this._contentManager.loadMedia(

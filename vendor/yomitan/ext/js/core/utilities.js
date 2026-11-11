@@ -368,3 +368,30 @@ export function isLocalhostUrl(urlString) {
     }
     return false;
 }
+
+/**
+ * Checks whether a URL is on this device or its local network: a loopback or private address, or a `.local` name.
+ * @param {string} urlString
+ * @returns {boolean}
+ */
+export function isLocalNetworkUrl(urlString) {
+    if (isLocalhostUrl(urlString)) { return true; }
+    /** @type {URL} */
+    let url;
+    try {
+        url = new URL(urlString);
+    } catch (e) {
+        return false;
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') { return false; }
+    const hostname = url.hostname.toLowerCase();
+    if (hostname.endsWith('.local')) { return true; }
+    const ipv4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(hostname);
+    if (ipv4 !== null) {
+        const a = Number(ipv4[1]);
+        const b = Number(ipv4[2]);
+        return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+    }
+    // IPv6 unique local (fc00::/7) and link-local (fe80::/10) addresses
+    return /^\[(f[cd]|fe[89ab])[0-9a-f]*:/.test(hostname);
+}

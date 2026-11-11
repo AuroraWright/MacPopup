@@ -190,6 +190,9 @@
     font-size: var(--font-size);
     line-height: var(--line-height);
     height: 100%;
+    /* iOS enlarges text in blocks that hold more of it, such as long menu items */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
 }
 body {
     margin: 0;
@@ -830,6 +833,7 @@ textarea.no-wrap {
 .input-group>input[type=password],
 .input-group>button.input-button {
     flex: 1 1 auto;
+    min-width: 0;
     border-top-right-radius: 0;
     border-bottom-right-radius: 0;
     border-right-style: none;
@@ -1259,12 +1263,14 @@ button.icon-button>.icon-button-inner {
     padding: 0.5em 0;
     min-width: 8em;
     overflow: auto;
+    /* A long press opens some menus, and Safari on iOS would otherwise go on to select the text under the touch. */
+    user-select: none;
+    -webkit-user-select: none;
 }
 .popup-menu-body {
     display: flex;
     flex-flow: column nowrap;
     align-items: stretch;
-    white-space: nowrap;
 }
 button.popup-menu-item {
     --button-content-color: var(--text-color);

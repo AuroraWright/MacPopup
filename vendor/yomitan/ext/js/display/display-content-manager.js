@@ -17,6 +17,7 @@
  */
 
 import {EventListenerCollection} from '../core/event-listener-collection.js';
+import {log} from '../core/log.js';
 import {base64ToArrayBuffer} from '../data/array-buffer-util.js';
 
 /**
@@ -47,7 +48,7 @@ export class DisplayContentManager {
      * Queues loading media file from a given dictionary.
      * @param {string} path
      * @param {string} dictionary
-     * @param {OffscreenCanvas} canvas
+     * @param {HTMLCanvasElement} canvas
      */
     loadMedia(path, dictionary, canvas) {
         this._loadMediaRequests.push({path, dictionary, canvas});
@@ -83,7 +84,13 @@ export class DisplayContentManager {
      * Execute media requests
      */
     async executeMediaRequests() {
-        this._display.application.api.drawMedia(this._loadMediaRequests, this._loadMediaRequests.map(({canvas}) => canvas));
+        const {api} = this._display.application;
+        if (api.canDrawMedia) {
+            const requests = this._loadMediaRequests.map(({path, dictionary, canvas}) => ({path, dictionary, canvas: canvas.transferControlToOffscreen()}));
+            api.drawMedia(requests, requests.map(({canvas}) => canvas));
+        } else {
+            void this._drawMediaFromBackend(this._loadMediaRequests);
+        }
         this._loadMediaRequests = [];
     }
 
@@ -98,6 +105,58 @@ export class DisplayContentManager {
         const blob = new Blob([buffer], {type: data[0].mediaType});
         const blobUrl = URL.createObjectURL(blob);
         window.open(blobUrl, '_blank')?.focus();
+    }
+
+    /**
+     * Draws images by reading them from the backend, for pages without the media drawing worker. This is slower.
+     * Monochrome images are colored here: Safari leaves out the drop-shadow of the CSS filter that colors them in other
+     * browsers (structured-content.css).
+     * @param {import('display-content-manager').LoadMediaRequest[]} requests
+     */
+    async _drawMediaFromBackend(requests) {
+        const token = this._token;
+        // Read each image once, and draw it into every canvas that shows it.
+        /** @type {Map<string, {path: string, dictionary: string, canvases: HTMLCanvasElement[]}>} */
+        const groups = new Map();
+        for (const {path, dictionary, canvas} of requests) {
+            const key = `${path}:::${dictionary}`;
+            const group = groups.get(key);
+            if (typeof group === 'undefined') {
+                groups.set(key, {path, dictionary, canvases: [canvas]});
+            } else {
+                group.canvases.push(canvas);
+            }
+        }
+        if (groups.size === 0) { return; }
+
+        const media = await this._display.application.api.getMedia([...groups.values()].map(({path, dictionary}) => ({path, dictionary})));
+        for (const {content, mediaType, path, dictionary} of media) {
+            if (token !== this._token) { return; }
+            const group = groups.get(`${path}:::${dictionary}`);
+            if (typeof group === 'undefined') { continue; }
+            const url = URL.createObjectURL(new Blob([base64ToArrayBuffer(content)], {type: mediaType}));
+            try {
+                const image = new Image();
+                image.src = url;
+                await image.decode();
+                for (const canvas of group.canvases) {
+                    const context = canvas.getContext('2d');
+                    if (context === null) { continue; }
+                    context.imageSmoothingQuality = 'high';
+                    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                    if (canvas.closest('.gloss-image-link[data-appearance=monochrome]') !== null) {
+                        context.globalCompositeOperation = 'source-in';
+                        context.fillStyle = getComputedStyle(canvas).getPropertyValue('--text-color');
+                        context.fillRect(0, 0, canvas.width, canvas.height);
+                        context.globalCompositeOperation = 'source-over';
+                    }
+                }
+            } catch (e) {
+                log.error(e);
+            } finally {
+                URL.revokeObjectURL(url);
+            }
+        }
     }
 
     /**
