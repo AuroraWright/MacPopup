@@ -102,6 +102,17 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 			else ocr.push({ lineIndex, charIndex, char, key, group: [] });
 		});
 	});
+	// A reading in parentheses after kanji ("声音(こわね)", as some hooks give furigana) is drawn above the word, if at
+	// all, and OCR mode leaves furigana out: it's skipped for free, and left out when nothing on screen matched it.
+	const reading = new Int32Array(target.length).fill(-1);
+	for (let k = 1; k < target.length; k++) {
+		if (!/^[(（]$/u.test(target[k]) || !/\p{scx=Han}/u.test(target[k - 1])) continue;
+		let close = k + 1;
+		while (close < target.length && /^[\p{scx=Hira}\p{scx=Kana}ー]$/u.test(target[close])) close++;
+		if (close === k + 1 || close === target.length || !/^[)）]$/u.test(target[close])) continue;
+		reading.fill(k, k, close + 1);
+		k = close;
+	}
 	const n = target.length;
 	const m = ocr.length;
 	// Whether there's no room before each OCR character for missed ones: its neighbor before it on the
@@ -133,7 +144,7 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 	const score = new Int32Array((n + 1) * width);
 	const move = new Uint8Array((n + 1) * width); // 1 diagonal, 2 target gap (insert), 3 OCR gap (delete)
 	for (let i = 1; i <= n; i++) {
-		const gap = SPACE.test(target[i - 1]) ? 0 : -2;
+		const gap = SPACE.test(target[i - 1]) || reading[i - 1] >= 0 ? 0 : -2;
 		score[i * width] = score[(i - 1) * width] + gap;
 		move[i * width] = 2;
 	}
@@ -144,7 +155,7 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 		for (let j = 1; j <= m; j++) {
 			const unlike = (isBracket && LETTER.test(ocr[j - 1].key)) || (isLetter && BRACKET.test(ocr[j - 1].key));
 			const diagonal = score[(i - 1) * width + j - 1] + (targetKeys[i - 1] === ocr[j - 1].key ? 4 : isSpace ? -6 : unlike ? -3 : -2);
-			const insert = score[(i - 1) * width + j] + (isSpace ? 0 : cramped[j] ? -5 : -2);
+			const insert = score[(i - 1) * width + j] + (isSpace || reading[i - 1] >= 0 ? 0 : cramped[j] ? -5 : -2);
 			const remove = score[i * width + j - 1] - 2;
 			let best = diagonal;
 			let direction = 1;
@@ -196,6 +207,27 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 		next++;
 	}
 
+	// Text before the first character on screen that would go into earlier lines isn't on screen there (e.g. a hook's
+	// "RINE message from " before the sender's name, aligned with the end of the message above): it's left out rather
+	// than written over their text.
+	const firstExact = operations.findIndex((op) => op.type === 'match' && targetKeys[op.target] === ocr[op.ocr].key && !SPACE.test(target[op.target]));
+	if (firstExact > 0) {
+		const firstLine = ocr[operations[firstExact].ocr].lineIndex;
+		for (let k = firstExact - 1; k >= 0; k--) {
+			const op = operations[k];
+			if (op.type === 'insert' || ocr[op.ocr].lineIndex === firstLine) continue;
+			if (op.type === 'match') operations[k] = { type: 'insert', target: op.target };
+			else operations.splice(k, 1);
+		}
+	}
+
+	// Readings nothing on screen matched are left out.
+	const readingsShown = new Set(operations.filter((op) => op.type === 'match' && reading[op.target] >= 0).map((op) => reading[op.target]));
+	const unshownReading = (index) => reading[index] >= 0 && !readingsShown.has(reading[index]);
+	for (let k = operations.length - 1; k >= 0; k--) {
+		if (operations[k].type === 'insert' && unshownReading(operations[k].target)) operations.splice(k, 1);
+	}
+
 	// Text at the very start or end that isn't on screen at all (e.g. a speaker name the hook adds)
 	// is left out rather than squeezed into the first or last character. A single character is more
 	// likely one that wasn't recognized.
@@ -229,7 +261,7 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 		const leadingEnd = leadingMissing > 0 ? operations[firstOcr - 1].target + 1 : 0;
 		const exactLetters = exactOps.filter((op) => LETTER.test(target[op.target])).length;
 		const leadingLetters = target.slice(0, leadingEnd).filter((unit) => LETTER.test(unit)).length;
-		const allLetters = target.filter((unit) => LETTER.test(unit)).length;
+		const allLetters = target.filter((unit, index) => LETTER.test(unit) && !unshownReading(index)).length;
 		// A missing start only passes for a name when more of the line matched after it (otherwise
 		// "「……はい」" would match "いいえ" on its last letter).
 		const letters = exactLetters >= Math.max(3, leadingLetters) ? allLetters - leadingLetters : allLetters;
@@ -306,8 +338,18 @@ function applyOperations(lines, ocr, target, operations) {
 	// The rest of each run of lookalike punctuation, which goes with its first character.
 	const grouped = new Set(ocr.flatMap((entry) => entry.group.map((charIndex) => `${entry.lineIndex}:${charIndex}`)));
 
+	// Lines with words that the match passes over without matching anything in them are other text the reading order
+	// put between its rows (another column's, or a label beside them): they're left as they are. Marks without letters
+	// (e.g. a ▶ at the end of a row) still go, so the rows read on as one.
+	const skipped = new Set();
+	for (let lineIndex = first.lineIndex + 1; lineIndex < last.lineIndex; lineIndex++) {
+		const own = ocr.flatMap((entry, index) => (entry.lineIndex === lineIndex ? [{ entry, edit: edits[index] }] : []));
+		if (own.filter(({ entry }) => LETTER.test(entry.key)).length < 2) continue;
+		if (own.every(({ edit }) => edit.deleted && edit.before.length === 0 && edit.after.length === 0)) skipped.add(lineIndex);
+	}
+
 	return lines.map((line, lineIndex) => {
-		if (lineIndex < first.lineIndex || lineIndex > last.lineIndex) return line;
+		if (lineIndex < first.lineIndex || lineIndex > last.lineIndex || skipped.has(lineIndex)) return line;
 		// The recognized whitespace after each character, reused for whitespace the text has there.
 		const spaceAfter = new Map();
 		let lastCharIndex = -1;

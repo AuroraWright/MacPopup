@@ -128,8 +128,10 @@ public enum OCRLayout {
         var rows: [(start: CGFloat, end: CGFloat, lines: [(item: Item, box: CGRect)])] = []
         for line in lines.sorted(by: { across($0.box).start < across($1.box).start }) {
             let extent = across(line.box)
-            // In the last row when that covers at least half of the line across.
-            if let row = rows.last, min(extent.end, row.end) - max(extent.start, row.start) >= (extent.end - extent.start) / 2 {
+            // In the last row when they cover at least half of each other across (a much taller line, e.g. a large
+            // label beside the text, is a row of its own rather than joining the rows beside it into one).
+            if let row = rows.last,
+               min(extent.end, row.end) - max(extent.start, row.start) >= max(extent.end - extent.start, row.end - row.start) / 2 {
                 rows[rows.count - 1].lines.append(line)
                 rows[rows.count - 1].end = max(row.end, extent.end)
             } else {
