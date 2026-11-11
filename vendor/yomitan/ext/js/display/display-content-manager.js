@@ -100,10 +100,18 @@ export class DisplayContentManager {
      * @param {Window} window
      */
     async openMediaInTab(path, dictionary, window) {
+        // Safari only opens a tab while the click is being handled, so there it is opened before the file is read, and
+        // goes to the file once it has been read.
+        const safariWindow = this._display.browser === 'safari' ? window.open('', '_blank') : null;
         const data = await this._display.application.api.getMedia([{path, dictionary}]);
         const buffer = base64ToArrayBuffer(data[0].content);
         const blob = new Blob([buffer], {type: data[0].mediaType});
         const blobUrl = URL.createObjectURL(blob);
+        if (safariWindow !== null) {
+            safariWindow.location.href = blobUrl;
+            safariWindow.focus();
+            return;
+        }
         window.open(blobUrl, '_blank')?.focus();
     }
 

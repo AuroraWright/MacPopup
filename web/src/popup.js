@@ -190,15 +190,6 @@ function emulateHoverInStyleSheets() {
 	}
 }
 
-// PopupMenu places menus at fractional positions. WebKit then draws their text half a pixel off while
-// a hover transition runs (the menu gets a layer of its own for it), so the text shook as the pointer
-// moved over the items. Whole points draw the same either way.
-function roundMenuPosition(menu) {
-	const { style } = menu.node;
-	style.left = `${Math.round(Number.parseFloat(style.left) || 0)}px`;
-	style.top = `${Math.round(Number.parseFloat(style.top) || 0)}px`;
-}
-
 class Popup {
 	constructor() {
 		this.depth = 0;
@@ -759,7 +750,6 @@ class Popup {
 		this.openMenus.add(menu);
 		menu.on('close', () => this.openMenus.delete(menu));
 		menu.prepare();
-		roundMenuPosition(menu);
 	}
 
 	/** Closes the audio source and note menus, e.g. when the popup hides or shows other content. */
@@ -776,7 +766,6 @@ class Popup {
 			this.renderAudioMenu(menu, sources, term, reading);
 			menu.updateMenuItems();
 			menu.updatePosition();
-			roundMenuPosition(menu);
 		}
 	}
 
@@ -1160,7 +1149,6 @@ class Popup {
 		this.openMenus.add(menu);
 		menu.on('close', () => this.openMenus.delete(menu));
 		menu.prepare();
-		roundMenuPosition(menu);
 	}
 
 	async viewNotes(noteIds) {

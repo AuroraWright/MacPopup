@@ -1278,6 +1278,9 @@ button.action-button:active:not(:disabled) {
 }
 .definition-item-content {
     width: 100%;
+    /* Lets it shrink below its widest content, so that the expansion button stays inside the definition. On narrow
+       screens an image can be as wide as the definition, which pushed the button out of it. */
+    min-width: 0;
     flex: 1 1 auto;
     background-color: transparent;
     transition: background-color var(--animation-duration) ease-in-out;
