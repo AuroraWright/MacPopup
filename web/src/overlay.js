@@ -9,6 +9,7 @@ import { getTextSourceFromPoint, searchTextSource, setHighlight } from './lib/sc
 import { correctWithText, decodeLines, lineText, renderLines } from './lib/ocr-layer.js';
 import { applyReplacements } from './lib/replacements.js';
 import { cursorAt } from './lib/cursor.js';
+import { Tooltip } from './lib/tooltip.js';
 import { getSettings, loadSettings, onSettingsChanged, saveSettings } from './lib/settings.js';
 import { ankiCardFormats, kanjiEntries, termEntries, tokenize, YomitanAPITimeout } from './lib/yomitan-api.js';
 import { convertHiraganaToKatakana, convertKatakanaToHiragana } from '../../vendor/yomitan/ext/js/language/ja/japanese.js';
@@ -16,6 +17,7 @@ import { convertToRomaji } from '../../vendor/yomitan/ext/js/language/ja/japanes
 
 const $ = (selector) => document.querySelector(selector);
 const box = $('#box');
+const tooltip = new Tooltip(document);
 const linesElement = $('#lines');
 
 const cjkCharacters = /[\p{scx=Hira}\p{scx=Kana}\p{scx=Han}]/imu;
@@ -912,6 +914,8 @@ function setPointerHover(x, y) {
 	for (const element of hovered) element.classList.add('pointer-hover');
 	pointerHovered = hovered;
 	showHeaderTip(target?.closest('#box-header .header-button') ?? null);
+	// The box's titles (its drag and resize handles).
+	tooltip.update(x, y);
 }
 
 /**

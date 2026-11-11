@@ -18,6 +18,7 @@ import { getSettings, setLocalSettings } from './lib/settings.js';
 import { ankiFields, kanjiEntries } from './lib/yomitan-api.js';
 import { getAudio, getAudioSources, getLoadedInfoList, startAudio } from './lib/audio-sources.js';
 import { cursorAt } from './lib/cursor.js';
+import { Tooltip } from './lib/tooltip.js';
 
 const overlay = () => window.parent.macpopupOverlay;
 
@@ -224,6 +225,7 @@ class Popup {
 		this.footer = document.querySelector('#content-footer');
 		this.progressIndicator = document.querySelector('#progress-indicator');
 		this.pointerHovered = new Set();
+		this.tooltip = null;
 		this.ready = this.prepare();
 	}
 
@@ -245,6 +247,7 @@ class Popup {
 		// Right-button scan inputs shouldn't open the context menu or select the word.
 		preventRightClickSelection(document, getSettings);
 		document.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+		this.tooltip = new Tooltip(document);
 		document.documentElement.addEventListener('click', (e) => {
 			if (e.button !== 0) return;
 			this.clearScan();
@@ -1202,6 +1205,7 @@ class Popup {
 			if (!this.pointerHovered.has(element)) element.classList.add('pointer-hover');
 		}
 		this.pointerHovered = hovered;
+		this.tooltip?.update(x, y);
 		return x === null ? null : cursorAt(document, x, y);
 	}
 
