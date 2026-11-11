@@ -648,7 +648,7 @@ class PopupManager {
 		popup.visible = false;
 		popup.iframe.style.visibility = '';
 		popup.api?.stopAudio();
-		popup.api?.closeAudioMenus();
+		popup.api?.closeMenus();
 		popup.api?.clearScan();
 		popup.api?.stopRendering();
 		popup.api?.setPointerHover(null, null);

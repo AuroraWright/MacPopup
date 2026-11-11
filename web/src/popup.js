@@ -209,7 +209,8 @@ class Popup {
 		this.audioCache = new Map();
 		// term + reading → the audio chosen in the play button menu for Anki cards: {sourceIndex, subIndex, audio}.
 		this.primaryCardAudio = new Map();
-		this.openAudioMenus = new Set();
+		// The audio source and note menus that are open.
+		this.openMenus = new Set();
 		this.dictionaryMediaPromise = null;
 		this.notifications = { tag: null, inflection: null, error: null, tags: null, flags: null };
 		this.scanTimer = null;
@@ -348,7 +349,7 @@ class Popup {
 		const settings = getSettings();
 
 		this.stopAudio();
-		this.closeAudioMenus();
+		this.closeMenus();
 		this.closeNotifications();
 		this.clearScan();
 		overlay()?.closePopupsAbove(this.depth);
@@ -478,9 +479,11 @@ class Popup {
 		for (const button of entry.querySelectorAll('.action-button[data-action=play-audio]')) {
 			const headword = button.closest('.headword');
 			const headwordIndex = headword ? Number.parseInt(headword.dataset.index, 10) || 0 : 0;
+			// Shift-click lists the audio sources, as a right-click does (Yomitan's).
 			button.addEventListener('click', (e) => {
 				e.preventDefault();
-				void this.playAudio(this.getEntryIndex(entry), headwordIndex);
+				if (e.shiftKey) this.showAudioMenu(button, this.getEntryIndex(entry), headwordIndex);
+				else void this.playAudio(this.getEntryIndex(entry), headwordIndex);
 			});
 			// Right-click lists the audio sources, as in Yomitan.
 			button.addEventListener('contextmenu', (e) => {
@@ -749,21 +752,21 @@ class Popup {
 		document.querySelector('#popup-menus').append(container);
 		const menu = new PopupMenu(button, container);
 		this.renderAudioMenu(menu, sources, term, reading);
-		this.openAudioMenus.add(menu);
-		menu.on('close', () => this.openAudioMenus.delete(menu));
+		this.openMenus.add(menu);
+		menu.on('close', () => this.openMenus.delete(menu));
 		menu.prepare();
 		roundMenuPosition(menu);
 	}
 
-	/** Closes the audio source menus, e.g. when the popup hides or shows other content. */
-	closeAudioMenus() {
-		for (const menu of [...this.openAudioMenus]) menu.close(false);
-		this.openAudioMenus.clear();
+	/** Closes the audio source and note menus, e.g. when the popup hides or shows other content. */
+	closeMenus() {
+		for (const menu of [...this.openMenus]) menu.close(false);
+		this.openMenus.clear();
 	}
 
 	updateAudioMenus(term, reading) {
 		const sources = getAudioSources(getSettings());
-		for (const menu of this.openAudioMenus) {
+		for (const menu of this.openMenus) {
 			const { dataset } = menu.containerNode;
 			if (menu.isClosed || dataset.term !== term || dataset.reading !== reading) continue;
 			this.renderAudioMenu(menu, sources, term, reading);
@@ -1118,13 +1121,42 @@ class Popup {
 		} else {
 			badge.hidden = true;
 		}
+		// As in Yomitan: a right-click or shift-click lists the notes, to open one of them.
 		button.addEventListener('click', (e) => {
 			e.preventDefault();
-			void this.viewNotes(noteIds);
+			if (e.shiftKey) this.showViewNotesMenu(button, noteIds);
+			else void this.viewNotes(noteIds);
+		});
+		button.addEventListener('contextmenu', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			this.showViewNotesMenu(button, noteIds);
+		});
+		button.addEventListener('menuClose', (e) => {
+			const { action, item } = e.detail;
+			if (action === 'viewNotes' && item) void this.viewNotes([Number.parseInt(item.dataset.noteIds, 10)]);
 		});
 		// In place of the previous one, before the tags and flags.
 		if (previous) previous.replaceWith(button);
 		else group.appendChild(button);
+	}
+
+	showViewNotesMenu(button, noteIds) {
+		const container = this.generator.instantiateTemplate('view-note-button-popup-menu');
+		const body = container.querySelector('.popup-menu-body');
+		for (const [i, noteId] of noteIds.entries()) {
+			const item = this.generator.instantiateTemplate('view-note-button-popup-menu-item');
+			item.querySelector('.popup-menu-item-label').textContent = `Note ${i + 1}: ${noteId}`;
+			item.dataset.menuAction = 'viewNotes';
+			item.dataset.noteIds = `${noteId}`;
+			body.append(item);
+		}
+		document.querySelector('#popup-menus').append(container);
+		const menu = new PopupMenu(button, container);
+		this.openMenus.add(menu);
+		menu.on('close', () => this.openMenus.delete(menu));
+		menu.prepare();
+		roundMenuPosition(menu);
 	}
 
 	async viewNotes(noteIds) {
