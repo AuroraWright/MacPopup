@@ -16,7 +16,7 @@ import { adaptCssForWebKit } from './lib/webkit-css.js';
 import { getTextSourceFromPoint, searchTextSource, setHighlight, wrapRubyBases } from './lib/scanner.js';
 import { getSettings, setLocalSettings } from './lib/settings.js';
 import { ankiFields, kanjiEntries } from './lib/yomitan-api.js';
-import { getAudio, getAudioSources, getLoadedInfoList, loadInfoList, startAudio } from './lib/audio-sources.js';
+import { getAudio, getAudioSources, getLoadedInfoList, startAudio } from './lib/audio-sources.js';
 import { cursorAt } from './lib/cursor.js';
 
 const overlay = () => window.parent.macpopupOverlay;
@@ -635,18 +635,23 @@ class Popup {
 		const sources = getAudioSources(getSettings());
 		if (sources.length > 0) {
 			let result = null;
+			let sourceIndex = -1;
 			this.setProgress(true);
 			try {
-				for (const source of sources) {
+				for (const [i, source] of sources.entries()) {
 					result = await getAudio(source, term, reading, null);
-					if (result !== null) break;
+					if (result !== null) {
+						sourceIndex = i;
+						break;
+					}
 				}
 			} finally {
 				this.setProgress(false);
 			}
 			this.updateAudioMenus(term, reading);
-			this.setAudioAvailable(entryIndex, result !== null);
 			if (content !== this.content) return;
+			this.updateAudioButtons(entryIndex, headwordIndex, this.getPotentialAudioCount(term, reading),
+				result !== null ? `From source ${sourceIndex + 1}: ${sources[sourceIndex].name}` : 'Could not find audio');
 			if (result === null) {
 				this.playFallbackSound();
 				return;
@@ -672,8 +677,8 @@ class Popup {
 		}
 
 		const media = this.audioCache.get(key);
-		this.setAudioAvailable(entryIndex, Boolean(media));
 		if (content !== this.content) return;
+		this.updateAudioButtons(entryIndex, headwordIndex, media ? 1 : 0, media ? null : 'Could not find audio');
 		if (!media) {
 			this.playFallbackSound();
 			return;
@@ -683,19 +688,42 @@ class Popup {
 		this.audio.play().catch((e) => log('Audio playback failed', e));
 	}
 
-	/** Marks the entry's play buttons with a cross when no audio was found. */
-	setAudioAvailable(entryIndex, available) {
-		for (const button of this.entryNodes[entryIndex]?.querySelectorAll('.action-button[data-action=play-audio]') ?? []) {
+	/**
+	 * As Yomitan's: how many of the word's audio found so far may play (not tried yet, or worked), or null before any
+	 * source has been asked.
+	 */
+	getPotentialAudioCount(term, reading) {
+		let count = null;
+		for (const source of getAudioSources(getSettings())) {
+			const items = getLoadedInfoList(source, term, reading);
+			if (items === null) continue;
+			count = (count ?? 0) + items.filter(({ valid }) => valid !== false).length;
+		}
+		return count;
+	}
+
+	/**
+	 * Updates the headword's play buttons as Yomitan does after playing: the title says where the audio came from, and
+	 * the badge is a cross when no audio may play, and a plus when there's more than one to choose from (in the menu).
+	 * @param {?string} title Appended to the button's own title, or null for just that.
+	 */
+	updateAudioButtons(entryIndex, headwordIndex, potentialCount, title) {
+		const node = this.entryNodes[entryIndex];
+		if (!node) return;
+		const buttons = [
+			headwordIndex === 0 ? node.querySelector('.action-button[data-action=play-audio]') : null,
+			node.querySelector(`.headword:nth-of-type(${headwordIndex + 1}) .action-button[data-action=play-audio]`),
+		];
+		for (const button of buttons) {
+			if (!button) continue;
+			const titleDefault = button.dataset.titleDefault || '';
+			button.title = title === null ? titleDefault : `${titleDefault}\n${title}`;
 			const badge = button.querySelector('.action-button-badge');
 			if (!badge) continue;
-			if (available) {
-				badge.hidden = true;
-				delete badge.dataset.icon;
-			} else {
-				badge.hidden = false;
-				badge.dataset.icon = 'cross';
-				button.title = 'Audio unavailable';
-			}
+			badge.hidden = potentialCount === null || potentialCount === 1;
+			if (potentialCount === 0) badge.dataset.icon = 'cross';
+			else if (potentialCount === null || potentialCount === 1) delete badge.dataset.icon;
+			else badge.dataset.icon = 'plus-thick';
 		}
 	}
 
@@ -722,10 +750,6 @@ class Popup {
 		menu.on('close', () => this.openAudioMenus.delete(menu));
 		menu.prepare();
 		roundMenuPosition(menu);
-		// Asks every source which audio it has, so the menu lists each voice.
-		for (const source of sources) {
-			void loadInfoList(source, term, reading).then(() => this.updateAudioMenus(term, reading));
-		}
 	}
 
 	/** Closes the audio source menus, e.g. when the popup hides or shows other content. */
@@ -835,6 +859,9 @@ class Popup {
 		}
 		this.updateAudioMenus(term, reading);
 		if (content !== this.content) return;
+		// (Yomitan plays it as a list of one source, so it's source 1.)
+		this.updateAudioButtons(entryIndex, headwordIndex, this.getPotentialAudioCount(term, reading),
+			result !== null ? `From source 1: ${source.name}` : 'Could not find audio');
 		if (result === null) {
 			this.playFallbackSound();
 			return;

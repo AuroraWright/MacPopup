@@ -98,7 +98,7 @@ export function getLoadedInfoList(source, term, reading) {
 }
 
 /** Asks the source which audio it has for the word (once; failures count as none). */
-export function loadInfoList(source, term, reading) {
+function loadInfoList(source, term, reading) {
 	const entry = getCacheEntry(term, reading, source);
 	entry.infoList ??= downloader
 		.getTermAudioInfoList(source, term, reading, getLanguageSummary(getSettings().language))
