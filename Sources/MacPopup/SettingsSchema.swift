@@ -738,7 +738,7 @@ enum SettingsSchema {
             ),
             SettingsSection(
                 title: "IINA Integration", symbol: "film",
-                description: "Make cards from videos you watch in IINA. With MacPopup’s plugin installed and connected, cards made from the subtitles get a clean screenshot of the scene, without subtitles, and the audio of the line, in the sentence audio field chosen in Settings → Anki. Doesn’t work with streams.",
+                description: "Make cards from videos you watch in IINA. With MacPopup’s plugin installed and connected, cards made from the subtitles get a clean screenshot of the scene, without subtitles, and the audio of the line, in the sentence audio field chosen in Settings → Anki. Also works with network streams, including web videos IINA plays through yt-dlp, and live streams (from IINA’s cache, which holds roughly the last minute played).",
                 fields: [
                     SettingsField(
                         "iinaPlugin", "IINA plugin", .iinaPlugin,
