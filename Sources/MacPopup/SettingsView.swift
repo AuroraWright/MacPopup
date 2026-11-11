@@ -1271,6 +1271,7 @@ private struct AudioSourcesControl: View {
         SettingsOption("jisho", "Jisho.org"),
         SettingsOption("lingua-libre", "(Commons) Lingua Libre"),
         SettingsOption("wiktionary", "(Commons) Wiktionary"),
+        SettingsOption("forvo", "Forvo"),
         SettingsOption("text-to-speech", "Text-to-speech"),
         SettingsOption("text-to-speech-reading", "Text-to-speech (Kana reading)"),
         SettingsOption("custom", "Custom URL"),
@@ -1295,7 +1296,7 @@ private struct AudioSourcesControl: View {
                 }
             }
             Button("Add Audio Source") {
-                model.set(key, items + [["type": unusedType(), "url": "", "voice": ""]])
+                model.set(key, items + [["type": unusedType(), "url": "", "voice": "", "apiKey": ""]])
             }
         }
     }
@@ -1378,6 +1379,13 @@ private struct AudioSourceRow: View {
                     }
                     .fixedSize()
                     Text("Text-to-speech can be played in popups, but cannot be saved to Anki cards.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case "forvo":
+                    CommitTextField(value: item["apiKey"] as? String ?? "", placeholder: "API key", monospaced: true, bordered: true) {
+                        change(.set("apiKey", $0.trimmingCharacters(in: .whitespacesAndNewlines)))
+                    }
+                    Text("Plays pronunciations from Forvo in the language set in General: those of speakers from countries where the language is spoken natively first, each the best rated first. When Forvo has none for the term, those of its reading are played. Forvo needs an API key, which comes with a plan from Forvo’s API site (api.forvo.com).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 default:

@@ -14,6 +14,7 @@ const typeNames = new Map([
 	['jisho', 'Jisho.org'],
 	['lingua-libre', 'Lingua Libre'],
 	['wiktionary', 'Wiktionary'],
+	['forvo', 'Forvo'],
 	['text-to-speech', 'Text-to-speech'],
 	['text-to-speech-reading', 'Text-to-speech (Kana reading)'],
 	['custom', 'Custom URL'],
@@ -34,7 +35,7 @@ const downloader = new Downloader(new RequestBuilder());
  * The sources with Yomitan's menu names; a name used by several sources is numbered. With sources
  * configured and default sources enabled, Yomitan's defaults that aren't among them follow.
  * (Without sources, the Yomitan API plays audio from Yomitan's own, defaults included.)
- * @returns {{index: number, type: string, url: string, voice: string, name: string, nameIndex: number, nameUnique: boolean, downloadable: boolean}[]}
+ * @returns {{index: number, type: string, url: string, voice: string, apiKey: string, name: string, nameIndex: number, nameUnique: boolean, downloadable: boolean}[]}
  */
 export function getAudioSources(settings) {
 	const sources = [];
@@ -44,7 +45,7 @@ export function getAudioSources(settings) {
 	const defaults = configured.length > 0 && settings.audioDefaultSources !== false
 		? getRequiredAudioSources(getLanguageSummary(settings.language).iso, configured).map(({ type }) => ({ type }))
 		: [];
-	for (const { type, url = '', voice = '' } of [...configured, ...defaults]) {
+	for (const { type, url = '', voice = '', apiKey = '' } of [...configured, ...defaults]) {
 		const name = typeNames.get(type) ?? 'Unknown';
 		const sameName = byName.get(name) ?? [];
 		byName.set(name, sameName);
@@ -54,6 +55,7 @@ export function getAudioSources(settings) {
 			type,
 			url,
 			voice,
+			apiKey,
 			name,
 			nameIndex: sameName.length,
 			nameUnique: sameName.length === 0,
@@ -70,7 +72,7 @@ export function getAudioSources(settings) {
 const cache = new Map();
 
 function sourceKey(source) {
-	return `${source.type}\u0000${source.url}\u0000${source.voice}`;
+	return `${source.type}\u0000${source.url}\u0000${source.voice}\u0000${source.apiKey}`;
 }
 
 function getCacheEntry(term, reading, source) {

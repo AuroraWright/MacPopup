@@ -237,7 +237,13 @@ export function convertYomitanProfile(options, profileIndex, currentSettings) {
 	if (Array.isArray(profileOptions.audio?.sources)) {
 		result.audioSources = profileOptions.audio.sources
 			.filter((source) => typeof source?.type === 'string')
-			.map(({ type, url, voice }) => ({ type, url: typeof url === 'string' ? url : '', voice: typeof voice === 'string' ? voice : '' }));
+			.map(({ type, url, voice, apiKey }) => ({
+				type,
+				url: typeof url === 'string' ? url : '',
+				voice: typeof voice === 'string' ? voice : '',
+				// (OwOtan's, for Forvo.)
+				apiKey: typeof apiKey === 'string' ? apiKey : '',
+			}));
 	}
 
 	// Dictionary styles and collapse modes are only stored in Yomitan's settings; the API doesn't provide them.
