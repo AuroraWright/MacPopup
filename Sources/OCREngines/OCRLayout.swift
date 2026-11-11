@@ -101,12 +101,30 @@ public enum OCRLayout {
         public var box: CGRect
         public var vertical: Bool
         public var chars: [Char]
+        /// Where its ink is across it; nil without the picture.
+        public var ink: Ink?
 
-        public init(text: String, box: CGRect, vertical: Bool, chars: [Char]) {
+        public init(text: String, box: CGRect, vertical: Bool, chars: [Char], ink: Ink? = nil) {
             self.text = text
             self.box = box
             self.vertical = vertical
             self.chars = chars
+            self.ink = ink
+        }
+    }
+
+    /// Where a line's ink is across it (x in vertical lines, y in horizontal ones), in window points: runs of rows or
+    /// columns with strokes, between gaps without, with how much ink each has (see inkRuns). Measured from the picture
+    /// when first asked for, as only the furigana check needs them, for lines it pairs.
+    public final class Ink {
+        public typealias Run = (start: CGFloat, end: CGFloat, amount: Int)
+
+        /// nil when the strokes can't be told from the background.
+        public private(set) lazy var runs: [Run]? = measure()
+        private let measure: () -> [Run]?
+
+        public init(_ measure: @escaping () -> [Run]?) {
+            self.measure = measure
         }
     }
 
@@ -240,12 +258,58 @@ public enum OCRLayout {
         func toWindowFromPixels(_ box: CGRect) -> CGRect {
             toWindow(CGRect(x: box.minX / size.width, y: box.minY / size.height, width: box.width / size.width, height: box.height / size.height))
         }
+        let windowBox = toWindow(line.box)
+        // In window points, scaled as the line's box is.
+        let ink = image.map { image in
+            Ink {
+                let (pixelStart, pixelSize) = isVertical ? (lineBox.minX, lineBox.width) : (lineBox.minY, lineBox.height)
+                let (windowStart, windowSize) = isVertical ? (windowBox.minX, windowBox.width) : (windowBox.minY, windowBox.height)
+                guard pixelSize > 0 else { return nil }
+                let scale = windowSize / pixelSize
+                return inkRuns(in: lineBox, vertical: isVertical, image: image)?.map { run in
+                    (start: windowStart + (run.start - pixelStart) * scale, end: windowStart + (run.end - pixelStart) * scale, amount: run.amount)
+                }
+            }
+        }
         return Line(
             text: chars.map(\.text).joined(),
-            box: toWindow(line.box),
+            box: windowBox,
             vertical: isVertical,
-            chars: chars.map { Char(text: $0.text, box: toWindowFromPixels($0.box)) }
+            chars: chars.map { Char(text: $0.text, box: toWindowFromPixels($0.box)) },
+            ink: ink
         )
+    }
+
+    /// Where the ink is across a line's box (in pixels): runs of rows (columns in vertical text) with pixels far from
+    /// the box's median brightness (its background), split where under 3% as many are, with how many each has. nil
+    /// when under half the box is near that brightness: text over a picture (e.g. subtitles over video), whose edges
+    /// would count as strokes.
+    static func inkRuns(in box: CGRect, vertical: Bool, image: GrayImage) -> [Ink.Run]? {
+        let alongCount = vertical ? image.height : image.width, acrossCount = vertical ? image.width : image.height
+        let a0 = max(Int(vertical ? box.minY : box.minX), 0), a1 = min(Int((vertical ? box.maxY : box.maxX).rounded(.up)), alongCount - 1)
+        let c0 = max(Int(vertical ? box.minX : box.minY), 0), c1 = min(Int((vertical ? box.maxX : box.maxY).rounded(.up)), acrossCount - 1)
+        guard a1 > a0, c1 > c0 else { return nil }
+        let pixel = { (a: Int, c: Int) in Int(image.pixels[(vertical ? a : c) * image.width + (vertical ? c : a)]) }
+        var histogram = [Int](repeating: 0, count: 256)
+        for a in a0...a1 { for c in c0...c1 { histogram[pixel(a, c)] += 1 } }
+        let total = (a1 - a0 + 1) * (c1 - c0 + 1)
+        var count = 0
+        let background = histogram.indices.first { count += histogram[$0]; return count * 2 >= total } ?? 0
+        guard 2 * histogram[max(background - 24, 0)...min(background + 24, 255)].reduce(0, +) >= total else { return nil }
+        let amounts = (c0...c1).map { c in (a0...a1).reduce(0) { $0 + (abs(pixel($1, c) - background) > 64 ? 1 : 0) } }
+        let peak = amounts.max() ?? 0
+        guard peak > 0 else { return nil }
+        var runs: [Ink.Run] = []
+        var start: Int?
+        for index in 0...amounts.count {
+            if index < amounts.count, Double(amounts[index]) > Double(peak) * 0.03 {
+                if start == nil { start = index }
+            } else if let first = start {
+                runs.append((CGFloat(c0 + first), CGFloat(c0 + index), amounts[first..<index].reduce(0, +)))
+                start = nil
+            }
+        }
+        return runs
     }
 
     static func isFullWidth(_ text: String) -> Bool {
