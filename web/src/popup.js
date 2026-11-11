@@ -68,7 +68,11 @@ class PopupContentManager extends DisplayContentManager {
 		return media.filter((item) => targets.some(({ path, dictionary }) => item.path === path && item.dictionary === dictionary));
 	}
 
-	async openMediaInTab() {}
+	// Yomitan opens a clicked image in a new tab; here it opens in its default app.
+	async openMediaInTab(path, dictionary) {
+		const [media] = await this.getMedia([{ path, dictionary }]);
+		if (media) await nativeCall('openMedia', { content: media.content, path });
+	}
 
 	_onLinkClick(e) {
 		const { href } = e.currentTarget;

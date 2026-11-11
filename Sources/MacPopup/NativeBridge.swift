@@ -136,6 +136,18 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             NSWorkspace.shared.open(url)
             return nil
+        case "openMedia":
+            // A dictionary image clicked in a popup, which Yomitan opens in a new tab: in its default app, from a
+            // temporary copy named after it.
+            guard let content = body["content"] as? String, let data = Data(base64Encoded: content) else {
+                throw BridgeError("Invalid media")
+            }
+            let name = ((body["path"] as? String ?? "") as NSString).lastPathComponent
+            let file = FileManager.default.temporaryDirectory
+                .appendingPathComponent("macpopup-media-\(UUID().uuidString)-\(name.isEmpty ? "image" : name)")
+            try data.write(to: file)
+            NSWorkspace.shared.open(file)
+            return nil
         case "frontmostApp":
             // Stands in for Yomitan's page title ({document-title}): the app being read, e.g. the game.
             return NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
