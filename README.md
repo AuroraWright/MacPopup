@@ -105,6 +105,31 @@ the browser, with your own dictionaries, settings and Anki templates, over any a
 
 ---
 
+## Game Controllers
+
+You can look up words and control popups with a game controller (DualShock 4, Switch Pro
+Controller, Xbox controllers and others), without putting it down.
+
+- **Set Up Your Controller**: In **Settings → Controllers**, connect your controller, click
+  **Set Up…**, and press its buttons as shown. MacPopup learns where each button is, so it can take
+  over the controller while you look up words—your game won't react to it meanwhile, and doesn't
+  see it disconnect. A controller that isn't set up still works, but your game will also react to
+  its presses.
+- **Look Up Words**: In **Settings → Scanning**, record a **Controller scan key**—a button
+  combination your game doesn't use, such as `L3 + R3`. Press it to start looking up words in the
+  text box or the OCR Mode text, then move with the D-pad or left stick. When you stop moving, the
+  popup for that word opens (after the **Controller popup delay**, 1 second by default). Press the
+  combination again to close the popup and give the controller back to your game.
+  - With **Scan resolution** set to **Character**, you move one character at a time and choose
+    exactly where a word starts. Set to **Word**, you jump from word to word.
+  - In OCR Mode, you start in the dialogue box: on the most recent WebSocket line if it's on screen,
+    or else on the bottom or top sentence (**Controller OCR Mode starting position**).
+- **Control Popups**: Any shortcut in **Settings → Popup Shortcuts** can also have a controller
+  button combination (**Record Buttons**). While a popup is open, your game won't react to a
+  controller that's set up; when no popup is open, the buttons go to your game as usual.
+
+---
+
 ## OCR Mode
 
 Switch to **OCR Mode** from the menu bar icon or **Settings → General**. The floating text box
