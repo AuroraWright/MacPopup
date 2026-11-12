@@ -85,7 +85,7 @@ final class TextLine {
 
 enum Normalizer {
     static let lineHeight = 60
-    static let maxWidth = min(Int((1536.0 * 1536.0 + 768.0 * 768.0).squareRoot() * 7 * 30 + 1), 1_000_000)
+    static let maxWidth = min(Int(Double(1536 * 1536 + 768 * 768).squareRoot() * 7 * 30 + 1), 1_000_000)
     private static let deg2rad = Double(bitPattern: 0x3F91_DF46_A252_9D39)
     private static let rad2deg = Double(bitPattern: 0x404C_A5DC_1A63_C1F8)
 
