@@ -406,6 +406,10 @@ final class OCRController {
             if let lastResult {
                 send(lastResult)
             }
+            if let crashNotice {
+                send(["type": "error", "message": crashNotice])
+                self.crashNotice = nil
+            }
         default:
             break
         }
@@ -1112,6 +1116,20 @@ final class OCRController {
         /// Whether its boxes for words are where they are: Live Text's are often a cell off, so its lines are snapped to
         /// their cells (see OCRLayout.layOut).
         var hasExactBoxes: Bool { self != .liveText }
+
+        /// As Settings shows it.
+        var name: String {
+            switch self {
+            case .liveText: "Live Text"
+            case .meikiocr: "meikiocr"
+            case .screenAI: "Screen AI"
+            case .oneOCR: "OneOCR"
+            case .ppocrManga: "PP-OCRv6 Manga"
+            }
+        }
+
+        /// Whether its models can run on the CPU instead of the GPU (see OCRCompute); Screen AI's crash there.
+        var canRunOnCPU: Bool { self == .meikiocr || self == .ppocrManga }
     }
 
     /// The engine when OCR mode started or it last changed.
@@ -1153,16 +1171,62 @@ final class OCRController {
         }
     }
 
+    /// The engine whose models are loading, saved until they've loaded (see guardLoading).
+    private static let loadingKey = "ocrEngineLoading"
+    /// The engines that run on the CPU since they crashed MacPopup while loading on the GPU, with the macOS version
+    /// then.
+    private static let onCPUKey = "ocrEnginesOnCPU"
+    /// What guardLoading did, shown again once the page has loaded: at launch, it may not have yet.
+    private var crashNotice: String?
+
+    /// Loading an engine's models can crash MacPopup (on macOS 27, PP-OCRv6 Manga's detector made Apple's GPU code
+    /// abort), and since the engine loads as OCR mode starts, it would crash at every launch. So the engine is saved
+    /// while it loads: if it's still saved at the next warm-up, it crashed, and it's loaded on the CPU from then on
+    /// (until macOS is updated); if it did so on the CPU too, or can't run there, OCR mode switches to Live Text.
+    /// Returns false when the engine is switched.
+    private func guardLoading(_ engine: Engine) -> Bool {
+        let defaults = SettingsStore.shared.defaults
+        let system = ProcessInfo.processInfo.operatingSystemVersionString
+        var onCPU = (defaults.dictionary(forKey: Self.onCPUKey) as? [String: String] ?? [:]).filter { $0.value == system }
+        if let crashed = defaults.dictionary(forKey: Self.loadingKey), crashed["engine"] as? String == engine.rawValue {
+            defaults.removeObject(forKey: Self.loadingKey)
+            if engine.canRunOnCPU, crashed["cpu"] as? Bool != true {
+                onCPU[engine.rawValue] = system
+                showCrashNotice("\(engine.name) crashed MacPopup while loading, so it now runs on the CPU, which is slower.")
+            } else {
+                var settings = SettingsStore.shared.dictionary
+                settings["ocrEngine"] = Engine.liveText.rawValue
+                if let data = try? JSONSerialization.data(withJSONObject: settings), let json = String(data: data, encoding: .utf8) {
+                    SettingsStore.shared.update(json: json)
+                }
+                showCrashNotice("\(engine.name) crashed MacPopup while loading, so OCR Mode now uses Live Text.")
+                return false
+            }
+        }
+        defaults.set(onCPU, forKey: Self.onCPUKey)
+        OCRCompute.cpuOnly = onCPU[engine.rawValue] != nil
+        defaults.set(["engine": engine.rawValue, "cpu": OCRCompute.cpuOnly], forKey: Self.loadingKey)
+        return true
+    }
+
+    private func showCrashNotice(_ message: String) {
+        crashNotice = message
+        send(["type": "error", "message": message])
+    }
+
     /// The first reading takes longer (Live Text's by about a second, the others load their models), so the engine is
     /// prepared before the window needs reading.
     private func warmUp() async {
         let started = Date()
+        let engine = engine
         func prepare(_ body: () async throws -> Void) async {
+            guard guardLoading(engine) else { return }
             do {
                 try await body()
             } catch {
                 send(["type": "error", "message": error.localizedDescription])
             }
+            SettingsStore.shared.defaults.removeObject(forKey: Self.loadingKey)
         }
         switch engine {
         case .liveText:
