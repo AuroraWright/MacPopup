@@ -31,9 +31,10 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
     /// Google Lens and Bing: they send the picture online.
     var isCloud: Bool { self == .googleLens || self == .bing }
 
-    /// Whether continuous mode can read with it: not Screen AI, which needs the GPU (apps in the background can't use it
-    /// on iPhone), and not the cloud engines, a request for each change of the screen being too many and too slow.
-    var readsContinuously: Bool { self != .screenAI && !isCloud }
+    /// Whether continuous mode can read with it: not the cloud engines, a request for each change of the screen being
+    /// too many and too slow. The others run on the CPU there (apps in the background can't use the GPU on iPhone);
+    /// Screen AI's models need converting with scripts/convert-screenai.py's fix for that (see CoreMLModel).
+    var readsContinuously: Bool { !isCloud }
 
     /// Screen AI and OneOCR need the models the user converts on the Mac (loading them comes in a later version).
     var isAvailable: Bool {

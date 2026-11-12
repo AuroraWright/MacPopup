@@ -40,8 +40,8 @@ game. Reading pauses while the live page is in front. *Show the Latest Text* add
 game with the new lines. Stopping the broadcast stops reading.
 
 - The app keeps running in the background with a silent audio session, and reads on the CPU, since iOS doesn't let
-  background apps use the GPU: about half a second per area on an iPhone 15 Pro Max. Screen AI needs the GPU, so
-  continuous reading uses meikiocr instead of it, as it does instead of Google Lens and Bing (a request for each change
-  of the screen).
+  background apps use the GPU: about half a second per area on an iPhone 15 Pro Max. Screen AI needs models converted
+  with the current `scripts/convert-screenai.py` for that (older ones can crash on the CPU). Continuous reading uses
+  meikiocr instead of Google Lens and Bing (a request for each change of the screen).
 - It uses more battery. The *Reading* settings set how often the screen is checked and how much an area must change.
 - Protected video (DRM) comes out black in a broadcast.
