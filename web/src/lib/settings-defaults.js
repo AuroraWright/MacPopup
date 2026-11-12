@@ -252,6 +252,8 @@ export const defaultSettings = {
 	sentenceAudioEnabled: false,
 	// {key, modifiers} as in hotkeys, or null.
 	sentenceAudioShortcut: null,
+	// Controller buttons for the same, at any time, like gamepadScanButtons (see overlay.js).
+	sentenceAudioButtons: [],
 	// The field for sentence audio, recorded (cards added today with the same sentence as the newest one get the
 	// recording; their sentence field is the one their Yomitan card format fills with {sentence}) or from IINA.
 	sentenceAudioField: 'SentenceAudio',

@@ -1460,8 +1460,11 @@ window.__macpopupGamepad = (held) => {
 		const combo = gamepad.combo;
 		gamepad.combo = [];
 		const scanButtons = getSettings().gamepadScanButtons ?? [];
+		const sentenceAudioButtons = getSettings().sentenceAudioButtons ?? [];
 		if (scanButtons.length > 0 && sameButtons(combo, scanButtons)) {
 			setControllerFocus(!gamepad.focus);
+		} else if (sentenceAudioButtons.length > 0 && sameButtons(combo, sentenceAudioButtons)) {
+			nativeCall('gamepadSentenceAudio').catch(() => {});
 		} else if (popupManager.visiblePopups().length > 0) {
 			const hotkey = controllerHotkeys().find((hotkey) => sameButtons(combo, hotkey.buttons));
 			if (hotkey) runHotkey(hotkey);
@@ -1472,6 +1475,17 @@ window.__macpopupGamepad = (held) => {
 	if (!gamepad.focus) return;
 	if (pressed) holdDirection(pressed);
 	else if (!directions.includes(gamepad.direction)) holdDirection(null);
+};
+
+/** Before Game Sentence Audio records (see SentenceAudio.swift): the popups close, and the game gets its controller back. */
+window.__macpopupReleaseForGame = () => {
+	if (gamepad.focus) {
+		setControllerFocus(false);
+	} else {
+		popupManager.closeAll();
+		clearMainScan();
+	}
+	updateGamepadHold();
 };
 
 function setControllerFocus(focus) {

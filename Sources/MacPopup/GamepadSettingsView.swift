@@ -53,7 +53,7 @@ struct GamepadsControl: View {
     }
 
     private func status(_ row: Row) -> String {
-        guard row.layout != nil else { return "Not set up yet—your game will still react to it while you look up words" }
+        guard row.layout != nil else { return "Not set up yet—MacPopup won’t use it until it’s set up" }
         return row.isConnected ? "Ready" : "Ready · Not connected"
     }
 }
@@ -98,6 +98,12 @@ private struct GamepadLearningPanel: View {
     }
 }
 
+extension Notification.Name {
+    /// Posted by a Settings recorder (keys or controller buttons) as it starts, with itself as the object: the others
+    /// cancel theirs, so only one records at a time.
+    static let settingsRecordingStarted = Notification.Name("MacPopupSettingsRecordingStarted")
+}
+
 /// Records a combination of controller buttons: the buttons held together, once they're all let go. D-pad and stick
 /// directions don't count (they move between words).
 @MainActor
@@ -107,9 +113,19 @@ final class GamepadComboRecorder: ObservableObject {
     @Published private(set) var held: Set<String> = []
     private var subscription: AnyCancellable?
     private var completion: (([String]) -> Void)?
+    private var othersStarting: AnyCancellable?
+
+    init() {
+        othersStarting = NotificationCenter.default.publisher(for: .settingsRecordingStarted).sink { [weak self] note in
+            MainActor.assumeIsolated {
+                if note.object as AnyObject? !== self { self?.cancel() }
+            }
+        }
+    }
 
     func start(completion: @escaping ([String]) -> Void) {
         cancel()
+        NotificationCenter.default.post(name: .settingsRecordingStarted, object: self)
         let gamepads = GamepadController.shared
         gamepads.retain()
         gamepads.beginRecording()
@@ -146,11 +162,12 @@ func gamepadComboName(_ buttons: [String]) -> String {
     buttons.map(GamepadControls.shortName).joined(separator: " + ")
 }
 
-/// A button that records a controller combination (see GamepadComboRecorder).
+/// A button that records a controller combination (see GamepadComboRecorder), once a controller is set up.
 struct GamepadComboButton: View {
     let buttons: [String]
     let commit: ([String]) -> Void
     @StateObject private var recorder = GamepadComboRecorder()
+    @ObservedObject private var gamepads = GamepadController.shared
 
     var body: some View {
         let title = buttons.isEmpty ? "Record Buttons" : gamepadComboName(buttons)
@@ -164,7 +181,12 @@ struct GamepadComboButton: View {
         } label: {
             SteadyLabel(recorder.isRecording ? recording : title, reserving: [title, "Press buttons…"]).frame(minWidth: 90)
         }
-        .help(recorder.isRecording ? "Hold the buttons together, then let go. Click to cancel." : "Click, then press a button combination on your game controller")
+        .help(
+            gamepads.layouts.isEmpty
+                ? "Set up a controller in Settings → Controllers first"
+                : recorder.isRecording ? "Hold the buttons together, then let go. Click to cancel." : "Click, then press a button combination on your game controller"
+        )
+        .disabled(gamepads.layouts.isEmpty && !recorder.isRecording)
         .onDisappear { recorder.cancel() }
     }
 }

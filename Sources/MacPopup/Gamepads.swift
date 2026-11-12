@@ -9,7 +9,8 @@ import IOKit.hid
 /// IOKit can open a controller to seize it: it then stops reaching other apps, GameController included, until it's let
 /// go, without games seeing it disconnect, and without asking for a permission. MacPopup reads a held controller's
 /// reports itself, with the layout learned for its model in Settings (see GamepadLearning.swift), and reads it that way
-/// while it isn't held too. A controller without a layout is read through GameController, and can't be held.
+/// while it isn't held too. A controller without a layout isn't used: GameController only names the controls while one
+/// is learned.
 @MainActor
 final class GamepadController: ObservableObject {
     static let shared = GamepadController()
@@ -74,9 +75,7 @@ final class GamepadController: ObservableObject {
 
     private var manager: IOHIDManager?
     private var pads: [Pad] = []
-    /// What GameController says is held, for each controller it reads.
-    private var gameControllerPressed: [ObjectIdentifier: (name: String, pressed: Set<String>)] = [:]
-    /// Whether the settings use controllers (a scan key, or popup shortcuts).
+    /// Whether the settings use controllers (a scan key, popup shortcuts, or Game Sentence Audio) and one is set up.
     private var wanted = false
     /// Settings views that read controllers (see retain).
     private var clients = 0
@@ -105,13 +104,6 @@ final class GamepadController: ObservableObject {
         NotificationCenter.default.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated { (note.object as? GCController).map { self?.watch($0) } }
         }
-        NotificationCenter.default.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let controller = note.object as? GCController else { return }
-                self?.gameControllerPressed[ObjectIdentifier(controller)] = nil
-                self?.update()
-            }
-        }
     }
 
     // MARK: Settings
@@ -123,7 +115,8 @@ final class GamepadController: ObservableObject {
         let hotkeyButtons = (settings["hotkeys"] as? [[String: Any]] ?? []).contains {
             $0["enabled"] as? Bool ?? true && !($0["buttons"] as? [String] ?? []).isEmpty
         }
-        wanted = !scanButtons.isEmpty || hotkeyButtons
+        let sentenceAudioButtons = settings["sentenceAudioEnabled"] as? Bool == true && !(settings["sentenceAudioButtons"] as? [String] ?? []).isEmpty
+        wanted = (!scanButtons.isEmpty || hotkeyButtons || sentenceAudioButtons) && !layouts.isEmpty
         scheduleApply()
     }
 
@@ -301,16 +294,9 @@ final class GamepadController: ObservableObject {
     private func gameControllerChanged(_ controller: GCController, _ profile: GCPhysicalInputProfile) {
         guard active else { return }
         let state = Self.state(profile)
-        let name = controller.vendorName ?? ""
-        if let learning, learning.name == name {
-            recording.states.append(GamepadRecording.State(time: Date().timeIntervalSince(learningStart), pressed: state.pressed, analog: state.analog))
-            if state.pressed != learning.held { self.learning?.held = state.pressed }
-        }
-        let id = ObjectIdentifier(controller)
-        if gameControllerPressed[id]?.pressed != state.pressed {
-            gameControllerPressed[id] = (name, state.pressed)
-            update()
-        }
+        guard let learning, learning.name == controller.vendorName else { return }
+        recording.states.append(GamepadRecording.State(time: Date().timeIntervalSince(learningStart), pressed: state.pressed, analog: state.analog))
+        if state.pressed != learning.held { self.learning?.held = state.pressed }
     }
 
     /// The controls a profile has: its buttons (but not those that are a D-pad's or a stick's directions), D-pad
@@ -364,16 +350,11 @@ final class GamepadController: ObservableObject {
 
     // MARK: Held controls
 
-    /// Controllers read from their reports, and those GameController reads that aren't.
+    /// The held controls of the controllers that are set up.
     private func update() {
         var held = Set<String>()
-        var readNames = Set<String>()
         for pad in pads where pad.mode != nil && layouts[pad.key] != nil {
             held.formUnion(pad.pressed)
-            readNames.insert(pad.name)
-        }
-        for (name, pressed) in gameControllerPressed.values where !readNames.contains(name) {
-            held.formUnion(pressed)
         }
         guard held != pressed else { return }
         pressed = held

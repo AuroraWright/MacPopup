@@ -72,6 +72,9 @@ final class SentenceAudioController {
         switch state {
         case .idle:
             state = .starting
+            // The popups close and the game gets its controller back first: it's the game that replays the voice.
+            overlay.evaluate("window.__macpopupReleaseForGame?.()")
+            GamepadController.shared.setHold(false)
             Task { await start() }
         case let .recording(recording):
             recording.stop(reason: .shortcut)

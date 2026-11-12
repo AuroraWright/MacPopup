@@ -365,7 +365,7 @@ enum SettingsSchema {
                 SettingsField("scanInputs", "Advanced scanning inputs", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
                 SettingsField(
                     "gamepadScanButtons", "Controller scan key (text box/OCR Mode text)", .gamepadCombo,
-                    hint: "Press this button combination on a game controller to start looking up words, then move through the text box or OCR Mode text with the D-pad or left stick—one character or one word at a time, depending on Scan resolution. Press the combination again to close the popup and hand the controller back to your game. While you’re looking up words, your game won’t react to a controller that’s set up in Settings → Controllers. Your game does see this combination itself, so pick buttons it doesn’t use (for example L3 + R3)."
+                    hint: "Press this button combination on a game controller to start looking up words, then move through the text box or OCR Mode text with the D-pad or left stick—one character or one word at a time, depending on Scan resolution. Press the combination again to close the popup and hand the controller back to your game. Only controllers set up in Settings → Controllers work, and while you’re looking up words, your game won’t react to them. Your game does see this combination itself, so pick buttons it doesn’t use (for example L3 + R3)."
                 ),
                 SettingsField(
                     "gamepadPopupDelay", "Controller popup delay (in milliseconds)", .number(min: 0),
@@ -616,12 +616,12 @@ enum SettingsSchema {
             ),
             SettingsSection(
                 title: "Popup Shortcuts", symbol: "keyboard",
-                description: "Keyboard shortcuts that work whenever a dictionary popup is open—even while a game or another app is in the foreground. While a popup is visible, these keys control the popup instead of the active app. You can also give a shortcut a game controller button combination with Record Buttons (the D-pad and sticks are left for moving through the text). While a popup is open, your game won’t react to a controller that’s set up in Settings → Controllers.",
+                description: "Keyboard shortcuts that work whenever a dictionary popup is open—even while a game or another app is in the foreground. While a popup is visible, these keys control the popup instead of the active app. You can also give a shortcut a game controller button combination with Record Buttons (the D-pad and sticks are left for moving through the text). This works with controllers set up in Settings → Controllers, and while a popup is open, your game won’t react to them.",
                 fields: [SettingsField("hotkeys", "", .hotkeys)]
             ),
             SettingsSection(
                 title: "Controllers", symbol: "gamecontroller",
-                description: "Look up words with a game controller (set a Controller scan key in Scanning) and control popups with its buttons (add buttons to Popup Shortcuts). While you’re doing that, MacPopup takes over the controller so your game doesn’t react to it. For this to work, MacPopup first needs to learn each controller’s buttons: connect it, click Set Up, and follow the steps.",
+                description: "Look up words with a game controller (set a Controller scan key in Scanning) and control popups with its buttons (add buttons to Popup Shortcuts). While you’re doing that, MacPopup takes over the controller so your game doesn’t react to it. MacPopup only uses a controller once it has learned its buttons: connect it, click Set Up, and follow the steps.",
                 fields: [SettingsField("gamepadLayouts", "", .gamepads)]
             ),
             SettingsSection(
@@ -707,6 +707,10 @@ enum SettingsSchema {
                     SettingsField(
                         "sentenceAudioShortcut", "Recording shortcut", .shortcut,
                         hint: "Works globally from any app. Press the shortcut again while recording to stop early and save. The recording is added to the newest card created today, and to any other cards from today with the same {sentence}."
+                    ),
+                    SettingsField(
+                        "sentenceAudioButtons", "Recording controller buttons", .gamepadCombo,
+                        hint: "Works like the shortcut, from a game controller set up in Settings → Controllers. Your game also sees this combination, so pick buttons it doesn’t use."
                     ),
                     SettingsField("sentenceAudioApp", "App to focus before recording", .select([
                         SettingsOption("captured", "Captured window"),

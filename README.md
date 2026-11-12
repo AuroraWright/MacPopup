@@ -113,8 +113,7 @@ Controller, Xbox controllers and others), without putting it down.
 - **Set Up Your Controller**: In **Settings → Controllers**, connect your controller, click
   **Set Up…**, and press its buttons as shown. MacPopup learns where each button is, so it can take
   over the controller while you look up words—your game won't react to it meanwhile, and doesn't
-  see it disconnect. A controller that isn't set up still works, but your game will also react to
-  its presses.
+  see it disconnect. MacPopup only uses controllers that are set up.
 - **Look Up Words**: In **Settings → Scanning**, record a **Controller scan key**—a button
   combination your game doesn't use, such as `L3 + R3`. Press it to start looking up words in the
   text box or the OCR Mode text, then move with the D-pad or left stick. When you stop moving, the
@@ -127,6 +126,9 @@ Controller, Xbox controllers and others), without putting it down.
 - **Control Popups**: Any shortcut in **Settings → Popup Shortcuts** can also have a controller
   button combination (**Record Buttons**). While a popup is open, your game won't react to a
   controller that's set up; when no popup is open, the buttons go to your game as usual.
+- **Record Sentence Audio**: **Settings → Game Sentence Audio** can also have a controller button
+  combination, which works like its keyboard shortcut at any time. Like the scan key, pick buttons
+  your game doesn't use.
 
 ---
 
@@ -236,6 +238,8 @@ automatically record the character's voice line from your game's dialogue backlo
 4. Saves the audio clip into the **Sentence audio field** (*Settings → Anki*) on the newest
    card created today, and on any other cards added today with the same sentence, if that field is
    empty. The recording is then played back (optional).
+
+You can also start a recording with a controller button combination (see [Game Controllers](#game-controllers)).
 
 Requires the **Accessibility** permission (*Settings → Permissions*), and permission to record other apps'
 audio, which the first recording asks for (*System Settings → Privacy & Security → Screen & System Audio Recording*).

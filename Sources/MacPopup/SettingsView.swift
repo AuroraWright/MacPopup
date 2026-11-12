@@ -1,5 +1,6 @@
 import AVFoundation
 import AppKit
+import Combine
 import OCREngines
 import SwiftUI
 
@@ -1484,9 +1485,20 @@ private final class ShortcutRecorder: ObservableObject {
     @Published private(set) var activeIndex: Int?
     private var monitor: Any?
     private var completion: ((KeyCombination) -> Void)?
+    private var othersStarting: AnyCancellable?
+
+    init() {
+        // Another recorder starting (see Notification.Name.settingsRecordingStarted) cancels this one's recording.
+        othersStarting = NotificationCenter.default.publisher(for: .settingsRecordingStarted).sink { [weak self] note in
+            MainActor.assumeIsolated {
+                if note.object as AnyObject? !== self { self?.cancel() }
+            }
+        }
+    }
 
     func start(index: Int, completion: @escaping (KeyCombination) -> Void) {
         cancel()
+        NotificationCenter.default.post(name: .settingsRecordingStarted, object: self)
         activeIndex = index
         self.completion = completion
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -1698,10 +1710,13 @@ private struct HotkeysControl: View {
         let buttons = Set(items[index]["buttons"] as? [String] ?? [])
         guard !buttons.isEmpty, items[index]["enabled"] as? Bool ?? true else { return nil }
         if Set(model["gamepadScanButtons"] as? [String] ?? []) == buttons {
-            return "The controller scan key uses these buttons, so it takes priority."
+            return "These controller buttons are already used by the controller scan key, which takes priority."
+        }
+        if model["sentenceAudioEnabled"] as? Bool == true, Set(model["sentenceAudioButtons"] as? [String] ?? []) == buttons {
+            return "These controller buttons are already used by Game Sentence Audio, which takes priority."
         }
         let earlier = items[..<index].contains { ($0["enabled"] as? Bool ?? true) && Set($0["buttons"] as? [String] ?? []) == buttons }
-        return earlier ? "An earlier shortcut already uses these buttons and takes priority." : nil
+        return earlier ? "These controller buttons are already used by an earlier shortcut, which takes priority." : nil
     }
 }
 
@@ -1760,7 +1775,7 @@ private struct HotkeyRow: View {
                     .help("Remove")
             }
             if isDuplicate {
-                Text("Already used by an earlier shortcut, which takes priority.").font(.caption).foregroundStyle(.red)
+                Text("These keyboard keys are already used by an earlier shortcut, which takes priority.").font(.caption).foregroundStyle(.red)
             } else if let combination, combination.keyCode == nil {
                 Text("\(combination.key) isn’t a key MacPopup can use.").font(.caption).foregroundStyle(.red)
             }

@@ -133,6 +133,11 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "gamepadHold":
             GamepadController.shared.setHold(body["hold"] as? Bool ?? false)
             return nil
+        case "gamepadSentenceAudio":
+            // Game Sentence Audio's controller buttons (see overlay.js).
+            guard SettingsStore.shared.dictionary["sentenceAudioEnabled"] as? Bool == true else { return nil }
+            host?.pressSentenceAudioShortcut()
+            return nil
         case "openURL":
             guard let string = body["url"] as? String, let url = URL(string: string) else {
                 throw BridgeError("Invalid URL")
