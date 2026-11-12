@@ -6,7 +6,7 @@ import { log, nativeCall } from './lib/native.js';
 import { getPopupPosition } from './lib/popup-position.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
 import { getTextSourceFromPoint, searchTextSource, setHighlight } from './lib/scanner.js';
-import { correctWithText, decodeLines, lineText, renderLines } from './lib/ocr-layer.js';
+import { correctWithText, decodeLines, lineText, ocrCharOf, renderLines } from './lib/ocr-layer.js';
 import { applyReplacements } from './lib/replacements.js';
 import { cursorAt } from './lib/cursor.js';
 import { Tooltip } from './lib/tooltip.js';
@@ -658,6 +658,7 @@ class PopupManager {
 			// for where the cursor is now (auto-hide fires after it left the old word), so it goes on.
 			if (!scan.pending) scan.source = null;
 			setHighlight(null);
+			applyDeferredOcr();
 		} else {
 			this.popups[depth - 1]?.api?.clearScan();
 		}
@@ -1021,6 +1022,10 @@ const ocr = {
 	websocketConnected: null,
 	key: null,
 	size: null,
+	// What replaces the text once the popups are closed ({clear: true}, or a reading's {lines, size, key}): a
+	// reading with the popup's word still where it was waits, so the word's highlight stays with the popup (a
+	// reading without it is shown at once). The text isn't scanned meanwhile.
+	deferred: null,
 };
 
 function setOcrWindow(message) {
@@ -1051,9 +1056,66 @@ function applyOcrScale() {
 }
 
 function clearOcrText() {
+	// The reading that follows decides whether the popup's word is still there.
+	if (highlightedOcrChars()) {
+		ocr.deferred = { clear: true };
+		return;
+	}
+	ocr.deferred = null;
 	ocr.stale = false;
 	clearMainScan();
 	$('#ocr-text').textContent = '';
+}
+
+/** Shows what was kept for when the popups closed (see ocr.deferred). */
+function applyDeferredOcr() {
+	const deferred = ocr.deferred;
+	if (!deferred) return;
+	ocr.deferred = null;
+	if (deferred.clear) clearOcrText();
+	else renderOcrResult(deferred);
+}
+
+/**
+ * The characters of the word shown in the popup (or being looked up) in the OCR text, as read (see decodeLines), while
+ * a popup is open. Null otherwise.
+ */
+function highlightedOcrChars() {
+	const range = scan.source?.range;
+	const container = $('#ocr-text');
+	if (popupManager.visiblePopups().length === 0 || !range || !container.contains(range.startContainer)) return null;
+	const node = range.startContainer;
+	const first = (node.nodeType === Node.ELEMENT_NODE ? node.childNodes[range.startOffset] ?? node : node.parentElement)?.closest?.('.ocr-char');
+	if (!first) return null;
+	// From the word's first character, as many as it has text (a character's text can be longer than one).
+	const length = range.toString().length;
+	const spans = [...container.querySelectorAll('.ocr-char')];
+	const chars = [];
+	let text = '';
+	for (let i = spans.indexOf(first); i >= 0 && i < spans.length && text.length < length; i++) {
+		const char = ocrCharOf(spans[i]);
+		if (!char) return null;
+		chars.push(char);
+		text += char.text;
+	}
+	return chars.length > 0 ? chars : null;
+}
+
+/**
+ * Whether `lines` (read at `size`) have `chars` (read at ocr.size) in a row, each at about the same place: within half
+ * its size of where it was.
+ */
+function hasCharsInPlace(lines, size, chars) {
+	const scaleX = ocr.size ? ocr.size.width / size.width : 1;
+	const scaleY = ocr.size ? ocr.size.height / size.height : 1;
+	const center = (char, sx = 1, sy = 1) => [(char.x + char.width / 2) * sx, (char.y + char.height / 2) * sy];
+	const inPlace = (old, now) => {
+		if (old.text !== now.text) return false;
+		const [ox, oy] = center(old);
+		const [nx, ny] = center(now, scaleX, scaleY);
+		return Math.hypot(nx - ox, ny - oy) <= Math.max(old.width, old.height) / 2;
+	};
+	return lines.some((line) => line.chars.some((_, start) => chars.every((old, i) => line.chars[start + i] && inPlace(old, line.chars[start + i]))));
 }
 
 /**
@@ -1155,10 +1217,22 @@ function showOcrResult(message) {
 	// its highlight as they are.
 	const shown = lines.map((line) => ({ text: lineText(line), area: line.area, matched: !!line.matched }));
 	if (key === ocr.key && $('#ocr-text').childElementCount > 0) {
+		ocr.deferred = null;
 		logOcrDebug({ ...debug, shown, outcome: 'unchanged' });
 		return;
 	}
+	const highlighted = highlightedOcrChars();
+	if (highlighted && hasCharsInPlace(lines, size, highlighted)) {
+		ocr.deferred = { lines, size, key };
+		logOcrDebug({ ...debug, shown, outcome: 'shown once the popups close' });
+		return;
+	}
 	logOcrDebug({ ...debug, shown, outcome: 'shown' });
+	ocr.deferred = null;
+	renderOcrResult({ lines, size, key });
+}
+
+function renderOcrResult({ lines, size, key }) {
 	ocr.key = key;
 	ocr.size = size;
 	const scanned = ocrScanPlace();
@@ -1280,7 +1354,7 @@ function ocrLineAt(x, y) {
 function scanOcr(x, y, mods, lineElement) {
 	const settings = getSettings();
 	clearTimeout(scan.timer);
-	if (ocr.stale) return;
+	if (ocr.stale || ocr.deferred) return;
 	const input = matchScanInput(settings.scanModifier, settings.scanInputs, mods);
 	if (input === null) return;
 	const vertical = lineElement.style.writingMode === 'vertical-rl';

@@ -552,6 +552,14 @@ function measureGlyphRatios(document) {
  * @param {HTMLElement} container
  * @param {OcrLine[]} lines
  */
+// What each character's span shows: the character as read (see ocrCharOf).
+const spanChars = new WeakMap();
+
+/** The character (as decodeLines has it) a span of renderLines shows, or null. */
+export function ocrCharOf(span) {
+	return spanChars.get(span) ?? null;
+}
+
 export function renderLines(container, lines) {
 	const document = container.ownerDocument;
 	const [horizontalRatio, verticalRatio] = measureGlyphRatios(document);
@@ -582,6 +590,7 @@ export function renderLines(container, lines) {
 				const span = document.createElement('span');
 				span.className = 'ocr-char';
 				span.textContent = char.text;
+				spanChars.set(span, char);
 				const charStyle = span.style;
 				if (line.vertical) {
 					charStyle.width = `${box.width}px`;
