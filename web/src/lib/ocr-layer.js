@@ -18,7 +18,8 @@ const UNSPACED = /[\p{scx=Han}\p{scx=Hira}\p{scx=Kana}\p{scx=Thai}\p{scx=Lao}\p{
 
 /**
  * @typedef {{text: string, x: number, y: number, width: number, height: number, corrected?: boolean}} OcrChar
- * @typedef {{chars: OcrChar[], vertical: boolean, area: number, cloud: boolean, matched?: boolean}} OcrLine
+ * @typedef {{chars: OcrChar[], vertical: boolean, area: number, cloud: boolean, matched?: boolean, match?: number}} OcrLine
+ *   `match` is how recent the WebSocket line it matched is: 0 for the latest, 1 for the one before, and so on.
  */
 
 /**
@@ -571,6 +572,9 @@ export function renderLines(container, lines) {
 			const box = bounds(line.chars);
 			const element = document.createElement('div');
 			element.className = ['ocr-line', line.matched && 'ocr-matched', line.cloud && 'ocr-cloud'].filter(Boolean).join(' ');
+			// For where the controller starts (see firstIndex in overlay.js).
+			element.dataset.area = line.area;
+			if (line.match !== undefined) element.dataset.match = line.match;
 			const style = element.style;
 			style.left = `${box.x}px`;
 			style.top = `${box.y}px`;

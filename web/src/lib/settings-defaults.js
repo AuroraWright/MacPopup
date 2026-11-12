@@ -157,6 +157,9 @@ export const defaultSettings = {
 	// How long (ms) the controller's cursor rests on a character before its word is looked up, with scanResolution
 	// 'character'.
 	gamepadPopupDelay: 1000,
+	// Where the controller starts in OCR Mode text without a WebSocket match: 'bottom' or 'top' (left or right in
+	// vertical text).
+	gamepadOcrStart: 'bottom',
 	// What MacPopup learned of each controller model, by "vendor:product" (see GamepadLearning.swift).
 	gamepadLayouts: {},
 

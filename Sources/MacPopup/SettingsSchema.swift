@@ -371,6 +371,11 @@ enum SettingsSchema {
                     "gamepadPopupDelay", "Controller popup delay (in milliseconds)", .number(min: 0),
                     hint: "How long to wait after you stop moving with the controller before the popup opens."
                 ),
+                SettingsField(
+                    "gamepadOcrStart", "Controller OCR Mode starting position",
+                    .select([SettingsOption("bottom", "Bottom"), SettingsOption("top", "Top")]),
+                    hint: "Where the controller starts in OCR Mode text: the bottom or top sentence of the dialogue area (in vertical text, the leftmost or rightmost). When the text matches lines received over WebSocket, it starts at the most recent one instead."
+                ),
                 SettingsField("popupScanModifier", "Scan modifier key (popup, for nested lookups)", .select(scanModifierOptions)),
                 SettingsField("popupScanInputs", "Advanced scanning inputs (popup)", .scanInputs, showIf: { $0["popupScanModifier"] as? String == "custom" }),
                 SettingsField(

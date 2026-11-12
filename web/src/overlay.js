@@ -1157,13 +1157,18 @@ function correctWithEarlierLines(lines, minQuality, debug) {
 	// At most "Previous WebSocket lines to match" (the setting may have been lowered since they were kept).
 	const count = Math.max(0, getSettings().ocrEarlierLines);
 	ocr.earlierLines = count > 0 ? ocr.earlierLines.slice(-count) : [];
-	for (const line of [...ocr.earlierLines].reverse()) {
+	for (const [index, line] of [...ocr.earlierLines].reverse().entries()) {
 		const result = correctWithText(lines, line, minQuality);
 		const used = result.quality >= minQuality && result.missingEnd === 0 && !result.partial;
-		if (used) lines = result.lines;
+		if (used) lines = markMatch(result.lines, index + 1);
 		debug?.push({ line, ...matchSummary(result), used });
 	}
 	return lines;
+}
+
+/** Notes on lines just matched with a WebSocket line how recent it is (`match`; see OcrLine). */
+function markMatch(lines, match) {
+	return lines.map((line) => (line.matched && line.match === undefined ? { ...line, match } : line));
 }
 
 /** What correctWithText found, for the debug log. */
@@ -1230,7 +1235,7 @@ function showOcrResult(message) {
 	if (usesLine) {
 		const result = correctWithText(dialogue, ocr.line, minQuality);
 		debug.match = matchSummary(result);
-		dialogue = correctWithEarlierLines(result.lines, minQuality, debug.earlierLines);
+		dialogue = correctWithEarlierLines(markMatch(result.lines, 0), minQuality, debug.earlierLines);
 	}
 	if (readsDialogue) {
 		ocr.awaitingLine = false;
@@ -1551,11 +1556,49 @@ const charRect = (char) => charRange(char).getBoundingClientRect();
 
 const isVerticalLine = (line) => (line.classList.contains('ocr-line') ? line.style.writingMode === 'vertical-rl' : !!getSettings().displayVertical);
 
-/** Where the controller starts: OCR Mode's first character, or the first of the text box's newest line. */
+/** Where the controller starts: the first character of the text box's newest line, or see firstOcrLine. */
 function firstIndex(chars) {
-	if (getSettings().ocrMode) return 0;
+	if (getSettings().ocrMode) return Math.max(0, chars.findIndex((char) => char.line === firstOcrLine(chars)));
 	const newest = chars[getSettings().reverseLineOrder ? 0 : chars.length - 1];
 	return chars.findIndex((char) => char.line === newest.line);
+}
+
+/**
+ * The OCR line the controller starts on, in the dialogue area if it has text: the first line matched with the most
+ * recent WebSocket line, or else the first line of the bottom or top paragraph (gamepadOcrStart; in vertical text, the
+ * leftmost or rightmost).
+ */
+function firstOcrLine(chars) {
+	const lines = [...new Set(chars.map((char) => char.line))];
+	const dialogue = lines.filter((line) => line.dataset.area === '0');
+	const candidates = dialogue.length > 0 ? dialogue : lines;
+	const matched = candidates.filter((line) => line.dataset.match !== undefined);
+	if (matched.length > 0) {
+		const latest = Math.min(...matched.map((line) => Number(line.dataset.match)));
+		return matched.find((line) => Number(line.dataset.match) === latest);
+	}
+	// Paragraphs are separated by "\n" text nodes (see renderLines).
+	const paragraphs = [];
+	let paragraph = [];
+	for (const node of $('#ocr-text').childNodes) {
+		if (node.nodeType === Node.TEXT_NODE) {
+			if (paragraph.length > 0) paragraphs.push(paragraph);
+			paragraph = [];
+		} else if (candidates.includes(node)) {
+			paragraph.push(node);
+		}
+	}
+	if (paragraph.length > 0) paragraphs.push(paragraph);
+	if (paragraphs.length === 0) return candidates[0];
+	const vertical = isVerticalLine(paragraphs[0][0]);
+	const top = getSettings().gamepadOcrStart === 'top';
+	// How far toward the start position a paragraph reaches: down (or left in vertical text) for Bottom.
+	const reach = (paragraph) => {
+		const rects = paragraph.map((line) => line.getBoundingClientRect());
+		if (vertical) return top ? Math.max(...rects.map((rect) => rect.right)) : -Math.min(...rects.map((rect) => rect.left));
+		return top ? -Math.min(...rects.map((rect) => rect.top)) : Math.max(...rects.map((rect) => rect.bottom));
+	};
+	return paragraphs.reduce((best, paragraph) => (reach(paragraph) > reach(best) ? paragraph : best))[0];
 }
 
 /**
