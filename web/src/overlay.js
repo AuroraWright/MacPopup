@@ -5,7 +5,7 @@ import { mdiClipboardOffOutline, mdiClipboardTextOutline, mdiCog, mdiConnection,
 import { log, nativeCall } from './lib/native.js';
 import { getPopupPosition } from './lib/popup-position.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
-import { getTextSourceFromPoint, searchTextSource, setHighlight } from './lib/scanner.js';
+import { getTextSourceFromPoint, searchTextSource, setHighlight, textSourceAt } from './lib/scanner.js';
 import { correctWithText, decodeLines, lineText, ocrCharOf, renderLines } from './lib/ocr-layer.js';
 import { applyReplacements } from './lib/replacements.js';
 import { cursorAt } from './lib/cursor.js';
@@ -718,6 +718,7 @@ function updateHotkeys() {
 	const hotkeys = visible ? (getSettings().hotkeys ?? []).filter(({ enabled, key }) => enabled && typeof key === 'string' && key !== '') : [];
 	activeHotkeys = hotkeys;
 	const combinations = hotkeys.map(({ key, modifiers }) => ({ key, modifiers: Array.isArray(modifiers) ? modifiers : [] }));
+	updateGamepadHold();
 	const json = JSON.stringify(combinations);
 	if (json === registeredHotkeys) return;
 	registeredHotkeys = json;
@@ -735,8 +736,11 @@ window.__macpopupUpdateHotkeys = () => {
 };
 
 window.__macpopupHotkey = (index) => {
-	const hotkey = activeHotkeys[index];
-	if (!hotkey) return;
+	if (activeHotkeys[index]) runHotkey(activeHotkeys[index]);
+};
+
+/** Runs a popup shortcut's action (pressed on the keyboard, or on a controller). */
+function runHotkey(hotkey) {
 	const argument = typeof hotkey.argument === 'string' ? hotkey.argument : '';
 	if (hotkey.action === 'toggleOption') {
 		const value = getSettings()[argument];
@@ -745,7 +749,7 @@ window.__macpopupHotkey = (index) => {
 	}
 	// The popup on top gets it, as the focused popup would in Yomitan.
 	popupManager.visiblePopups().at(-1)?.api?.runHotkey(hotkey.action, argument);
-};
+}
 
 async function getDocumentTitle() {
 	// In screen OCR mode, the app being read.
@@ -827,17 +831,24 @@ function scanBox(x, y, mods) {
 	}
 }
 
-/** @param {{searchTerms: boolean, searchKanji: boolean}} [lookup] What the scan input looks up. */
-async function scanSource(source, vertical = getSettings().displayVertical, lookup = undefined) {
+/**
+ * Looks up `source` and shows its popup. Returns whether it found something (or it's the word shown already).
+ * @param {{searchTerms: boolean, searchKanji: boolean}} [lookup] What the scan input looks up.
+ * @param {{quiet?: boolean, delay?: number, onFound?: () => void}} [options] Quiet: finding nothing changes nothing (the popup and its word
+ *   stay), as when the controller steps over punctuation. Delay: the word is highlighted at once, and its popup shows
+ *   after this many milliseconds, unless another lookup started meanwhile (it resolves without waiting).
+ */
+async function scanSource(source, vertical = getSettings().displayVertical, lookup = undefined, { quiet = false, delay = 0, onFound } = {}) {
 	if (!source) {
-		onSearchEmpty();
-		return;
+		if (!quiet) onSearchEmpty();
+		return false;
 	}
 	if (scan.source !== null && (popupManager.isVisible(0) || scan.pending) && scan.source.hasSameStart(source)) {
 		// The word that is shown or being looked up, e.g. when coming back from the popup.
 		stopHideDelayed();
-		return;
+		return true;
 	}
+	const previous = scan.source;
 	scan.source = source;
 	const token = ++scan.token;
 	let result;
@@ -848,19 +859,31 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
 	} catch (e) {
 		log('Lookup failed', e);
 		showToast(`Yomitan API: ${e.message ?? e}`);
-		return;
+		return false;
 	} finally {
 		if (token === scan.token) scan.pending = false;
 	}
-	if (token !== scan.token) return;
+	if (token !== scan.token) return false;
 	if (result === null) {
-		onSearchEmpty();
-		return;
+		if (quiet) scan.source = previous;
+		else onSearchEmpty();
+		return false;
 	}
 	stopHideDelayed();
 	setHighlight(source);
-	const rects = [...source.getRects()].map(({ left, top, right, bottom }) => ({ left, top, right, bottom }));
-	await popupManager.show(0, result, rects, vertical);
+	onFound?.();
+	const show = () => {
+		const rects = [...source.getRects()].map(({ left, top, right, bottom }) => ({ left, top, right, bottom }));
+		return popupManager.show(0, result, rects, vertical);
+	};
+	if (delay > 0) {
+		setTimeout(() => {
+			if (token === scan.token) void show();
+		}, delay);
+	} else {
+		await show();
+	}
+	return true;
 }
 
 // Popup hiding works like Yomitan's Frontend: "auto-hide results" hides the popup when a scan finds
@@ -967,6 +990,9 @@ window.__macpopupPointer = (x, y, shift, ctrl, alt, meta, pressed = []) => {
 			else if (pressed.includes('mouse4') && !lastPressedBefore.includes('mouse4')) hit.popup.api.navigate(1);
 		}
 		hit.popup.api.onPointer(hit.x, hit.y, mods, moved || scansAtRest);
+	} else if (gamepad.focus) {
+		// The controller has the text: the pointer leaves its word and popup alone.
+		clearTimeout(scan.timer);
 	} else if (overBox) {
 		if (mayScan) scanBox(x, y, mods);
 	} else if (ocrLine) {
@@ -982,7 +1008,7 @@ window.__macpopupPointer = (x, y, shift, ctrl, alt, meta, pressed = []) => {
 	scan.overDepth = overDepth;
 	if (overPopup) {
 		stopHideDelayed();
-	} else if (scan.overPopup && settings.hidePopupOnCursorExit) {
+	} else if (scan.overPopup && settings.hidePopupOnCursorExit && !gamepad.focus) {
 		hideDelayed(settings.hidePopupOnCursorExitDelay);
 	}
 	if (enteredPopup && settings.hidePopupOnCursorExit && popupManager.isVisible(overDepth + 1)) {
@@ -1366,6 +1392,381 @@ function scanOcr(x, y, mods, lineElement) {
 	}
 }
 
+// Game controllers (Gamepads.swift). The host sends the held controls by GameController's names ("Button A",
+// "Direction Pad Left", "Left Thumbstick Up"). The controller scan key's buttons give the text controller focus: the
+// D-pad (or left stick) then moves through the text box or OCR Mode text, until they're pressed again. It moves by
+// character (a cursor whose word is looked up once it rests) or by word, as Scan resolution says; either way, the
+// popup opens once it rests for gamepadPopupDelay. Popup shortcuts can have buttons too. While the text has controller focus, or a popup with
+// such shortcuts is open, the host holds the controllers, so the game doesn't get their presses.
+
+const gamepad = {
+	held: [],
+	// The buttons held together since none were, which count as a combination once they're all let go.
+	combo: [],
+	focus: false,
+	// By word: the word the controller is on (a TextSource), and the start of the word before each move forward, for
+	// moving back.
+	word: null,
+	history: [],
+	// By character: the character the cursor is on ({node, offset}, and its index for when the text is redrawn).
+	cursor: null,
+	lookupTimer: null,
+	// The direction held, which repeats after a moment.
+	direction: null,
+	repeatTimer: null,
+	// A move is being looked up; one more pressed meanwhile waits for it.
+	moving: false,
+	queued: null,
+	// Whether the host was asked to hold the controllers.
+	holding: null,
+	// OCR Mode when the text got controller focus: switching drops it.
+	ocrMode: null,
+};
+
+const isDirectionControl = (name) => /^(Direction Pad|Left Thumbstick|Right Thumbstick) (Up|Down|Left|Right)$/.test(name);
+
+/** The direction of a control that moves through the text (the D-pad's, or the left stick's), or null. */
+const moveDirection = (name) => /^(?:Direction Pad|Left Thumbstick) (Up|Down|Left|Right)$/.exec(name)?.[1] ?? null;
+
+const sameButtons = (a, b) => a.length === b.length && a.every((name) => b.includes(name));
+
+const movesByCharacter = () => getSettings().scanResolution !== 'word';
+
+function controllerHotkeys() {
+	return (getSettings().hotkeys ?? []).filter(({ enabled, buttons }) => enabled && Array.isArray(buttons) && buttons.length > 0);
+}
+
+function updateGamepadHold() {
+	const hold = gamepad.focus || (popupManager.visiblePopups().length > 0 && controllerHotkeys().length > 0);
+	if (hold === gamepad.holding) return;
+	gamepad.holding = hold;
+	nativeCall('gamepadHold', { hold }).catch(() => {});
+}
+
+window.__macpopupGamepad = (held) => {
+	const before = gamepad.held;
+	gamepad.held = held;
+	// A combination counts once all its buttons are let go, as Settings records it: the buttons held together
+	// meanwhile (a shortcut's buttons pressed with another one are a different combination).
+	const buttons = held.filter((name) => !isDirectionControl(name));
+	if (buttons.length > 0) {
+		gamepad.combo = [...new Set([...gamepad.combo, ...buttons])];
+	} else if (gamepad.combo.length > 0) {
+		const combo = gamepad.combo;
+		gamepad.combo = [];
+		const scanButtons = getSettings().gamepadScanButtons ?? [];
+		if (scanButtons.length > 0 && sameButtons(combo, scanButtons)) {
+			setControllerFocus(!gamepad.focus);
+		} else if (popupManager.visiblePopups().length > 0) {
+			const hotkey = controllerHotkeys().find((hotkey) => sameButtons(combo, hotkey.buttons));
+			if (hotkey) runHotkey(hotkey);
+		}
+	}
+	const directions = held.map(moveDirection).filter(Boolean);
+	const pressed = directions.find((direction) => !before.map(moveDirection).includes(direction));
+	if (!gamepad.focus) return;
+	if (pressed) holdDirection(pressed);
+	else if (!directions.includes(gamepad.direction)) holdDirection(null);
+};
+
+function setControllerFocus(focus) {
+	if (focus === gamepad.focus) return;
+	holdDirection(null);
+	clearTimeout(gamepad.lookupTimer);
+	gamepad.word = null;
+	gamepad.history = [];
+	setTextCursor(null);
+	if (focus) {
+		if (controllerChars().length === 0) {
+			showToast('No text to look up');
+			return;
+		}
+		gamepad.focus = true;
+		gamepad.ocrMode = !!getSettings().ocrMode;
+		void moveController(null);
+	} else {
+		gamepad.focus = false;
+		popupManager.closeAll();
+		clearMainScan();
+	}
+	updateGamepadHold();
+}
+
+/** Moves in `direction` now, and again every 150 ms after it's held for 400 ms; null stops. */
+function holdDirection(direction) {
+	clearTimeout(gamepad.repeatTimer);
+	gamepad.direction = direction;
+	if (!direction) return;
+	const step = () => {
+		if (gamepad.moving) {
+			gamepad.queued = direction;
+			return;
+		}
+		void moveController(direction);
+	};
+	step();
+	const repeat = () => {
+		if (gamepad.direction !== direction) return;
+		step();
+		gamepad.repeatTimer = setTimeout(repeat, 150);
+	};
+	gamepad.repeatTimer = setTimeout(repeat, 400);
+}
+
+// The text
+
+/** The lines the controller moves through: OCR Mode's text, or the text box's. */
+function controllerLines() {
+	if (getSettings().ocrMode) {
+		if (ocr.covered || ocr.stale || $('#ocr-layer').hidden) return [];
+		return [...$('#ocr-text').querySelectorAll('.ocr-line')];
+	}
+	return box.hidden ? [] : [...linesElement.querySelectorAll('p[data-line-id]')];
+}
+
+/** The characters of those lines in order, each {node, offset, line}: not spaces or furigana. */
+function controllerChars() {
+	const chars = [];
+	for (const line of controllerLines()) {
+		const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT, {
+			acceptNode: (node) => (node.parentElement?.closest('rt, rp') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+		});
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			for (let offset = 0; offset < node.data.length; offset += node.data.codePointAt(offset) > 0xffff ? 2 : 1) {
+				if (node.data[offset].trim()) chars.push({ node, offset, line });
+			}
+		}
+	}
+	return chars;
+}
+
+function charRange({ node, offset }) {
+	const range = document.createRange();
+	range.setStart(node, offset);
+	range.setEnd(node, offset + (node.data.codePointAt(offset) > 0xffff ? 2 : 1));
+	return range;
+}
+
+const charRect = (char) => charRange(char).getBoundingClientRect();
+
+const isVerticalLine = (line) => (line.classList.contains('ocr-line') ? line.style.writingMode === 'vertical-rl' : !!getSettings().displayVertical);
+
+/** Where the controller starts: OCR Mode's first character, or the first of the text box's newest line. */
+function firstIndex(chars) {
+	if (getSettings().ocrMode) return 0;
+	const newest = chars[getSettings().reverseLineOrder ? 0 : chars.length - 1];
+	return chars.findIndex((char) => char.line === newest.line);
+}
+
+/**
+ * Where the controller's word (or else the word shown) is in `chars`: its first character's index, and the index after
+ * it (-1 past the end).
+ */
+function controllerWord(chars) {
+	const range = gamepad.word?.range ?? (popupManager.visiblePopups().length > 0 ? scan.source?.range : null);
+	if (!range) return null;
+	// Before the word, in it, or from its end on.
+	const place = ({ node, offset }) => {
+		const compared = range.comparePoint(node, offset);
+		return compared === 0 && node === range.endContainer && offset === range.endOffset ? 1 : compared;
+	};
+	const start = chars.findIndex((char) => place(char) >= 0);
+	if (start < 0 || place(chars[start]) !== 0) return null;
+	return { start, next: chars.findIndex((char) => place(char) > 0) };
+}
+
+/**
+ * The character `direction` goes to from `chars[index]`, or -1. Along the line (right in horizontal text, down in
+ * vertical) is the next character, and back the one before; across lines, on the nearest line that way, the one
+ * nearest along it.
+ */
+function charIndexToward(chars, index, direction) {
+	const vertical = isVerticalLine(chars[index].line);
+	if (direction === (vertical ? 'Down' : 'Right')) return index + 1 < chars.length ? index + 1 : -1;
+	if (direction === (vertical ? 'Up' : 'Left')) return index - 1;
+	const upDown = direction === 'Up' || direction === 'Down';
+	const sign = direction === 'Down' || direction === 'Right' ? 1 : -1;
+	const along = (rect) => (upDown ? rect.top + rect.height / 2 : rect.left + rect.width / 2);
+	const across = (rect) => (upDown ? rect.left + rect.width / 2 : rect.top + rect.height / 2);
+	const from = charRect(chars[index]);
+	const size = upDown ? from.height : from.width;
+	const ahead = chars
+		.map((char, i) => ({ i, rect: charRect(char) }))
+		.map((char) => ({ ...char, distance: sign * (along(char.rect) - along(from)) }))
+		.filter(({ distance }) => distance > size / 2);
+	if (ahead.length === 0) return -1;
+	const nearest = Math.min(...ahead.map(({ distance }) => distance));
+	const line = ahead.filter(({ distance }) => distance <= nearest + size / 2);
+	return line.reduce((best, char) => (Math.abs(across(char.rect) - across(from)) < Math.abs(across(best.rect) - across(from)) ? char : best)).i;
+}
+
+/** Scrolls the text box so a character in it shows. */
+function scrollToChar(char) {
+	if (!linesElement.contains(char.node)) return;
+	const rect = charRect(char);
+	const view = linesElement.getBoundingClientRect();
+	if (rect.top < view.top) linesElement.scrollTop -= view.top - rect.top;
+	else if (rect.bottom > view.bottom) linesElement.scrollTop += rect.bottom - view.bottom;
+	if (rect.left < view.left) linesElement.scrollLeft -= view.left - rect.left;
+	else if (rect.right > view.right) linesElement.scrollLeft += rect.right - view.right;
+}
+
+/**
+ * Looks up the word starting at a character, showing its popup after `delay`. Returns whether there's one.
+ * @param {() => void} [onFound] Called as soon as the word is found and highlighted (before its popup shows).
+ */
+async function lookUpAt(char, delay = 0, onFound = undefined) {
+	scrollToChar(char);
+	const source = textSourceAt(char.node, char.offset);
+	const found = await scanSource(source, isVerticalLine(char.line), undefined, { quiet: true, delay, onFound });
+	if (found && !movesByCharacter()) {
+		gamepad.word = scan.source;
+		// Without "Select matched text", the cursor's highlight shows which word the controller is on.
+		highlightCursor(getSettings().selectMatchedText ? null : scan.source.range.cloneRange());
+	}
+	return found;
+}
+
+const popupDelay = () => Math.max(0, Number(getSettings().gamepadPopupDelay) || 0);
+
+function moveController(direction) {
+	return movesByCharacter() ? moveCursor(direction) : moveWord(direction);
+}
+
+// Moving by word
+
+/**
+ * Looks up the word at `chars[index]`, or else at the next character in `step` (1 or -1) where there's one, within 20
+ * characters (e.g. past punctuation). Returns whether it found one.
+ */
+async function lookUpFrom(chars, index, step) {
+	for (let i = index, tries = 0; i >= 0 && i < chars.length && tries < 20; i += step, tries++) {
+		const found = await lookUpAt(chars[i], popupDelay());
+		if (!gamepad.focus) return false;
+		if (found) return true;
+	}
+	return false;
+}
+
+/**
+ * Moves to the word in `direction`: along the line to the next word (from where the controller's word ends) or back to
+ * the one before (the word it moved on from, or else the nearest character before it with one), across lines to the
+ * nearest character's. Null looks up the word shown again, or else the first one. The word is highlighted at once, and
+ * its popup opens once the controller rests for gamepadPopupDelay (the popup shown closes at the move).
+ */
+async function moveWord(direction) {
+	gamepad.moving = true;
+	try {
+		// A reading that waited for the popups to close (see ocr.deferred) is the text to move through.
+		if (ocr.deferred) applyDeferredOcr();
+		const chars = controllerChars();
+		if (chars.length === 0) return;
+		const word = controllerWord(chars);
+		if (direction && word && popupDelay() > 0) popupManager.closeAll();
+		if (!word) {
+			gamepad.word = null;
+			gamepad.history = [];
+			await lookUpFrom(chars, firstIndex(chars), 1);
+			return;
+		}
+		if (!direction) return;
+		const start = chars[word.start];
+		const vertical = isVerticalLine(start.line);
+		if (direction === (vertical ? 'Down' : 'Right')) {
+			if (word.next < 0) return;
+			gamepad.history.push({ node: start.node, offset: start.offset });
+			await lookUpFrom(chars, word.next, 1);
+		} else if (direction === (vertical ? 'Up' : 'Left')) {
+			const previous = gamepad.history.pop();
+			const index = previous ? chars.findIndex((char) => char.node === previous.node && char.offset === previous.offset) : -1;
+			if (index >= 0) {
+				await lookUpFrom(chars, index, 1);
+			} else {
+				gamepad.history = [];
+				if (word.start > 0) await lookUpFrom(chars, word.start - 1, -1);
+			}
+		} else {
+			const index = charIndexToward(chars, word.start, direction);
+			if (index < 0) return;
+			gamepad.history = [];
+			await lookUpFrom(chars, index, 1);
+		}
+	} finally {
+		gamepad.moving = false;
+		const queued = gamepad.queued;
+		gamepad.queued = null;
+		if (queued && gamepad.focus) void moveController(queued);
+	}
+}
+
+// Moving by character
+
+let cursorHighlight = null;
+
+/** Shows the controller's place in the text (a range, or null for none) with the macpopup-gamepad highlight. */
+function highlightCursor(range) {
+	if (typeof CSS === 'undefined' || !CSS.highlights) return;
+	if (cursorHighlight === null) {
+		cursorHighlight = new Highlight();
+		CSS.highlights.set('macpopup-gamepad', cursorHighlight);
+	}
+	cursorHighlight.clear();
+	if (range) cursorHighlight.add(range);
+}
+
+/** Puts the cursor on a character of `chars` (null removes it). */
+function setTextCursor(char, index = -1) {
+	gamepad.cursor = char && { node: char.node, offset: char.offset, index };
+	highlightCursor(char && charRange(char));
+}
+
+/** The cursor's index in `chars`: where its character is, else (the text was redrawn) the same index. */
+function cursorIndex(chars) {
+	const { node, offset, index } = gamepad.cursor;
+	const found = chars.findIndex((char) => char.node === node && char.offset === offset);
+	return found >= 0 ? found : Math.min(Math.max(index, 0), chars.length - 1);
+}
+
+/**
+ * Moves the cursor a character in `direction` (see charIndexToward), closing the popups, and looks up the word starting
+ * there once it rests for gamepadPopupDelay. Null starts it: at the start of the word shown (e.g. after switching from
+ * moving by word), or else at the first character.
+ */
+function moveCursor(direction) {
+	clearTimeout(gamepad.lookupTimer);
+	if (popupManager.visiblePopups().length > 0 || scan.pending) {
+		// A popup for where the cursor was doesn't open after it moved on. (A reading that waited for the popups to
+		// close is drawn now, so the cursor keeps its index in it.)
+		popupManager.closeAll();
+		clearMainScan();
+	}
+	const chars = controllerChars();
+	if (chars.length === 0) return;
+	let index;
+	if (gamepad.cursor) {
+		index = cursorIndex(chars);
+		if (direction) index = charIndexToward(chars, index, direction);
+		if (index < 0) return;
+	} else {
+		index = controllerWord(chars)?.start ?? firstIndex(chars);
+	}
+	setTextCursor(chars[index], index);
+	scrollToChar(chars[index]);
+	gamepad.lookupTimer = setTimeout(() => void lookUpCursor(), popupDelay());
+}
+
+async function lookUpCursor() {
+	if (!gamepad.focus || !gamepad.cursor) return;
+	const chars = controllerChars();
+	if (chars.length === 0) return;
+	const index = cursorIndex(chars);
+	setTextCursor(chars[index], index);
+	// The matched word's highlight shows where the cursor is, from when it's found.
+	await lookUpAt(chars[index], 0, () => {
+		if (gamepad.cursor?.index === index && getSettings().selectMatchedText) highlightCursor(null);
+	});
+}
+
 // Settings
 
 function applySettings(settings) {
@@ -1407,6 +1808,8 @@ function applySettings(settings) {
 	renderClipboardButton();
 	popupManager.applySettings();
 	reportHitRects();
+	// Without the scan key's buttons, or in the other mode, the text no longer has controller focus.
+	if (gamepad.focus && ((settings.gamepadScanButtons ?? []).length === 0 || !!settings.ocrMode !== gamepad.ocrMode)) setControllerFocus(false);
 	updateHotkeys();
 }
 

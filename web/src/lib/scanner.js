@@ -42,6 +42,14 @@ export function getTextSourceFromPoint(x, y) {
 	return source;
 }
 
+/** A text source from `offset` in the text node `node`, as a scan at that character starts. */
+export function textSourceAt(node, offset) {
+	const range = document.createRange();
+	range.setStart(node, offset);
+	range.setEnd(node, offset);
+	return TextSourceRange.create(range);
+}
+
 // The languages Yomitan doesn't use word scan resolution for (TextScanner's
 // SCAN_RESOLUTION_EXCLUDED_LANGUAGES). Most don't separate words with spaces, so the word would reach
 // back to the start of the sentence.

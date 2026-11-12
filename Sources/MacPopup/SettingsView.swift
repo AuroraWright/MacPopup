@@ -214,6 +214,12 @@ private struct FieldRow: View {
             } label: {
                 FieldLabel(field: field)
             }
+        case .gamepadCombo:
+            LabeledContent {
+                GamepadComboControl(buttons: value as? [String] ?? []) { model.set(field.key, $0) }
+            } label: {
+                FieldLabel(field: field)
+            }
         case .keySequence:
             KeySequenceControl(items: (value as? [Any] ?? []).compactMap { $0 as? [String: Any] }) { model.set(field.key, $0) } label: {
                 FieldLabel(field: field)
@@ -312,6 +318,8 @@ private struct FieldRow: View {
             TerminationCharactersControl(key: field.key, model: model)
         case .ankiTemplates:
             AnkiTemplatesControl(key: field.key, model: model)
+        case .gamepads:
+            GamepadsControl()
         default:
             EmptyView()
         }
@@ -884,7 +892,7 @@ private struct JSONEditor: View {
 
 /// A button's label that keeps the width of the widest of `labels`, so what's beside the button doesn't move when
 /// the label changes (e.g. to "Press keys…" while recording).
-private struct SteadyLabel: View {
+struct SteadyLabel: View {
     let text: String
     let labels: [String]
 
@@ -1650,7 +1658,7 @@ private struct HotkeysControl: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                HotkeyRow(index: index, item: item, isDuplicate: isDuplicate(index), recorder: recorder) { change in
+                HotkeyRow(index: index, item: item, isDuplicate: isDuplicate(index), buttonsNote: buttonsNote(index), recorder: recorder) { change in
                     var updated = items
                     switch change {
                     case let .set(values): updated[index].merge(values) { _, new in new }
@@ -1683,6 +1691,18 @@ private struct HotkeysControl: View {
         guard items[index]["enabled"] as? Bool ?? true, let combination = Self.combination(items[index]) else { return false }
         return items[..<index].contains { ($0["enabled"] as? Bool ?? true) && Self.combination($0) == combination }
     }
+
+    /// Why a shortcut's controller buttons don't work, if they don't: the controller scan key or an earlier shortcut
+    /// has them.
+    private func buttonsNote(_ index: Int) -> String? {
+        let buttons = Set(items[index]["buttons"] as? [String] ?? [])
+        guard !buttons.isEmpty, items[index]["enabled"] as? Bool ?? true else { return nil }
+        if Set(model["gamepadScanButtons"] as? [String] ?? []) == buttons {
+            return "The controller scan key uses these buttons, so it takes priority."
+        }
+        let earlier = items[..<index].contains { ($0["enabled"] as? Bool ?? true) && Set($0["buttons"] as? [String] ?? []) == buttons }
+        return earlier ? "An earlier shortcut already uses these buttons and takes priority." : nil
+    }
 }
 
 private struct HotkeyRow: View {
@@ -1694,6 +1714,7 @@ private struct HotkeyRow: View {
     let index: Int
     let item: [String: Any]
     let isDuplicate: Bool
+    let buttonsNote: String?
     @ObservedObject var recorder: ShortcutRecorder
     let change: (Change) -> Void
 
@@ -1724,6 +1745,7 @@ private struct HotkeyRow: View {
                     .labelsHidden()
                     .help("Enabled")
                 recordButton
+                buttonsControl
                 let actions = HotkeysControl.actions.contains { $0.value == action }
                     ? HotkeysControl.actions : HotkeysControl.actions + [SettingsOption(action)]
                 Picker("", selection: Binding(get: { action }, set: { change(.set(["action": $0, "argument": HotkeysControl.defaultArgument($0)])) })) {
@@ -1741,6 +1763,23 @@ private struct HotkeyRow: View {
                 Text("Already used by an earlier shortcut, which takes priority.").font(.caption).foregroundStyle(.red)
             } else if let combination, combination.keyCode == nil {
                 Text("\(combination.key) isn’t a key MacPopup can use.").font(.caption).foregroundStyle(.red)
+            }
+            if let buttonsNote {
+                Text(buttonsNote).font(.caption).foregroundStyle(.red)
+            }
+        }
+    }
+
+    /// Controller buttons for the shortcut (see GamepadComboButton), which can be removed.
+    private var buttonsControl: some View {
+        let buttons = item["buttons"] as? [String] ?? []
+        return HStack(spacing: 2) {
+            GamepadComboButton(buttons: buttons) { change(.set(["buttons": $0])) }
+            if !buttons.isEmpty {
+                Button { change(.set(["buttons": [String]()])) } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Remove the controller buttons from this shortcut")
             }
         }
     }

@@ -130,6 +130,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
                 KeyCombination(key: $0["key"] as? String ?? "", modifiers: $0["modifiers"] as? [String] ?? [])
             }
             return host?.setHotkeys(combinations) ?? []
+        case "gamepadHold":
+            GamepadController.shared.setHold(body["hold"] as? Bool ?? false)
+            return nil
         case "openURL":
             guard let string = body["url"] as? String, let url = URL(string: string) else {
                 throw BridgeError("Invalid URL")

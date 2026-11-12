@@ -175,6 +175,12 @@ body {
 	background-color: hsl(var(--p) / 0.35);
 }
 
+/* The character the controller is on, when it moves by character (see overlay.js). */
+::highlight(macpopup-gamepad) {
+	background-color: hsl(var(--p) / 0.35);
+	text-decoration: underline 2px hsl(var(--p));
+}
+
 /* The overlay is never the active window, so WebKit would draw selections in the inactive (grey)
    colour; this is the active one, which follows the macOS accent colour. */
 ::selection {

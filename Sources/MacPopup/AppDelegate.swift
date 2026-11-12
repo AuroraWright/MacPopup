@@ -36,6 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         ocr = OCRController(overlay: overlay)
         clipboardMonitor = ClipboardMonitor(overlay: overlay)
         sentenceAudio = SentenceAudioController(overlay: overlay)
+        GamepadController.shared.onChange = { [weak self] pressed in
+            guard let data = try? JSONSerialization.data(withJSONObject: pressed.sorted()), let json = String(data: data, encoding: .utf8) else { return }
+            self?.overlay.evaluate("window.__macpopupGamepad?.(\(json))")
+        }
         yomitanAPI = YomitanAPIStatus()
         yomitanAPI.onChange = { [weak self] in self?.updateStatusIcon() }
 
@@ -265,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         } else {
             overlay.hide()
         }
+        GamepadController.shared.overlayVisible = visible
         updateStatusIcon()
     }
 }

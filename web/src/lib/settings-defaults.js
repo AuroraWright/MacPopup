@@ -151,6 +151,14 @@ export const defaultSettings = {
 	// Keyboard shortcuts while a popup shows, [{action, argument, key, modifiers, enabled}] as in Yomitan's
 	// inputs.hotkeys: `key` is a KeyboardEvent.code and `modifiers` lists 'alt', 'ctrl', 'shift' and 'meta'.
 	hotkeys: defaultHotkeys(),
+	// Game controller buttons (GameController's names, e.g. "Button A") that give the text controller focus (see
+	// overlay.js); popup shortcuts can have `buttons` too.
+	gamepadScanButtons: [],
+	// How long (ms) the controller's cursor rests on a character before its word is looked up, with scanResolution
+	// 'character'.
+	gamepadPopupDelay: 1000,
+	// What MacPopup learned of each controller model, by "vendor:product" (see GamepadLearning.swift).
+	gamepadLayouts: {},
 
 	// Yomitan API
 	yomitanApiUrl: 'http://127.0.0.1:19633',

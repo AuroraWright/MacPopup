@@ -57,6 +57,10 @@ struct SettingsField: Identifiable {
         case display
         /// One global keyboard shortcut, {key, modifiers} or null.
         case shortcut
+        /// Game controller buttons pressed together, by GameController's names (see Gamepads.swift).
+        case gamepadCombo
+        /// The connected game controllers, and learning them (gamepadLayouts; see GamepadLearning.swift).
+        case gamepads
         /// Keys pressed in turn, [{key, modifiers}].
         case keySequence
         /// Settings shown together in one row, a line each with its own short label (e.g. Width and Height). The
@@ -101,7 +105,7 @@ struct SettingsField: Identifiable {
     /// Shown across the whole width, below its label.
     var isWide: Bool {
         switch kind {
-        case .textarea, .lines, .json, .replacements, .audioSources, .scanInputs, .hotkeys, .terminationCharacters, .ankiTemplates: true
+        case .textarea, .lines, .json, .replacements, .audioSources, .scanInputs, .hotkeys, .terminationCharacters, .ankiTemplates, .gamepads: true
         default: false
         }
     }
@@ -359,6 +363,14 @@ enum SettingsSchema {
                 ),
                 SettingsField("scanModifier", "Scan modifier key (text box/OCR Mode text)", .select(scanModifierOptions)),
                 SettingsField("scanInputs", "Advanced scanning inputs", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
+                SettingsField(
+                    "gamepadScanButtons", "Controller scan key (text box/OCR Mode text)", .gamepadCombo,
+                    hint: "Press this button combination on a game controller to start looking up words, then move through the text box or OCR Mode text with the D-pad or left stick—one character or one word at a time, depending on Scan resolution. Press the combination again to close the popup and hand the controller back to your game. While you’re looking up words, your game won’t react to a controller that’s set up in Settings → Controllers. Your game does see this combination itself, so pick buttons it doesn’t use (for example L3 + R3)."
+                ),
+                SettingsField(
+                    "gamepadPopupDelay", "Controller popup delay (in milliseconds)", .number(min: 0),
+                    hint: "How long to wait after you stop moving with the controller before the popup opens."
+                ),
                 SettingsField("popupScanModifier", "Scan modifier key (popup, for nested lookups)", .select(scanModifierOptions)),
                 SettingsField("popupScanInputs", "Advanced scanning inputs (popup)", .scanInputs, showIf: { $0["popupScanModifier"] as? String == "custom" }),
                 SettingsField(
@@ -599,8 +611,13 @@ enum SettingsSchema {
             ),
             SettingsSection(
                 title: "Popup Shortcuts", symbol: "keyboard",
-                description: "Keyboard shortcuts that work whenever a dictionary popup is open—even while a game or another app is in the foreground. While a popup is visible, these keys control the popup instead of the active app.",
+                description: "Keyboard shortcuts that work whenever a dictionary popup is open—even while a game or another app is in the foreground. While a popup is visible, these keys control the popup instead of the active app. You can also give a shortcut a game controller button combination with Record Buttons (the D-pad and sticks are left for moving through the text). While a popup is open, your game won’t react to a controller that’s set up in Settings → Controllers.",
                 fields: [SettingsField("hotkeys", "", .hotkeys)]
+            ),
+            SettingsSection(
+                title: "Controllers", symbol: "gamecontroller",
+                description: "Look up words with a game controller (set a Controller scan key in Scanning) and control popups with its buttons (add buttons to Popup Shortcuts). While you’re doing that, MacPopup takes over the controller so your game doesn’t react to it. For this to work, MacPopup first needs to learn each controller’s buttons: connect it, click Set Up, and follow the steps.",
+                fields: [SettingsField("gamepadLayouts", "", .gamepads)]
             ),
             SettingsSection(
                 title: "Anki", symbol: "rectangle.stack.badge.plus",
