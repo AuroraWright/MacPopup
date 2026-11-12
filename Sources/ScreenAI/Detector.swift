@@ -1473,7 +1473,7 @@ final class TextDetector {
         config = try DetectorConfig(resources: resources)
         var models: [String: CoreMLModel] = [:]
         for name in config.inputNames {
-            models[name] = try CoreMLModel(resources.url("coreml/det_\(name).mlmodelc"), reshapes: true)
+            models[name] = try CoreMLModel(resources.url("coreml/det_\(name).mlmodelc"), cpuOnly: resources.cpuOnly, reshapes: true)
         }
         self.models = models
     }

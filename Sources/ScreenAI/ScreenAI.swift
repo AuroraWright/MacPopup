@@ -48,9 +48,9 @@ public final class ScreenAIEngine: @unchecked Sendable {
     /// One OCR call at a time.
     private let lock = NSLock()
 
-    /// Loads the models from an unpacked models archive.
-    public init(modelsDirectory: URL) throws {
-        resources = Resources(root: modelsDirectory)
+    /// Loads the models from an unpacked models archive, to run on the GPU, or with `cpuOnly` on the CPU.
+    public init(modelsDirectory: URL, cpuOnly: Bool = false) throws {
+        resources = Resources(root: modelsDirectory, cpuOnly: cpuOnly)
         detector = try TextDetector(resources: resources)
         recognizer = try LineRecognizer(resources: resources)
         layoutModel = try LayoutModel(resources: resources)

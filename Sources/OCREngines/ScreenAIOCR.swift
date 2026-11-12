@@ -8,7 +8,7 @@ import ScreenAI
 public final class ScreenAIOCR: Sendable {
     public static let shared = ScreenAIOCR()
 
-    let models = ConvertedModels(.screenAI) { try ScreenAIEngine(modelsDirectory: $0) } warmUp: { engine, blank in
+    let models = ConvertedModels(.screenAI) { try ScreenAIEngine(modelsDirectory: $0, cpuOnly: OCRCompute.cpuOnly) } warmUp: { engine, blank in
         _ = try engine.recognize(blank)
     }
 

@@ -301,7 +301,7 @@ private final class ScriptRecognizer {
         let name = base.hasSuffix(".tflite") ? String(base.dropLast(7)) : base
         guard let q = quantization[name] else { throw ScreenAIError("No output quantization for \(name)") }
         self.quantization = q
-        model = try CoreMLModel(resources.url("coreml/\(name).mlmodelc"))
+        model = try CoreMLModel(resources.url("coreml/\(name).mlmodelc"), cpuOnly: resources.cpuOnly)
         guard let lm = resources.read(modelDir + cfg.labelMapPath) else {
             throw ScreenAIError("Can't read \(cfg.labelMapPath)")
         }

@@ -15,6 +15,10 @@ MIL builder, in 32-bit floats. Tensors keep TFLite's NHWC layout; convolutions a
 coremltools folds away. Every quantized tensor is rounded and clamped to its int8/uint8 grid like TFLite does, so
 the results match the original closely. Inputs are raw byte values (0-255) as floats; outputs are real values
 (quantized outputs: scale * (q - zero_point)).
+
+The detector's outputs go back to NHWC as a 3-D transpose between reshapes (see flattened_nhwc): Core ML's CPU engine
+reads past the end of a buffer in the 4-D transpose of a small tensor (a head's 7 channels at 1/32 scale of a 32- or
+64-wide input), which crashed when that reached unmapped memory. On the GPU the results are the same.
 """
 
 import argparse
@@ -261,7 +265,7 @@ class Converter:
 
     # -- program ------------------------------------------------------------------------------------------------
 
-    def program(self, outputs, batch=None, flexible_hw=False):
+    def program(self, outputs, batch=None, flexible_hw=False, flat_outputs=False):
         inputs = self.inputs_of(outputs)
         specs = {}
         for i in inputs:
@@ -282,11 +286,23 @@ class Converter:
                 self.env[i] = x
             for k in self.needed_ops(outputs):
                 self.convert_op(self.ops[k])
-            outs = [mb.identity(x=self.env[o], name=safe(self.output_names[o])) for o in outputs]
+            outs = [mb.identity(x=flattened_nhwc(self.env[o], self.tensors[o].shape[3]) if flat_outputs else self.env[o],
+                                name=safe(self.output_names[o])) for o in outputs]
             fn.set_outputs(outs)
         prog = Program()
         prog.add_function("main", fn)
         return prog
+
+
+def flattened_nhwc(x, channels):
+    """x (NHWC, computed from NCHW by a transpose that coremltools folds) with that transpose done on [1, C, H*W]
+    instead: Core ML's CPU engine reads out of bounds in the 4-D one for small tensors (see the top)."""
+    y = mb.transpose(x=x, perm=[0, 3, 1, 2])
+    shape = mb.shape(x=y)
+    h, w = mb.slice_by_index(x=shape, begin=[2], end=[3]), mb.slice_by_index(x=shape, begin=[3], end=[4])
+    y = mb.reshape(x=y, shape=mb.concat(values=[np.array([1, channels], np.int32), mb.mul(x=h, y=w)], axis=0))
+    y = mb.transpose(x=y, perm=[0, 2, 1])
+    return mb.reshape(x=y, shape=mb.concat(values=[np.array([1], np.int32), h, w, np.array([channels], np.int32)], axis=0))
 
 
 def safe(name):
@@ -315,10 +331,11 @@ def find_resources(path):
              ": pass the folder that contains gocr/gocr_models (Chrome's screen_ai component).")
 
 
-def save(conv, outs, path, batch=None, enumerated_hw=False):
+def save(conv, outs, path, batch=None, enumerated_hw=False, flat_outputs=False):
     """Converts the graph computing `outs` to an fp32 .mlpackage. With `enumerated_hw`, the inputs take the sizes the
-    detector feeds them: one side the declared size, the other a multiple of 32 up to it."""
-    prog = conv.program(outs, batch=batch, flexible_hw=enumerated_hw)
+    detector feeds them: one side the declared size, the other a multiple of 32 up to it. With `flat_outputs`, NHWC
+    outputs are transposed as flattened_nhwc does."""
+    prog = conv.program(outs, batch=batch, flexible_hw=enumerated_hw, flat_outputs=flat_outputs)
     inputs = None
     if enumerated_hw:
         inputs = []
@@ -344,7 +361,7 @@ def convert_detector(res, out):
         if outs:
             name = f"det_{safe(conv.input_names[i])}"
             print(f"  {name}", flush=True)
-            save(conv, outs, out / f"{name}.mlpackage", enumerated_hw=True)
+            save(conv, outs, out / f"{name}.mlpackage", enumerated_hw=True, flat_outputs=True)
 
 
 def convert_recognizers(res, out):

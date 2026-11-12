@@ -6,6 +6,8 @@ import Foundation
 /// "layout/".
 struct Resources {
     let root: URL
+    /// The Core ML models run on the CPU only, not the GPU too (see CoreMLModel).
+    var cpuOnly = false
 
     func url(_ relativePath: String) -> URL { root.appendingPathComponent(relativePath) }
 
