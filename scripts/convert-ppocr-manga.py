@@ -12,6 +12,10 @@ ONNX goes to PyTorch (onnx2torch), then to Core ML (coremltools), after three ch
 the same outputs (checked with onnxruntime) but that onnx2torch and tracing need: see fix(). Both models take any
 size (the detector a picture whose sides are multiples of 32, the recognizer a line 48 pixels high). They're kept in
 32-bit floats: in 16 bits about 1 in 100 characters comes out different.
+
+The detector's convolutions add their biases as separate steps (see BiasAfter): with the biases in the convolutions,
+macOS 27's GPU compiler crashed on it (an expand_dims it adds got a garbage axis, then "shape for TensorData is not
+static"), at any input size, while a fixed size worked. It's also faster on the GPU on macOS 15 (about a third).
 """
 
 import hashlib
@@ -104,8 +108,36 @@ def check(original, fixed, shape):
             sys.exit(f"the changed graph gives different outputs at {size}")
 
 
-def convert(graph, input_name, shape, output_name):
+class BiasAfter(torch.nn.Module):
+    """A convolution without its bias, which is added after it."""
+
+    def __init__(self, conv):
+        super().__init__()
+        self.conv = conv
+        self.bias = torch.nn.Parameter(conv.bias.detach().clone().view(1, -1, 1, 1))
+        conv.bias = None
+
+    def forward(self, x):
+        return self.conv(x) + self.bias
+
+
+def biases_after(model):
+    """The model with its convolutions' biases added after them (see BiasAfter)."""
+    for name, child in list(model.named_children()):
+        if isinstance(child, torch.nn.Conv2d) and child.bias is not None:
+            setattr(model, name, BiasAfter(child))
+        else:
+            biases_after(child)
+    return model
+
+
+def convert(graph, input_name, shape, output_name, separate_biases):
     model = onnx2torch.convert(graph).eval()
+    passes = ct.PassPipeline.DEFAULT
+    if separate_biases:
+        model = biases_after(model)
+        # Which would put them back into the convolutions.
+        passes.remove_passes({"common::fuse_conv_bias"})
     example_shape = tuple(d.default if isinstance(d, ct.RangeDim) else d for d in shape)
     with torch.no_grad():
         traced = torch.jit.trace(model, torch.rand(example_shape), check_trace=False)
@@ -116,6 +148,7 @@ def convert(graph, input_name, shape, output_name):
         minimum_deployment_target=ct.target.macOS14,
         compute_precision=ct.precision.FLOAT32,
         convert_to="mlprogram",
+        pass_pipeline=passes,
     )
 
 
@@ -126,7 +159,8 @@ def main():
         fixed = fix(onnx.load_model_from_string(data))
         example_shape = tuple(d.default if isinstance(d, ct.RangeDim) else d for d in shape)
         check(data, fixed, example_shape)
-        model = convert(fixed, input_name, shape, output_name)
+        # Only the detector runs on the GPU.
+        model = convert(fixed, input_name, shape, output_name, separate_biases=name == "PPOCRMangaDetection")
         model.short_description = f"{filename} from huggingface.co/{REPOSITORY[0]} ({REPOSITORY[1][:7]}), converted"
         model.license = "Apache-2.0"
         path = os.path.join(OUT, f"{name}.mlpackage")
