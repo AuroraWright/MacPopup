@@ -1127,9 +1127,6 @@ final class OCRController {
             case .ppocrManga: "PP-OCRv6 Manga"
             }
         }
-
-        /// Whether its models can run on the CPU instead of the GPU (see OCRCompute); Screen AI's crash there.
-        var canRunOnCPU: Bool { self == .meikiocr || self == .ppocrManga }
     }
 
     /// The engine when OCR mode started or it last changed.
@@ -1182,15 +1179,15 @@ final class OCRController {
     /// Loading an engine's models can crash MacPopup (on macOS 27, PP-OCRv6 Manga's detector made Apple's GPU code
     /// abort), and since the engine loads as OCR mode starts, it would crash at every launch. So the engine is saved
     /// while it loads: if it's still saved at the next warm-up, it crashed, and it's loaded on the CPU from then on
-    /// (until macOS is updated); if it did so on the CPU too, or can't run there, OCR mode switches to Live Text.
-    /// Returns false when the engine is switched.
+    /// (until macOS is updated; every engine with models can run there); if it did so on the CPU too, OCR mode switches
+    /// to Live Text. Returns false when the engine is switched.
     private func guardLoading(_ engine: Engine) -> Bool {
         let defaults = SettingsStore.shared.defaults
         let system = ProcessInfo.processInfo.operatingSystemVersionString
         var onCPU = (defaults.dictionary(forKey: Self.onCPUKey) as? [String: String] ?? [:]).filter { $0.value == system }
         if let crashed = defaults.dictionary(forKey: Self.loadingKey), crashed["engine"] as? String == engine.rawValue {
             defaults.removeObject(forKey: Self.loadingKey)
-            if engine.canRunOnCPU, crashed["cpu"] as? Bool != true {
+            if crashed["cpu"] as? Bool != true {
                 onCPU[engine.rawValue] = system
                 showCrashNotice("\(engine.name) crashed MacPopup while loading, so it now runs on the CPU, which is slower.")
             } else {

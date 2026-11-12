@@ -8,7 +8,7 @@ import OneOCR
 public final class OneOCROCR: Sendable {
     public static let shared = OneOCROCR()
 
-    let models = ConvertedModels(.oneOCR) { try OneOCREngine(modelsDirectory: $0) } warmUp: { engine, blank in
+    let models = ConvertedModels(.oneOCR) { try OneOCREngine(modelsDirectory: $0, cpuOnly: OCRCompute.cpuOnly) } warmUp: { engine, blank in
         _ = try engine.recognize(blank)
     }
 

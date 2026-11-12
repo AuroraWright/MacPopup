@@ -49,11 +49,13 @@ public final class OneOCREngine: @unchecked Sendable {
     private static let detectorUnits = MLComputeUnits.cpuAndGPU
     #endif
 
-    /// Loads the models from an unpacked models archive.
-    public init(modelsDirectory: URL) throws {
+    /// Loads the models from an unpacked models archive; with `cpuOnly`, the detector runs on the CPU on the Mac too (the
+    /// other models always do).
+    public init(modelsDirectory: URL, cpuOnly: Bool = false) throws {
         let files = ModelFiles(root: modelsDirectory)
         let cfg = try files.json("config.json")
-        detector = try TextDetector(model: files.model("Detector", units: Self.detectorUnits), quantization: files.json("detector.json"),
+        detector = try TextDetector(model: files.model("Detector", units: cpuOnly ? .cpuOnly : Self.detectorUnits),
+                                    quantization: files.json("detector.json"),
                                     config: (cfg["det_model"] as? [[String: Any]])?.first)
         analyzer = try TextAnalyzer(files: files, config: cfg)
         recognizer = try TextRecognizer(files: files, config: cfg)
