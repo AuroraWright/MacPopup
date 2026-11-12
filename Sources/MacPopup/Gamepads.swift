@@ -88,8 +88,9 @@ final class GamepadController: ObservableObject {
     private var recording = GamepadRecording()
     private var learningStart = Date()
     private var learningTimer: Timer?
-    /// The report a press is compared with (see learnPress), and the bits that changed by themselves before it.
-    private var pressBaseline: (report: [UInt8], noise: [UInt8], changedAt: Date?)?
+    /// The report a press is compared with (see learnPress), the bits that change by themselves, and the first report
+    /// that changed once the press was waited for.
+    private var pressBaseline: (report: [UInt8], noise: [UInt8], firstChange: [UInt8]?)?
     /// MACPOPUP_DEBUG_GAMEPAD=<folder> saves each learning session's recording there.
     private let debugFolder = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_GAMEPAD"]
 
@@ -404,18 +405,36 @@ final class GamepadController: ObservableObject {
         self.learning?.learned = layout.controls
     }
 
-    /// Learns `control` from its next press: whatever changes then, other than bits that changed by themselves in
-    /// the second before (see GamepadLearning.field).
+    /// Learns `control` from its next press: whatever changes then in the controller's main report (see
+    /// GamepadLearning.field), other than what changes by itself. That's the bits that changed in the half second
+    /// before (e.g. a stick's; not longer, as the user may have pressed this very button just before), and the whole of
+    /// a byte that changed in many of the reports of the two seconds before: a counter's top bit can stay the same for
+    /// over a second (a Switch Pro Controller's timer, in byte 1).
     func learnPress(_ control: String) {
         guard learning != nil, let pad = pads.first(where: { $0.key == learning?.key }) else { return }
         learning?.waitingFor = control
         let now = Date().timeIntervalSince(learningStart)
-        let recent = recording.reports.filter { $0.time >= now - 1 }.map(\.bytes)
-        var noise = [UInt8](repeating: 0, count: pad.lastReport.count)
-        for (previous, report) in zip(recent, recent.dropFirst()) where previous.count == report.count && report.count == noise.count {
-            for index in noise.indices { noise[index] |= previous[index] ^ report[index] }
+        let recentReports = recording.reports.filter { $0.time >= now - 2 }
+        // Other reports (e.g. a Switch controller's replies to the host) can have the same length and other bytes.
+        let ids = Dictionary(recentReports.map { ($0.bytes.first ?? 0, 1) }, uniquingKeysWith: +)
+        let id = ids.max { $0.value < $1.value }?.key ?? pad.lastReport.first ?? 0
+        let timed = recentReports.filter { $0.bytes.first == id }
+        let reports = timed.map(\.bytes)
+        guard let baseline = reports.last ?? (pad.lastReport.first == id ? pad.lastReport : nil) else {
+            pressBaseline = nil
+            return
         }
-        pressBaseline = (pad.lastReport, noise, nil)
+        var noise = [UInt8](repeating: 0, count: baseline.count)
+        var changes = [Int](repeating: 0, count: baseline.count)
+        let pairs = zip(timed, timed.dropFirst()).filter { $0.bytes.count == baseline.count && $1.bytes.count == baseline.count }
+        for (previous, report) in pairs {
+            for index in noise.indices where previous.bytes[index] != report.bytes[index] {
+                if report.time >= now - 0.5 { noise[index] |= previous.bytes[index] ^ report.bytes[index] }
+                changes[index] += 1
+            }
+        }
+        for index in noise.indices where pairs.count >= 10 && changes[index] * 4 > pairs.count { noise[index] = 0xFF }
+        pressBaseline = (baseline, noise, nil)
     }
 
     func cancelPress() {
@@ -424,17 +443,21 @@ final class GamepadController: ObservableObject {
     }
 
     /// Once something changed for the control waited for, the report 150 ms later decides (an analog value is still
-    /// rising at first).
+    /// rising at first), or the first one that changed if the button was already let go.
     private func checkPress(_ report: [UInt8], previous: [UInt8]) {
-        guard let control = learning?.waitingFor, let baseline = pressBaseline, baseline.changedAt == nil,
+        guard let control = learning?.waitingFor, let baseline = pressBaseline, baseline.firstChange == nil,
               report.count == baseline.report.count, report.first == baseline.report.first,
               GamepadLearning.field(for: control, before: baseline.report, during: report, noise: baseline.noise) != nil else { return }
-        pressBaseline?.changedAt = Date()
+        pressBaseline?.firstChange = report
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            guard let self, self.learning?.waitingFor == control, let baseline = self.pressBaseline,
-                  let pad = self.pads.first(where: { $0.key == self.learning?.key }),
-                  let field = GamepadLearning.field(for: control, before: baseline.report, during: pad.lastReport, noise: baseline.noise)
-            else { return }
+            guard let self, self.learning?.waitingFor == control, let baseline = self.pressBaseline, let first = baseline.firstChange else { return }
+            let latest = self.recording.reports.last { $0.bytes.first == baseline.report.first && $0.bytes.count == baseline.report.count }?.bytes ?? first
+            guard let field = GamepadLearning.field(for: control, before: baseline.report, during: latest, noise: baseline.noise)
+                ?? GamepadLearning.field(for: control, before: baseline.report, during: first, noise: baseline.noise)
+            else {
+                self.pressBaseline?.firstChange = nil
+                return
+            }
             self.learning?.pressedOnce[control] = field
             self.learning?.waitingFor = nil
             self.pressBaseline = nil
