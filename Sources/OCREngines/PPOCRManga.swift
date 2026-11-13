@@ -37,6 +37,7 @@ public final class PPOCRManga: @unchecked Sendable {
     /// Predictions run one at a time, off the main thread.
     private let queue = DispatchQueue(label: "PPOCRManga", qos: .userInitiated)
     private var models: Models?
+    private let lineCache = LineCache<Reading>()
 
     struct Failure: LocalizedError {
         let errorDescription: String?
@@ -54,13 +55,14 @@ public final class PPOCRManga: @unchecked Sendable {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             queue.async {
                 self.models = nil
+                self.lineCache.clear()
                 continuation.resume()
             }
         }
     }
 
     public func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
-        try await run { models in try Self.recognize(image, models: models) }
+        try await run { [lineCache] models in try Self.recognize(image, models: models, cache: lineCache) }
     }
 
     private func run<T>(_ body: @escaping (Models) throws -> T) async throws -> T {
@@ -110,7 +112,9 @@ public final class PPOCRManga: @unchecked Sendable {
 
     // MARK: Pipeline
 
-    private static func recognize(_ cgImage: CGImage, models: Models) throws -> [RecognizedLine] {
+    private typealias Reading = (characters: [(text: String, steps: Range<Int>)], steps: Int)
+
+    private static func recognize(_ cgImage: CGImage, models: Models, cache: LineCache<Reading>) throws -> [RecognizedLine] {
         guard let image = RGBImage(cgImage) else { throw Failure(errorDescription: "Couldn't read the image") }
         let (width, height) = (CGFloat(image.width), CGFloat(image.height))
         let normalize = { (rect: CGRect) in
@@ -127,7 +131,9 @@ public final class PPOCRManga: @unchecked Sendable {
                 let vertical = box.height > box.width
                 let characters: [(text: String, steps: Range<Int>)], steps: Int
                 do {
-                    (characters, steps) = try read(image.cropped(box, rotated: vertical), models: models)
+                    let line = image.cropped(box, rotated: vertical)
+                    let key = line.pixels.withUnsafeBytes { LineCache<Reading>.Key($0, [line.width, line.height]) }
+                    (characters, steps) = try cache.value(key) { try read(line, models: models) }
                 } catch {
                     lock.withLock { failure = error }
                     return
@@ -150,6 +156,7 @@ public final class PPOCRManga: @unchecked Sendable {
             }
         }
         if let failure { throw failure }
+        cache.endReading()
         return lines.compactMap { $0 }
     }
 
@@ -332,7 +339,7 @@ public final class PPOCRManga: @unchecked Sendable {
 
     /// The characters the recognizer reads in `line` (turned to read across), each with its output steps, and the
     /// number of steps.
-    private static func read(_ line: RGBImage, models: Models) throws -> (characters: [(text: String, steps: Range<Int>)], steps: Int) {
+    private static func read(_ line: RGBImage, models: Models) throws -> Reading {
         let natural = Int((Double(lineHeight) * Double(line.width) / Double(max(1, line.height))).rounded(.toNearestOrEven))
         let width = max(16, min(maxLineWidth, natural))
         let input = try MLMultiArray(shape: [1, 3, lineHeight, width] as [NSNumber], dataType: .float32)

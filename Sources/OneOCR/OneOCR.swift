@@ -38,6 +38,8 @@ public final class OneOCREngine: @unchecked Sendable {
     private let analyzer: TextAnalyzer
     private let recognizer: TextRecognizer
     private let enableFilterXY: Bool
+    /// The lines of recent readings, recognized (see LineCache).
+    private let recognized = LineCache<RecognizedLine>()
     /// One OCR call at a time.
     private let lock = NSLock()
 
@@ -126,6 +128,10 @@ public final class OneOCREngine: @unchecked Sendable {
     }
 
     private func run(_ bgr: ImageU8) throws -> Result {
+        defer {
+            analyzer.endReading()
+            recognized.endReading()
+        }
         let detected = try detector.detect(bgr)
         let all = detected.map { Normalizer.buildTextLine(bgr, $0) }
         DispatchQueue.concurrentPerform(iterations: all.count) { Normalizer.normalize(all[$0], bgr) }
@@ -215,7 +221,10 @@ public final class OneOCREngine: @unchecked Sendable {
     private func recognizeLine(_ tl: TextLine) throws -> OcrLine? {
         guard let charModel = analyzer.charModelName(tl.ocrMode) else { return nil }
         let mode = OCRMode.name[tl.ocrMode] ?? recognizer.resolveMode(charModel)
-        let rec = try recognizer.recognize(tl.lineImage, charModel: charModel, mode: mode)
+        let image = tl.lineImage
+        let rec = try recognized.value(image.cacheKey("\(charModel) \(mode)")) {
+            try recognizer.recognize(image, charModel: charModel, mode: mode)
+        }
         if rec.rejected || rec.words.isEmpty { return nil }
         var quad = Normalizer.lineOutputQuad(tl)
         let words = rec.words.map { w in (text: w.text, quad: Normalizer.wordOutputQuad(tl, Double(w.start), Double(w.end)),

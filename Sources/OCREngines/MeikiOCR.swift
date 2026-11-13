@@ -43,6 +43,7 @@ public final class MeikiOCR: @unchecked Sendable {
     /// Pictures are read one at a time, off the main thread.
     private let queue = DispatchQueue(label: "MeikiOCR", qos: .userInitiated)
     private var models: Models?
+    private let lineCache = LineCache<[Found]>()
 
     struct Failure: LocalizedError {
         let errorDescription: String?
@@ -60,13 +61,14 @@ public final class MeikiOCR: @unchecked Sendable {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             queue.async {
                 self.models = nil
+                self.lineCache.clear()
                 continuation.resume()
             }
         }
     }
 
     public func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
-        try await run { models in try Self.recognize(image, models: models) }
+        try await run { [lineCache] models in try Self.recognize(image, models: models, cache: lineCache) }
     }
 
     private func run<T>(_ body: @escaping (Models) throws -> T) async throws -> T {
@@ -113,7 +115,7 @@ public final class MeikiOCR: @unchecked Sendable {
 
     // MARK: Pipeline
 
-    private static func recognize(_ cgImage: CGImage, models: Models) throws -> [RecognizedLine] {
+    private static func recognize(_ cgImage: CGImage, models: Models, cache: LineCache<[Found]>) throws -> [RecognizedLine] {
         guard let image = RGBImage(cgImage) else { throw Failure(errorDescription: "Couldn't read the image") }
         let (width, height) = (image.width, image.height)
         var boxes = try detectLines(image, model: models.detection)
@@ -144,8 +146,8 @@ public final class MeikiOCR: @unchecked Sendable {
                 let characters: [Candidate]
                 do {
                     characters = vertical
-                        ? try recognizeColumn(image, box: box, model: models.vertical)
-                        : try recognizeLine(image, box: box, model: models.horizontal)
+                        ? try recognizeColumn(image, box: box, model: models.vertical, cache: cache)
+                        : try recognizeLine(image, box: box, model: models.horizontal, cache: cache)
                 } catch {
                     lock.withLock { failure = error }
                     return
@@ -160,6 +162,7 @@ public final class MeikiOCR: @unchecked Sendable {
             }
         }
         if let failure { throw failure }
+        cache.endReading()
         return lines.compactMap { $0 }
     }
 
@@ -189,7 +192,7 @@ public final class MeikiOCR: @unchecked Sendable {
         return lines.sorted { $0.minY < $1.minY }
     }
 
-    private static func recognizeLine(_ image: RGBImage, box: CGRect, model: MLModel) throws -> [Candidate] {
+    private static func recognizeLine(_ image: RGBImage, box: CGRect, model: MLModel, cache: LineCache<[Found]>) throws -> [Candidate] {
         var height = lineHeight
         var width = Int((box.width * CGFloat(lineHeight) / box.height).rounded())
         if width > lineWidth {
@@ -197,11 +200,10 @@ public final class MeikiOCR: @unchecked Sendable {
             width = lineWidth
         }
         guard width > 0, height > 0 else { return [] }
-        let input = try MLMultiArray(shape: [1, 3, lineHeight, lineWidth] as [NSNumber], dataType: .float32)
-        image.write(box, into: input, width: width, height: height)
         var candidates: [Candidate] = []
-        try characters(model: model, input: input) { character, rect, confidence in
-            guard rect.minX < CGFloat(width) else { return }
+        let found = try characters(in: image, part: box, width: width, height: height, input: (lineWidth, lineHeight), model: model, cache: cache)
+        for (character, rect, confidence) in found {
+            guard rect.minX < CGFloat(width) else { continue }
             let x1 = Int(box.minX) + Int(min(rect.minX, CGFloat(width)) / CGFloat(width) * box.width)
             let x2 = Int(box.minX) + Int(min(rect.maxX, CGFloat(width)) / CGFloat(width) * box.width)
             let y1 = Int(box.minY) + Int(rect.minY / CGFloat(lineHeight) * box.height)
@@ -212,7 +214,7 @@ public final class MeikiOCR: @unchecked Sendable {
         return suppressOverlaps(candidates)
     }
 
-    private static func recognizeColumn(_ image: RGBImage, box: CGRect, model: MLModel) throws -> [Candidate] {
+    private static func recognizeColumn(_ image: RGBImage, box: CGRect, model: MLModel, cache: LineCache<[Found]>) throws -> [Candidate] {
         let scale = Double(columnWidth) / Double(box.width)
         let (y1, y2) = (Double(box.minY), Double(box.maxY))
         // Columns longer than the model's input are read in overlapping parts.
@@ -241,15 +243,15 @@ public final class MeikiOCR: @unchecked Sendable {
             let part = CGRect(x: box.minX, y: CGFloat(top), width: box.width, height: CGFloat(bottom - top))
             let height = min(Int((Double(bottom - top) * scale).rounded()), maxHeight)
             guard height > 0 else { continue }
-            let input = try MLMultiArray(shape: [1, 3, columnHeight, columnWidth] as [NSNumber], dataType: .float32)
-            image.write(part, into: input, width: columnWidth, height: height)
-            try characters(model: model, input: input) { character, rect, confidence in
-                guard rect.minY < CGFloat(height) else { return }
+            let found = try characters(in: image, part: part, width: columnWidth, height: height, input: (columnWidth, columnHeight),
+                                       model: model, cache: cache)
+            for (character, rect, confidence) in found {
+                guard rect.minY < CGFloat(height) else { continue }
                 let x1 = Int(part.minX) + Int(rect.minX / CGFloat(columnWidth) * part.width)
                 let x2 = Int(part.minX) + Int(rect.maxX / CGFloat(columnWidth) * part.width)
                 let cy1 = Int(part.minY) + Int(min(rect.minY, CGFloat(height)) / CGFloat(height) * part.height)
                 let cy2 = Int(part.minY) + Int(min(rect.maxY, CGFloat(height)) / CGFloat(height) * part.height)
-                guard cy2 > cy1 else { return }
+                guard cy2 > cy1 else { continue }
                 candidates.append(Candidate(character: character, box: CGRect(x: x1, y: cy1, width: x2 - x1, height: cy2 - cy1),
                                             confidence: confidence, interval: (cy1, cy2)))
             }
@@ -257,14 +259,35 @@ public final class MeikiOCR: @unchecked Sendable {
         return suppressOverlaps(candidates)
     }
 
-    /// Calls `found` with each character the recognizer is confident enough about, its box in model pixels.
-    private static func characters(model: MLModel, input: MLMultiArray, found: (Character, CGRect, Float) -> Void) throws {
+    /// A character the recognizer is confident enough about, its box in model pixels.
+    private typealias Found = (character: Character, box: CGRect, confidence: Float)
+
+    /// The characters the recognizer is confident enough about in `part` of the image, resized to `width` x `height`
+    /// into the top left of its input (`input` wide and high). The input is made of only those pixels and sizes, so
+    /// they're what `cache` (with recent readings' characters) knows it by.
+    private static func characters(
+        in image: RGBImage, part: CGRect, width: Int, height: Int, input: (width: Int, height: Int), model: MLModel,
+        cache: LineCache<[Found]>
+    ) throws -> [Found] {
+        let pixels = image.cropped(part)
+        let key = pixels.pixels.withUnsafeBytes {
+            LineCache<[Found]>.Key($0, [pixels.width, pixels.height, width, height, input.width, input.height])
+        }
+        return try cache.value(key) {
+            let array = try MLMultiArray(shape: [1, 3, input.height, input.width] as [NSNumber], dataType: .float32)
+            image.write(part, into: array, width: width, height: height)
+            return try characters(model: model, input: array)
+        }
+    }
+
+    private static func characters(model: MLModel, input: MLMultiArray) throws -> [Found] {
         let output = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["images": input]))
         guard let codes = output.featureValue(for: "char_codes")?.multiArrayValue,
               let boxes = output.featureValue(for: "boxes")?.multiArrayValue,
               let scores = output.featureValue(for: "scores")?.multiArrayValue else {
             throw Failure(errorDescription: "Unexpected recognition output")
         }
+        var found: [Found] = []
         for index in 0..<scores.shape[1].intValue {
             let confidence = scores[[0, index] as [NSNumber]].floatValue
             // U+FFFD is its "unknown character".
@@ -272,8 +295,9 @@ public final class MeikiOCR: @unchecked Sendable {
                   let scalar = Unicode.Scalar(UInt32(clamping: codes[[0, index] as [NSNumber]].intValue)),
                   scalar != "\u{FFFD}" else { continue }
             let corner = { (i: Int) in CGFloat(boxes[[0, index, i] as [NSNumber]].doubleValue) }
-            found(Character(scalar), CGRect(x: corner(0), y: corner(1), width: corner(2) - corner(0), height: corner(3) - corner(1)), confidence)
+            found.append((Character(scalar), CGRect(x: corner(0), y: corner(1), width: corner(2) - corner(0), height: corner(3) - corner(1)), confidence))
         }
+        return found
     }
 
     /// Keeps the most confident of characters that overlap along the line, in reading order, and puts the

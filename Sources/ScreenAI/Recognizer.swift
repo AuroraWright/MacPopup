@@ -237,6 +237,19 @@ private struct LineTensors {
     var left: [Float] = [], right: [Float] = [], top: [Float] = [], height: [Float] = []
     /// Softmax over the gated activations (empty if absent).
     var script: [Float] = [], content: [Float] = [], direction: [Float] = []
+
+    /// Adds the next chunk's frames.
+    mutating func append(_ chunk: LineTensors) {
+        frames += chunk.frames
+        logits += chunk.logits
+        left += chunk.left
+        right += chunk.right
+        top += chunk.top
+        height += chunk.height
+        script += chunk.script
+        content += chunk.content
+        direction += chunk.direction
+    }
 }
 
 /// The uint8 quantization of a model output (the original's TFLite tensors are quantized; the Core ML model's
@@ -291,6 +304,8 @@ private final class ScriptRecognizer {
     private let model: CoreMLModel
     private let quantization: [String: OutputQuantization]
     private let labels: [Int: String]
+    /// The chunks of recent readings' lines, with their share of the lines' tensors (see LineCache).
+    private let chunkCache = LineCache<LineTensors>()
 
     init(resources: Resources, configFile: String, quantization: [String: [String: OutputQuantization]]) throws {
         guard let bytes = resources.read(modelRoot + configFile), let cfg = RecognizerConfig(bytes) else {
@@ -333,6 +348,9 @@ private final class ScriptRecognizer {
         }
     }
 
+    /// A reading is done (see LineCache).
+    func endReading() { chunkCache.endReading() }
+
     func label(_ id: Int) -> String? { labels[id] }
     var numLabels: Int { labels.count }
 
@@ -343,19 +361,25 @@ private final class ScriptRecognizer {
     }
 
     private func runBatches(_ lines: [GrayImage]) throws -> [LineTensors] {
-        var chunkData: [[UInt8]] = []
+        var allChunks: [[UInt8]] = []
         var refs: [(line: Int, offset: Int, width: Int)] = []
         for (li, line) in lines.enumerated() where line.width > 0 {
             for (c, chunk) in chunks(line).enumerated() {
                 let off = c * chunkWidth
                 refs.append((li, off, min(chunkWidth, line.width - off)))
-                chunkData.append(chunk)
+                allChunks.append(chunk)
             }
         }
         let framesPerChunk = chunkInput / frameWidth  // 42
         let firstFrame = pad / frameWidth  // 4
         var out = [LineTensors](repeating: LineTensors(), count: lines.count)
-        if chunkData.isEmpty { return out }
+        if allChunks.isEmpty { return out }
+        // Each chunk's share of its line's tensors: from recent readings, or else from the model, which only gets the
+        // others (chunks are independent within a batch).
+        let keys = allChunks.indices.map { c in allChunks[c].withUnsafeBytes { LineCache<LineTensors>.Key($0, refs[c].width) } }
+        var shares = keys.map { chunkCache[$0] }
+        let missing = shares.indices.filter { shares[$0] == nil }
+        let chunkData = missing.map { allChunks[$0] }
         let numBatches = (chunkData.count + batchSize - 1) / batchSize
         let chunkBytes = lineHeight * chunkInput
 
@@ -405,6 +429,11 @@ private final class ScriptRecognizer {
             }
         }
         if let failure { throw failure }
+        func assembled() -> [LineTensors] {
+            for (c, share) in shares.enumerated() { out[refs[c].line].append(share!) }
+            return finished(out)
+        }
+        if chunkData.isEmpty { return assembled() }
 
         let denseNames = ["symbol_left_offset", "symbol_right_offset", "symbol_top", "symbol_height",
                           "script_activations", "script_gates", "content_type_activations", "content_type_gates",
@@ -426,30 +455,27 @@ private final class ScriptRecognizer {
                 d.append((dequantizeDense(data, q.scale, q.zeroPoint), data.count / (batchSize * framesPerChunk)))
             }
             guard let lt = batchOut["decode_logits"] else { throw ScreenAIError("Missing decode_logits") }
-            lt.withUnsafeBufferPointer { logits in
-                for j in 0..<batchSize where b0 + j < chunkData.count {
-                    let r = refs[b0 + j]
-                    let nf = (r.width + frameWidth - 1) / frameWidth
+            for j in 0..<batchSize where b0 + j < chunkData.count {
+                let c = missing[b0 + j]
+                let nf = (refs[c].width + frameWidth - 1) / frameWidth
+                var share = LineTensors()
+                lt.withUnsafeBufferPointer { logits in
                     for f in 0..<nf {
                         let src = j * framesPerChunk + firstFrame + f
                         let sp = sparseDequantizeFrame(logits.baseAddress! + src * C, C, logitsQ.zeroPoint,
                                                        logitsQ.scale, 5)
                         for e in sp {
-                            out[r.line].logits.append(e.id)
-                            out[r.line].logits.append(e.value)
+                            share.logits.append(e.id)
+                            share.logits.append(e.value)
                         }
-                        if !d[0].v.isEmpty { out[r.line].left.append(d[0].v[src]) }
-                        if !d[1].v.isEmpty { out[r.line].right.append(d[1].v[src]) }
-                        if !d[2].v.isEmpty { out[r.line].top.append(d[2].v[src]) }
-                        if !d[3].v.isEmpty { out[r.line].height.append(d[3].v[src]) }
-                        out[r.line].frames += 1
+                        if !d[0].v.isEmpty { share.left.append(d[0].v[src]) }
+                        if !d[1].v.isEmpty { share.right.append(d[1].v[src]) }
+                        if !d[2].v.isEmpty { share.top.append(d[2].v[src]) }
+                        if !d[3].v.isEmpty { share.height.append(d[3].v[src]) }
+                        share.frames += 1
                     }
                 }
-            }
-            // The gated heads keep their raw per-frame activations until all the chunks of the line are merged.
-            for j in 0..<batchSize where b0 + j < chunkData.count {
-                let r = refs[b0 + j]
-                let nf = (r.width + frameWidth - 1) / frameWidth
+                // The gated heads keep their raw per-frame activations until all the chunks of the line are merged.
                 for h in 0..<3 {
                     let act = d[4 + 2 * h], gate = d[5 + 2 * h]
                     if act.v.isEmpty { continue }
@@ -460,13 +486,21 @@ private final class ScriptRecognizer {
                         dst.append(gate.v[src])
                     }
                     switch h {
-                    case 0: out[r.line].script += dst
-                    case 1: out[r.line].content += dst
-                    default: out[r.line].direction += dst
+                    case 0: share.script += dst
+                    case 1: share.content += dst
+                    default: share.direction += dst
                     }
                 }
+                shares[c] = share
+                chunkCache[keys[c]] = share
             }
         }
+        return assembled()
+    }
+
+    /// The lines' tensors, with all their chunks: the heads the model doesn't have left out, and the gated ones reduced.
+    private func finished(_ lines: [LineTensors]) -> [LineTensors] {
+        var out = lines
         // Reduces a gated head, stored per frame as [act x C, gate].
         func reduce(_ v: [Float], _ frames: Int) -> [Float] {
             if v.isEmpty || frames == 0 { return v }
@@ -899,6 +933,7 @@ final class LineRecognizer {
 
     /// Recognizes the layout's lines; returns the layout with each line followed by its words and their symbols.
     func recognize(_ gray: GrayImage, _ input: PageLayout, pyramid: [PyramidLevel]) throws -> PageLayout {
+        defer { recognizers.values.forEach { $0.endReading() } }
         var layout = input
         let lineIdx = layout.entities.indices.filter { layout.entities[$0].type == .line }
         var state = [LineState](repeating: LineState(), count: lineIdx.count)

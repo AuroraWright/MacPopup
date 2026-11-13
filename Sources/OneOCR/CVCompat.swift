@@ -8,6 +8,11 @@ struct ImageU8 {
     var channels: Int
     var data: [UInt8]
 
+    /// The image's key in a LineCache, with what else the cached result depends on.
+    func cacheKey<Value>(_ extra: String = "") -> LineCache<Value>.Key {
+        data.withUnsafeBytes { LineCache<Value>.Key($0, "\(width) \(height) \(channels) \(extra)") }
+    }
+
     init(width: Int, height: Int, channels: Int, data: [UInt8]) {
         self.width = width
         self.height = height

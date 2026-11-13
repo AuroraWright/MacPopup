@@ -126,6 +126,8 @@ final class TextAnalyzer: @unchecked Sendable {
                                           "Tamil"].map { Script.byName[$0]! }
 
     private let aux: CoreMLModel, lineLayout: CoreMLModel
+    /// The models' results for lines of recent readings (see LineCache).
+    private let auxCache = LineCache<Info>(), lineLayoutCache = LineCache<Float>()
     private let earlyRej: Bool
     private let scriptThr: Double, nontextThr: Double
     private let hwpcMap: LowerBoundMap, flipMap: LowerBoundMap, llMap: LowerBoundMap
@@ -266,8 +268,17 @@ final class TextAnalyzer: @unchecked Sendable {
     }
 
     /// Analyzes all lines of one image.
+    /// A reading is done (see LineCache).
+    func endReading() {
+        auxCache.endReading()
+        lineLayoutCache.endReading()
+    }
+
     func analyze(_ lines: [TextLine], mode: Int = OCRMode.auto) throws {
-        let infos = try concurrentMap(lines.count) { try runAux(lines[$0].lineImage) }
+        let infos = try concurrentMap(lines.count) { i in
+            let image = lines[i].lineImage
+            return try auxCache.value(image.cacheKey()) { try runAux(image) }
+        }
         var hist: [Int: Int] = [:]
         var nh = 0, fh = 0, nv = 0, fv = 0
         for (l, inf) in zip(lines, infos) {
@@ -316,9 +327,12 @@ final class TextAnalyzer: @unchecked Sendable {
         if OCRMode.lineLayoutRequest.contains(mode) {
             let cjk = lines.filter { $0.script != Script.nonText && OCRMode.cjk.contains($0.ocrMode) }
             let scores = try concurrentMap(cjk.count) { i -> Float in
-                let o = try lineLayout.predict(["data": classifierInput(cjk[i].lineImage)])
-                guard let s = o["line_layout_score"] else { throw OneOCRError("LineLayout output missing") }
-                return floats(s).data[0]
+                let image = cjk[i].lineImage
+                return try lineLayoutCache.value(image.cacheKey()) {
+                    let o = try lineLayout.predict(["data": classifierInput(image)])
+                    guard let s = o["line_layout_score"] else { throw OneOCRError("LineLayout output missing") }
+                    return floats(s).data[0]
+                }
             }
             var layoutScores = [ObjectIdentifier: Float]()
             for (l, s) in zip(cjk, scores) { layoutScores[ObjectIdentifier(l)] = s }
