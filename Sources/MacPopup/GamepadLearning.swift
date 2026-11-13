@@ -221,16 +221,21 @@ enum GamepadControls {
 /// Learns a layout from a recording (see GamepadRecording).
 ///
 /// Each stretch in which GameController's state stays the same gives a sample: the report from its middle, with that
-/// state. GameController's update and the report it read can come in either order, tens of milliseconds apart (an Xbox
-/// controller's especially), so the report right at an update can be the one before. Then each control gets the field
-/// of the reports that best agrees with whether it's pressed: in at least 75% of the samples where it's pressed (a
-/// press quicker than GameController's update leaves a sample labeled pressed with the report released) and 97% of the
-/// others, each counted on its own (or a rarely pressed control would match a bit that never changes).
+/// state, and the reports of its middle half. GameController's update and the report it read can come in either order,
+/// tens of milliseconds apart (an Xbox controller's especially), so the report right at an update can be the one
+/// before. The last stretch, which may still be going on (its middle then being a press's start), is left out. Then
+/// each control gets the field of the reports that best agrees with whether it's pressed: in at least 75% of the
+/// samples where it's pressed, at least two (a press quicker than GameController's update leaves a sample labeled
+/// pressed with the report released), and in 97% of the reports of the others, each counted on its own (or a rarely
+/// pressed control would match a bit that never changes). All of their reports, not just one each, so that a field
+/// changing by itself (a stick's low byte, which a thumbstick click moves too) shows it, even after one or two presses.
 enum GamepadLearning {
     struct Sample {
         let report: [UInt8]
         let pressed: Set<String>
         let analog: [String: Double]
+        /// The reports of the middle half of its stretch, `report` among them.
+        let reports: [[UInt8]]
     }
 
     /// The ID of the controller's input reports: the most common one. Others (e.g. a Switch controller's replies to the
@@ -243,20 +248,20 @@ enum GamepadLearning {
     static func samples(_ recording: GamepadRecording) -> [Sample] {
         guard let reportID = mainReportID(recording.reports) else { return [] }
         let reports = recording.reports.filter { $0.bytes.first == reportID }
-        let lastTime = reports.last?.time ?? 0
         // Stick moves update the analog values all the time: stretches are where the pressed controls stay the same.
         var changes: [GamepadRecording.State] = []
         for state in recording.states where state.pressed != changes.last?.pressed { changes.append(state) }
         var samples: [Sample] = []
         var reportIndex = 0
         var stateIndex = 0
-        for (index, change) in changes.enumerated() {
-            let end = index + 1 < changes.count ? changes[index + 1].time : lastTime
-            let middle = (change.time + end) / 2
+        for (change, next) in zip(changes, changes.dropFirst()) {
+            let middle = (change.time + next.time) / 2
             while reportIndex + 1 < reports.count, reports[reportIndex + 1].time <= middle { reportIndex += 1 }
             while stateIndex + 1 < recording.states.count, recording.states[stateIndex + 1].time <= middle { stateIndex += 1 }
             guard reportIndex < reports.count, reports[reportIndex].time <= middle else { continue }
-            samples.append(Sample(report: reports[reportIndex].bytes, pressed: change.pressed, analog: recording.states[stateIndex].analog))
+            let quarter = (next.time - change.time) / 4
+            let around = reports.indices.filter { $0 == reportIndex || abs(reports[$0].time - middle) <= quarter }.map { reports[$0].bytes }
+            samples.append(Sample(report: reports[reportIndex].bytes, pressed: change.pressed, analog: recording.states[stateIndex].analog, reports: around))
         }
         return samples
     }
@@ -290,8 +295,11 @@ enum GamepadLearning {
             }
         }
         // Buttons, and directions that aren't a hat switch's or an axis's (an N64 controller's C buttons, which
-        // GameController calls a stick).
-        for control in controls where learned[control] == nil {
+        // GameController calls a stick). D-pad directions only once each was pressed on its own: until then, a value
+        // or bit of a hat switch passes for one (without its diagonals).
+        let dpad = GamepadControls.directions.map { "Direction Pad \($0)" }
+        let dpadPressed = dpad.allSatisfy { direction in samples.contains { $0.pressed.intersection(dpad) == [direction] } }
+        for control in controls where learned[control] == nil && (dpadPressed || !dpad.contains(control)) {
             // An analog trigger's low bits can agree by chance, so its value goes first.
             if recording.analogButtons.contains(control), let found = analogField(control, samples.map { ($0.report, $0.analog) }),
                let field = threshold(control, offset: found.offset, width: found.width, below: !found.increasing, samples) {
@@ -304,23 +312,25 @@ enum GamepadLearning {
     }
 
     /// How well a field agrees with whether a control is pressed (`held`, for each sample): the lower of its share of
-    /// the pressed samples and of the others, or 0 if the first is under 75% or the second under 97% (see
-    /// GamepadLearning).
+    /// the pressed samples and of the others' reports, or 0 if the first is under 75% or the second under 97% (see
+    /// GamepadLearning). The pressed samples go first, as most fields don't pass them, and the others' reports stop
+    /// being counted once too many are pressed.
     private static func agreement(_ held: [Bool], _ samples: [Sample], _ isPressed: ([UInt8]) -> Bool) -> Double {
-        var pressed = 0, hits = 0, released = 0, rejections = 0
-        for (sample, isHeld) in zip(samples, held) {
-            let field = isPressed(sample.report)
-            if isHeld {
-                pressed += 1
-                if field { hits += 1 }
-            } else {
-                released += 1
-                if !field { rejections += 1 }
+        var pressed = 0, hits = 0
+        for (sample, isHeld) in zip(samples, held) where isHeld {
+            pressed += 1
+            if isPressed(sample.report) { hits += 1 }
+        }
+        let released = zip(samples, held).reduce(0) { $0 + ($1.1 ? 0 : $1.0.reports.count) }
+        guard pressed >= 2, Double(hits) >= 0.75 * Double(pressed), released >= 3 else { return 0 }
+        var misses = 0
+        for (sample, isHeld) in zip(samples, held) where !isHeld {
+            for report in sample.reports where isPressed(report) {
+                misses += 1
+                if Double(misses) > 0.03 * Double(released) { return 0 }
             }
         }
-        guard pressed >= 3, released >= 3 else { return 0 }
-        let hitRate = Double(hits) / Double(pressed), rejectionRate = Double(rejections) / Double(released)
-        return hitRate >= 0.75 && rejectionRate >= 0.97 ? min(hitRate, rejectionRate) : 0
+        return min(Double(hits) / Double(pressed), 1 - Double(misses) / Double(released))
     }
 
     /// A bit, or else a nibble that takes few values (a counter or stick takes many): a button that isn't analog.
@@ -366,7 +376,7 @@ enum GamepadLearning {
                         sample.pressed.contains("\(dpad) \(direction)") && directions.filter { sample.pressed.contains("\(dpad) \($0)") }.count == 1
                     }
                     let counts = Dictionary(alone.map { (Int(high ? $0.report[byte] >> 4 : $0.report[byte] & 0x0F), 1) }, uniquingKeysWith: +)
-                    guard let (value, count) = counts.max(by: { $0.value < $1.value }), count >= 2 else { break }
+                    guard let value = counts.max(by: { $0.value < $1.value })?.key else { break }
                     main.append(value)
                 }
                 guard main.count == 4, main[0] <= 1, main == [0, 2, 4, 6].map({ main[0] + $0 }) else { continue }
@@ -518,9 +528,11 @@ enum GamepadLearning {
     /// switch's neutral value (8, or 0 or 15) and became the direction's value (any, for a stick's: a Joy-Con's turns
     /// with it) takes that hat's diagonals too. Otherwise it's the first byte where one bit changed, and only ever that
     /// one, or else an analog value's highest changed bit (past half), if it rested at an end and moved through values
-    /// in between.
+    /// in between. A stick direction can be a bit too (an N64 controller's C buttons, which GameController calls a
+    /// stick), told from `bitNoise` (a button's noise: a stick's only has what changes nearly always) if it was all
+    /// that changed in its byte and, once held in two reports or more, let go again (a nudged stick's low bit stays).
     static func field(for control: String, before: [UInt8], during: [UInt8], between: [[UInt8]] = [], pushes: [String: [[UInt8]]] = [:],
-                      noise: [UInt8]) -> GamepadField? {
+                      noise: [UInt8], bitNoise: [UInt8]? = nil) -> GamepadField? {
         let isStick = GamepadControls.isStickDirection(control)
         if isStick, let field = pushedField(control, pushes: pushes.merging([control: [before] + between + [during]]) { $1 }, noise: noise) {
             return field
@@ -550,19 +562,20 @@ enum GamepadLearning {
                 if !isStick || alone { return .values(byte: byte, high: high, values: around) }
             }
         }
-        // A stick's bit would only be part of its value.
-        guard !isStick else { return nil }
         // A button (maybe let go by now): a byte where one bit changed, and only ever that one all through (or until
         // another of its bits did, once it was held: a second button pressed right after), and on its own: not with the
         // bits just under it (even ones that change by themselves), as an analog value's does when it crosses over (a
         // stick that the press nudged, as clicking it does before the click counts).
         let path = between + [during]
+        let bitNoise = bitNoise ?? noise
         let button = (1..<length).lazy.compactMap { index -> (byte: Int, bit: Int)? in
-            let differences = path.map { changes($0, index) }
+            let differences = path.map { (before[index] ^ $0[index]) & ~(bitNoise.indices.contains(index) ? bitNoise[index] : 0) }
             guard let first = differences.firstIndex(where: { $0 != 0 }), differences[first].nonzeroBitCount == 1 else { return nil }
             let only = differences[first]
             let end: Int = differences[first...].firstIndex(where: { $0 != 0 && $0 != only }) ?? path.count
-            guard end == path.count || differences[first..<end].filter({ $0 != 0 }).count >= 2 else { return nil }
+            let reports = differences[first..<end].filter { $0 != 0 }.count
+            guard isStick ? end == path.count && (path.count == 1 || reports >= 2 && differences.last == 0) : end == path.count || reports >= 2
+            else { return nil }
             let pressed = Array(path[..<end])
             let bit = index * 8 + only.trailingZeroBitCount
             let alone = zip([before] + pressed, pressed).allSatisfy { previous, report in
@@ -572,6 +585,8 @@ enum GamepadLearning {
             return alone ? (index, only.trailingZeroBitCount) : nil
         }.first
         if let button { return .bit(byte: button.byte, bit: button.bit, inverted: before[button.byte] >> button.bit & 1 == 1) }
+        // A stick's other bits would only be part of its value.
+        guard !isStick else { return nil }
         // Else an analog value's highest changed bit (past half), if it rested at an end and went past values in between
         // (a trigger's; a stick's rests in the middle, and a motion sensor's top byte around 0 jumps from end to end).
         guard let byte, [0x00, 0xFF].contains(before[byte]), path.contains(where: { ![0x00, 0xFF].contains($0[byte]) }) else { return nil }

@@ -42,8 +42,11 @@ struct GamepadsControl: View {
                         if row.layout != nil {
                             Button("Forget") { gamepads.setLayout(nil, for: row.id) }
                         }
-                        Button(row.layout == nil ? "Set Up…" : "Set Up Again…") { gamepads.startLearning(key: row.id) }
-                            .disabled(!row.isConnected || row.count > 1)
+                        // (With Option, the session's recording is saved for sending: see Gamepads.savesRecording.)
+                        Button(row.layout == nil ? "Set Up…" : "Set Up Again…") {
+                            gamepads.startLearning(key: row.id, savingRecording: NSEvent.modifierFlags.contains(.option))
+                        }
+                        .disabled(!row.isConnected || row.count > 1)
                     }
                 }
             }
@@ -78,7 +81,7 @@ private struct GamepadLearningPanel: View {
             Text("Setting Up \(learning.name)").font(.headline)
             Text(
                 learning.hasGameController
-                    ? "Press each button, D-pad direction and trigger a few times, one at a time, then push each stick all the way in every direction. A check mark appears next to each control MacPopup has picked up. If one stays unchecked, click its Learn button and press it once."
+                    ? "Press each button, D-pad direction and trigger once or twice, one at a time, then push each stick all the way in every direction. A check mark appears next to each control MacPopup has picked up. If one stays unchecked, click its Learn button and press it once."
                     : learning.sharesName
                     ? "Another connected controller has the same name, and macOS doesn’t say which is which, so set this one up one control at a time: click Learn next to a control, then press it on this controller. Or disconnect the other one and click Set Up again."
                     : "macOS doesn’t report this controller’s buttons, so set them up one at a time: click Learn next to a control, then press it on the controller."

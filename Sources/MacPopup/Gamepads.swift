@@ -100,12 +100,15 @@ final class GamepadController: ObservableObject {
     private weak var learningController: GCController?
     /// The report a press is compared with (see learnPress), the bits that change by themselves, the first report that
     /// changed once the press was waited for, and when it started being waited for.
-    private var pressBaseline: (report: [UInt8], noise: [UInt8], firstChange: [UInt8]?, since: TimeInterval)?
+    private var pressBaseline: (report: [UInt8], noise: [UInt8], bitNoise: [UInt8], firstChange: [UInt8]?, since: TimeInterval)?
     /// The reports of each stick push learned one press at a time, from resting to pushed: a stick's pushes settle each
     /// other's fields (see GamepadLearning.pushedField).
     private var stickPushes: [String: [[UInt8]]] = [:]
     /// MACPOPUP_DEBUG_GAMEPAD=<folder> saves each learning session's recording there.
     private let debugFolder = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_GAMEPAD"]
+    /// Whether this learning session's recording is saved without MACPOPUP_DEBUG_GAMEPAD (Set Up clicked with Option,
+    /// for testers to send): to Application Support/MacPopup/Controller Recordings, then shown in Finder.
+    private var savesRecording = false
 
     /// Test instances (MACPOPUP_TEST_SCRIPT) leave the user's controllers alone: their scripts send presses themselves.
     private let isTest = ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil
@@ -385,8 +388,9 @@ final class GamepadController: ObservableObject {
     /// Starts learning a connected model's layout: it's read (not held) meanwhile, and GameController's changes are
     /// matched with its reports (see GamepadLearning). Controls GameController doesn't report are learned one at a
     /// time (see learnPress).
-    func startLearning(key: String) {
+    func startLearning(key: String, savingRecording: Bool = false) {
         stopLearning(save: false)
+        savesRecording = savingRecording
         let models = pads.filter { $0.key == key }
         guard models.count == 1, let pad = models.first else { return }
         // GameController doesn't say which device a controller is, so it's matched by name: its changes are only
@@ -434,7 +438,7 @@ final class GamepadController: ObservableObject {
     /// same for over a second (a Switch Pro Controller's timer, in byte 1). For a stick direction, only the bytes that
     /// changed in over 90% of the reports since learning started (a counter's, every time): the stick's own change in
     /// up to two thirds at rest (a Joy-Con's) and every time while it moves, and its push is told from them otherwise
-    /// (see GamepadLearning.pushedField).
+    /// (see GamepadLearning.pushedField); a button's are kept too, for a stick direction that's a button.
     func learnPress(_ control: String) {
         guard learning != nil, let pad = pads.first(where: { $0.key == learning?.key }) else { return }
         learning?.waitingFor = control
@@ -446,20 +450,23 @@ final class GamepadController: ObservableObject {
             pressBaseline = nil
             return
         }
-        let isStick = GamepadControls.isStickDirection(control)
-        var noise = [UInt8](repeating: 0, count: baseline.count)
-        var changes = [Int](repeating: 0, count: baseline.count)
-        let compared = isStick ? recording.reports.filter { $0.bytes.first == id } : timed
-        let pairs = zip(compared, compared.dropFirst()).filter { $0.bytes.count == baseline.count && $1.bytes.count == baseline.count }
-        for (previous, report) in pairs {
-            for index in noise.indices where previous.bytes[index] != report.bytes[index] {
-                if report.time >= now - 0.5, !isStick { noise[index] |= previous.bytes[index] ^ report.bytes[index] }
-                changes[index] += 1
+        func noise(stick: Bool) -> [UInt8] {
+            var noise = [UInt8](repeating: 0, count: baseline.count)
+            var changes = [Int](repeating: 0, count: baseline.count)
+            let compared = stick ? recording.reports.filter { $0.bytes.first == id } : timed
+            let pairs = zip(compared, compared.dropFirst()).filter { $0.bytes.count == baseline.count && $1.bytes.count == baseline.count }
+            for (previous, report) in pairs {
+                for index in noise.indices where previous.bytes[index] != report.bytes[index] {
+                    if report.time >= now - 0.5, !stick { noise[index] |= previous.bytes[index] ^ report.bytes[index] }
+                    changes[index] += 1
+                }
             }
+            let share = stick ? 0.9 : 0.25
+            for index in noise.indices where pairs.count >= 10 && Double(changes[index]) > share * Double(pairs.count) { noise[index] = 0xFF }
+            return noise
         }
-        let share = isStick ? 0.9 : 0.25
-        for index in noise.indices where pairs.count >= 10 && Double(changes[index]) > share * Double(pairs.count) { noise[index] = 0xFF }
-        pressBaseline = (baseline, noise, nil, now)
+        let bitNoise = noise(stick: false)
+        pressBaseline = (baseline, GamepadControls.isStickDirection(control) ? noise(stick: true) : bitNoise, bitNoise, nil, now)
     }
 
     func cancelPress() {
@@ -474,7 +481,7 @@ final class GamepadController: ObservableObject {
     private func checkPress(_ report: [UInt8]) {
         guard let control = learning?.waitingFor, let baseline = pressBaseline, baseline.firstChange == nil,
               report.count == baseline.report.count, report.first == baseline.report.first,
-              GamepadLearning.field(for: control, before: baseline.report, during: report, noise: baseline.noise) != nil else { return }
+              GamepadLearning.field(for: control, before: baseline.report, during: report, noise: baseline.noise, bitNoise: baseline.bitNoise) != nil else { return }
         pressBaseline?.firstChange = report
         decidePress(control, after: GamepadControls.isStickDirection(control) ? 0.4 : 0.15)
     }
@@ -494,7 +501,7 @@ final class GamepadController: ObservableObject {
             let stick = GamepadControls.sticks.first(where: control.hasPrefix)
             let earlier = stick.map { stick in self.stickPushes.filter { $0.key.hasPrefix(stick) } } ?? [:]
             guard let field = GamepadLearning.field(for: control, before: baseline.report, during: path.last ?? first, between: path.dropLast(),
-                                                    pushes: earlier, noise: baseline.noise) else {
+                                                    pushes: earlier, noise: baseline.noise, bitNoise: baseline.bitNoise) else {
                 self.pressBaseline?.firstChange = nil
                 return
             }
@@ -528,13 +535,19 @@ final class GamepadController: ObservableObject {
         self.learning = nil
         learningController = nil
         pressBaseline = nil
-        if let debugFolder {
-            let url = URL(fileURLWithPath: debugFolder).appendingPathComponent("gamepad-\(final.key.replacingOccurrences(of: ":", with: "-"))-\(Int(Date().timeIntervalSince1970)).json")
+        let shared = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("MacPopup").appendingPathComponent("Controller Recordings")
+        if let folder = debugFolder.map(URL.init(fileURLWithPath:)) ?? (savesRecording ? shared : nil) {
+            let url = folder.appendingPathComponent("gamepad-\(final.key.replacingOccurrences(of: ":", with: "-"))-\(Int(Date().timeIntervalSince1970)).json")
             var json = recording.json
             json["controls"] = final.controls
             json["name"] = final.name
-            if let data = try? JSONSerialization.data(withJSONObject: json) { try? data.write(to: url) }
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            if let data = try? JSONSerialization.data(withJSONObject: json), (try? data.write(to: url)) != nil, debugFolder == nil {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
         }
+        savesRecording = false
         if save {
             let controls = final.learned.merging(final.pressedOnce) { _, once in once }
             // Controls learned one press at a time (without GameController's state, so without samples) were too.
