@@ -794,7 +794,7 @@ final class OCRController {
             // first read, so until then only the picture is watched, to read again as soon as it changes (e.g. the next
             // character drawn). The reading at the end still compares the text, which catches changes too small for the
             // picture to show.
-            if let previous, previous.time < started, let before {
+            if let previous, previous.time < started, let before, previous.time.addingTimeInterval(settleTime) > Date() {
                 waited = await waitForChange(from: before, until: previous.time.addingTimeInterval(settleTime))
             }
         }
