@@ -1212,6 +1212,9 @@ function showOcrResult(message) {
 		size: [message.width, message.height],
 		recognized: message.lines,
 		removed: message.removed ?? [],
+		// How long the reading's round waited for the text to change before it, and what ended the wait ("change",
+		// "settle time" or "other"; see waitForChange in OCRController.swift), if it did.
+		waited: message.waited ?? null,
 		line: usesLine ? ocr.line : null,
 		earlierLines: [],
 	};

@@ -722,6 +722,8 @@ final class OCRController {
         acceptedReading = false
         // The picture of the latest reading, which the page may take.
         var lastImage: CGImage?
+        // How the round waited before the next reading (see waitForChange), for the page's debug log.
+        var waited: [String: Any] = [:]
         while !Task.isCancelled {
             guard isWindowAvailable else {
                 log("window left while reading")
@@ -741,7 +743,7 @@ final class OCRController {
             if acceptedReading {
                 log("the page took a reading")
                 otherAreasOutdated = false
-                finishReading(lastImage, frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: Date(), extra: ["accepted": true])
+                finishReading(lastImage, frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: Date(), extra: waited.merging(["accepted": true]) { $1 })
                 return
             }
             if !sawChange {
@@ -753,6 +755,8 @@ final class OCRController {
                     sawChange = true
                 }
             }
+            // How the window looked before this reading, to wait for it to change after it (see below).
+            let before = sawChange ? await capture(scale: Self.comparisonScale)?.1 : nil
             let started = Date()
             guard let image = await captureForReading() else { return }
             // Thumbnails of the image itself rather than another capture (they're only compared with each
@@ -775,17 +779,51 @@ final class OCRController {
                 // the window changing later.
                 learnAnimatedBlocks(from: frames)
                 otherAreasOutdated = false
-                finishReading(image, frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started, extra: ["settled": true])
+                finishReading(image, frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started, extra: waited.merging(["settled": true]) { $1 })
                 return
             }
             if Date().timeIntervalSince(start) > maxWait {
                 log("still changing after \(String(format: "%.2f", maxWait))s")
                 otherAreasOutdated = false
-                finishReading(image, frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started)
+                finishReading(image, frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started, extra: waited)
                 return
             }
-            sendResult(frame: nil, areas: read, started: started, extra: ["provisional": true])
+            sendResult(frame: nil, areas: read, started: started, extra: waited.merging(["provisional": true]) { $1 })
+            waited = [:]
+            // The same text as the reading before: no reading can settle before the settle time has passed since it was
+            // first read, so until then only the picture is watched, to read again as soon as it changes (e.g. the next
+            // character drawn). The reading at the end still compares the text, which catches changes too small for the
+            // picture to show.
+            if let previous, previous.time < started, let before {
+                waited = await waitForChange(from: before, until: previous.time.addingTimeInterval(settleTime))
+            }
         }
+    }
+
+    /// Waits until `deadline`, or until the dialogue looks different from `frame` (checked at the check interval; any
+    /// clear change counts, as a character is often under the minimum, and reading again early costs little), something
+    /// else is to be read, or the page took a reading. Returns how long it waited and what ended the wait (a change,
+    /// the settle time, or something else), for the page's debug log.
+    private func waitForChange(from frame: Frame, until deadline: Date) async -> [String: Any] {
+        let interval = number("ocrPollInterval", 500) / 1000
+        let start = Date()
+        let waited = { (until: String) -> [String: Any] in
+            ["waited": ["ms": Int(Date().timeIntervalSince(start) * 1000), "until": until]]
+        }
+        log("waiting \(Int(deadline.timeIntervalSinceNow * 1000)) ms for a change")
+        while Date() < deadline {
+            let check = min(deadline, Date().addingTimeInterval(interval))
+            while Date() < check {
+                guard !Task.isCancelled, pendingCue == nil, !acceptedReading, isWindowAvailable else { return waited("other") }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            guard Date() < deadline else { break }
+            if let (_, now) = await capture(scale: Self.comparisonScale), differs(now, frame, only: [0], threshold: 0) {
+                log("changed while waiting")
+                return waited("change")
+            }
+        }
+        return waited("settle time")
     }
 
     /// The cloud engine (Settings → OCR Mode → Cloud recognition (second pass)), if one is chosen.
@@ -1580,10 +1618,12 @@ final class OCRController {
     /// Whether two frames differ by more than the threshold: the share of pixels that changed clearly,
     /// in any watched area. Small changes (a blinking cursor, slight animation) stay under it, and
     /// spots known to be animated are left out.
-    /// - Parameter only: The areas to compare, or all.
-    private func differs(_ a: Frame, _ b: Frame, only: [Int]? = nil) -> Bool {
+    /// - Parameters:
+    ///   - only: The areas to compare, or all.
+    ///   - threshold: The share of pixels, instead of the one in Settings.
+    private func differs(_ a: Frame, _ b: Frame, only: [Int]? = nil, threshold: Double? = nil) -> Bool {
         guard a.thumbnails.count == b.thumbnails.count, a.widths == b.widths else { return true }
-        let threshold = number("ocrChangeThreshold", 0.3) / 100
+        let threshold = threshold ?? number("ocrChangeThreshold", 0.3) / 100
         let block = Self.block
         for (area, ((x, y), width)) in zip(zip(a.thumbnails, b.thumbnails), a.widths).enumerated() {
             if let only, !only.contains(area) { continue }
