@@ -304,7 +304,7 @@ final class CTCBeamDecoder {
             }
             if labels[id] == nil { labels[id] = name }
         }
-        // ids must be 0..n-1 (n entries): anything else is a corrupt file.
+        // The ids must be 0..n-1 (n entries); anything else is a corrupt file.
         guard lr.ok, !labels.isEmpty, labels.keys.min() == 0, labels.keys.max() == labels.count - 1 else {
             throw ScreenAIError("Corrupt label map \(labelMapPath)")
         }
@@ -328,7 +328,7 @@ final class CTCBeamDecoder {
         let k = min(n - 1, items.count - 1)
         libcxxNthElement(&items, 0, k, items.count) { $0.cost < $1.cost }
         if items[k].cost <= threshold { threshold = items[k].cost }
-        // std::stable_partition, then at most n
+        // std::stable_partition, then at most n items.
         let kept = items.filter { $0.cost <= threshold }
         items = Array(kept.prefix(n))
         items.sort { $0.cost != $1.cost ? $0.cost < $1.cost : $0.id < $1.id }

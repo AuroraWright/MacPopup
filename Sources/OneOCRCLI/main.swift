@@ -33,6 +33,12 @@ case "ocr":
     let r = try OneOCRDebug.ocr(models: args[2], images: Array(args[4...]))
     try JSONSerialization.data(withJSONObject: r).write(to: URL(fileURLWithPath: args[3]))
 default:
-    print("usage: oneocr-cli crt <function> <in> <out> | detect <models> <out.json> <image.bgr>...")
+    print("""
+    usage: oneocr-cli crt <function> <in> <out>
+           oneocr-cli detect <models> <out.json> <image.bgr>...
+           oneocr-cli recnet <models> <char model> <line.bgr>...
+           oneocr-cli scores <models> <conf|rej> <name> <in> <out>
+           oneocr-cli ocr <models> <out.json> <image.bgr>...
+    """)
     exit(2)
 }

@@ -124,7 +124,7 @@ function convertHotkeys(hotkeys) {
 
 /**
  * @param {string} json The contents of an exported Yomitan settings file.
- * @returns {{profiles: string[], profileCurrent: number}}
+ * @returns {{options: object, profiles: string[], profileCurrent: number}} The export's options, and its profiles' names.
  */
 export function parseYomitanExport(json) {
 	const data = JSON.parse(json);
@@ -241,7 +241,7 @@ export function convertYomitanProfile(options, profileIndex, currentSettings) {
 				type,
 				url: typeof url === 'string' ? url : '',
 				voice: typeof voice === 'string' ? voice : '',
-				// (OwOtan's, for Forvo.)
+				// OwOtan's option, for Forvo.
 				apiKey: typeof apiKey === 'string' ? apiKey : '',
 			}));
 	}

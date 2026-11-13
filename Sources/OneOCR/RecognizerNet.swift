@@ -330,7 +330,7 @@ final class CharNet: @unchecked Sendable {
                               _ out: UnsafeMutablePointer<Float>, offset: Int) {
         let G = 4 * H
         let kp = padded(K)
-        // input GEMM over the whole (time-reversed) sequence, quantized together
+        // The input GEMM over the whole (time-reversed) sequence, quantized together.
         var xs = x
         if reverse {
             for t in 0..<T { for k in 0..<K { xs[t * K + k] = x[(T - 1 - t) * K + k] } }
@@ -365,7 +365,7 @@ final class CharNet: @unchecked Sendable {
         for t in t0..<T {
             d.W.products(codes + t * kp, zp: zp, qsum: qsums[t], dot) { n, acc in gx[t * G + n] = Float(acc) * mul[n] }
         }
-        // the recurrence
+        // The recurrence.
         let state = UnsafeMutablePointer<Float>.allocate(capacity: 2 * H + 2 * G)
         defer { state.deallocate() }
         state.initialize(repeating: 0, count: 2 * H + 2 * G)

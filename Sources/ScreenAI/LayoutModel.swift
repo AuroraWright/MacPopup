@@ -76,7 +76,7 @@ private struct Operator {
     var op: String
     var inputs: [Int], outputs: [Int]
     var options: [String: Int]
-    /// FULLY_CONNECTED with constant weights: them transposed ([inputs][units]).
+    /// For FULLY_CONNECTED with constant weights: the weights, transposed ([inputs][units]).
     var transposedWeights: [Float]? = nil
 }
 
@@ -513,7 +513,8 @@ final class LayoutModel {
                     for j in 0..<k { transposed[j * units + u] = weights[u * k + j] }
                 }
             }
-            // x * weightsᵀ + bias (summed in another order than TensorFlow Lite's, as its XNNPACK one is).
+            // x * weightsᵀ + bias, summed in a different order from TensorFlow Lite's reference kernel (as its XNNPACK
+            // kernel is too).
             var out = [Float](repeating: 0, count: rows * units)
             if rows > 0 && units > 0 && k > 0 {
                 vDSP_mmul(x, 1, transposed, 1, &out, 1, vDSP_Length(rows), vDSP_Length(units), vDSP_Length(k))

@@ -556,7 +556,7 @@ func symbolsVisualToLogical(_ symbols: [String], baseDirRtl: Bool) -> (text: Str
     let para = baseDirRtl && hasAnyRtl(display) ? 1 : 0
     let text = convert(display, para, .inverseLikeDirect, true, false, &map)  // DisplayToLogical
     let bytes = Array(text.utf8)
-    // byte offset of every code point of the logical text
+    // The byte offset of every code point of the logical text.
     var cpOffset: [Int] = []
     for i in bytes.indices where bytes[i] & 0xC0 != 0x80 { cpOffset.append(i) }
     var offsets = [Int](repeating: -1, count: symbols.count)

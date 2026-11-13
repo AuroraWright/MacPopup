@@ -30,7 +30,7 @@ struct Picture: @unchecked Sendable {
         file = nil
     }
 
-    /// The test-corpus tools' loading (tools/shared/Picture.swift).
+    /// Loaded as the test corpus's tools load pictures (test-corpus/tools/shared/Picture.swift).
     private static func image(_ source: CGImageSource) -> CGImage? {
         let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options) ?? CGImageSourceCreateImageAtIndex(source, 0, nil)

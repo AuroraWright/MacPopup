@@ -102,11 +102,10 @@ def activation(x, kind):
 
 
 class Converter:
-    def __init__(self, path, act):
+    def __init__(self, path):
         buf = open(path, "rb").read()
         self.model = S.Model.GetRootAsModel(buf, 0)
         self.graph = self.model.Subgraphs(0)
-        self.act = act
         self.tensors = [Tensor(self.model, self.graph, i) for i in range(self.graph.TensorsLength())]
         self.ops = [self.graph.Operators(k) for k in range(self.graph.OperatorsLength())]
         self.producer = {}
@@ -162,14 +161,12 @@ class Converter:
         return t.data
 
     def quantize(self, x, t):
-        """Puts x on t's quantization grid (fq) or into the range the grid covers (clamp)."""
+        """Puts x on t's quantization grid, as TFLite rounds and clamps it."""
         if not t.quantized:
             return x
         assert len(t.scale) == 1, t.name
         s, zp = float(t.scale[0]), int(t.zero_point[0])
         lo, hi = QRANGE[t.type]
-        if self.act == "clamp":
-            return mb.clip(x=x, alpha=np.float32(s * (lo - zp)), beta=np.float32(s * (hi - zp)))
         q = mb.round(x=mb.real_div(x=x, y=np.float32(s)))
         q = mb.clip(x=q, alpha=np.float32(lo - zp), beta=np.float32(hi - zp))
         return mb.mul(x=q, y=np.float32(s))
@@ -354,7 +351,7 @@ def convert_detector(res, out):
     models = sorted((res / DETECTION_DIR).glob("*.tflite"))
     if len(models) != 1:
         sys.exit(f"Expected one detection model in {res / DETECTION_DIR}")
-    conv = Converter(str(models[0]), "fq")
+    conv = Converter(str(models[0]))
     # One model per pyramid level input: Core ML can't run the combined graph with the unused levels left empty.
     for i in conv.inputs:
         outs = [o for o in conv.outputs if conv.inputs_of([o]) == [i]]
@@ -372,7 +369,7 @@ def convert_recognizers(res, out):
         if path.stem == "tflite_langid":
             continue
         print(f"  {path.stem}", flush=True)
-        conv = Converter(str(path), "fq")
+        conv = Converter(str(path))
         save(conv, conv.outputs, out / f"{path.stem}.mlpackage", batch=RECOGNIZER_BATCH)
         q = {}
         for o in conv.outputs:

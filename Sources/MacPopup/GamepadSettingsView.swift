@@ -11,11 +11,13 @@ struct GamepadsControl: View {
         let id: String
         let name: String
         let isConnected: Bool
+        /// How many are connected (see GamepadController.Connected.count).
+        var count = 1
         let layout: GamepadLayout?
     }
 
     private var rows: [Row] {
-        let connected = gamepads.connected.map { Row(id: $0.id, name: $0.name, isConnected: true, layout: gamepads.layouts[$0.id]) }
+        let connected = gamepads.connected.map { Row(id: $0.id, name: $0.name, isConnected: true, count: $0.count, layout: gamepads.layouts[$0.id]) }
         let others = gamepads.layouts.filter { key, _ in !connected.contains { $0.id == key } }.sorted { $0.key < $1.key }
             .map { Row(id: $0.key, name: $0.value.name, isConnected: false, layout: $0.value) }
         return connected + others
@@ -40,7 +42,7 @@ struct GamepadsControl: View {
                             Button("Forget") { gamepads.setLayout(nil, for: row.id) }
                         }
                         Button(row.layout == nil ? "Set Up…" : "Set Up Again…") { gamepads.startLearning(key: row.id) }
-                            .disabled(!row.isConnected)
+                            .disabled(!row.isConnected || row.count > 1)
                     }
                 }
             }
@@ -53,8 +55,9 @@ struct GamepadsControl: View {
     }
 
     private func status(_ row: Row) -> String {
-        guard row.layout != nil else { return "Not set up yet—MacPopup won’t use it until it’s set up" }
-        return row.isConnected ? "Ready" : "Ready · Not connected"
+        let state = row.layout == nil ? "Not set up yet, so MacPopup won’t use it" : row.isConnected ? "Ready" : "Ready · Not connected"
+        // Their reports can't be told apart while learning.
+        return row.count > 1 ? "\(state) · \(row.count) connected: keep only one connected to set it up" : state
     }
 }
 
@@ -69,6 +72,8 @@ private struct GamepadLearningPanel: View {
             Text(
                 learning.hasGameController
                     ? "Press each button, D-pad direction and trigger a few times, one at a time, then push each stick all the way in every direction. A check mark appears next to each control MacPopup has picked up. If one stays unchecked, click its Learn button and press it once."
+                    : learning.sharesName
+                    ? "Another connected controller has the same name, and macOS doesn’t say which is which, so set this one up one control at a time: click Learn next to a control, then press it on this controller. Or disconnect the other one and click Set Up again."
                     : "macOS doesn’t recognize this controller’s buttons, so set them up one at a time: click Learn next to a control, then press it on the controller."
             )
             .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

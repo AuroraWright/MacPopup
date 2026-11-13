@@ -29,7 +29,7 @@ function getTerminatorMaps(mode, characters) {
 
 const textSourceGenerator = new TextSourceGenerator();
 
-export const HIGHLIGHT_NAME = 'macpopup-scan';
+const HIGHLIGHT_NAME = 'macpopup-scan';
 
 export function getTextSourceFromPoint(x, y) {
 	const source = textSourceGenerator.getRangeFromPoint(x, y, {

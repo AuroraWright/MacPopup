@@ -40,6 +40,13 @@ export function onSettingsChanged(listener) {
 	return () => listeners.delete(listener);
 }
 
+/** A popup theme setting as the theme it shows: "site" is the page's (`siteTheme`), "browser" the system's. */
+export function resolveTheme(theme, siteTheme) {
+	if (theme === 'site') return siteTheme;
+	if (theme === 'browser') return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+	return theme;
+}
+
 export async function saveSettings(partial) {
 	current = { ...current, ...partial };
 	await nativeCall('setSettings', { json: JSON.stringify(current) });

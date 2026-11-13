@@ -30,7 +30,7 @@ from onnx2torch.utils.common import OperationConverterResult, onnx_mapping_from_
 
 DETECTION = ("rtr46/meiki.text.detect.v0", "a9cffa4f60cbf72ddb87edf19c6f98a01cd042e6")
 RECOGNITION = ("rtr46/meiki.txt.recognition.v0", "a28cf5874dc2438ebb1c86336be26bcec51e3375")
-# (repository, file, SHA-256, output name, input width, input height, output names)
+# (repository, file, SHA-256, Core ML model name, input width, input height, output names)
 MODELS = [
     (DETECTION, "meiki.text.detect.v0.1.960x544.onnx",
      "40b6a016667745cae7d3055929ae3b8b1e7716aac795f5904cd3c2c7c3b8404b",

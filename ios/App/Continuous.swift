@@ -5,9 +5,6 @@ import OCREngines
 import ReplayKit
 import SwiftUI
 
-/// Continuous mode: reads the frames the broadcast extension (Broadcast/) hands over, in the user's areas (or the whole
-/// screen), into the live readings Safari's /live page shows as they come. A silent audio session keeps the app
-/// running in the background meanwhile. What it does goes to the App Group's continuous.log.
 /// Continuous reading's settings (iOS only; the ones the extension uses are in SharedFrame).
 enum ContinuousKey {
     /// An engine for continuous reading, or none for Settings' (see Continuous.engine).
@@ -24,6 +21,9 @@ enum ContinuousKey {
     static let defaults: [String: Any] = [engine: "", settleTime: 0.5, maxWait: 4.0, kept: 300, newLinesOnly: true]
 }
 
+/// Continuous mode: reads the frames the broadcast extension (Broadcast/) hands over, in the user's areas (or the whole
+/// screen), into the live readings Safari's /live page shows as they come. A silent audio session keeps the app
+/// running in the background meanwhile. What it does goes to the App Group's continuous.log.
 @MainActor
 final class Continuous: ObservableObject {
     static let shared = Continuous()

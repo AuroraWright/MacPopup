@@ -65,13 +65,13 @@ final class SettingsSupport {
     private func call(_ name: String, _ arguments: Any...) throws -> String {
         exception = nil
         let result = context.objectForKeyedSubscript("MacPopupSettingsSupport")?.invokeMethod(name, withArguments: arguments)
-        if let exception { throw SettingsSupportError(message: exception) }
-        guard let string = result?.toString() else { throw SettingsSupportError(message: "No result") }
+        if let exception { throw AppError(exception) }
+        guard let string = result?.toString() else { throw AppError("No result") }
         return string
     }
 
     private func decode(_ json: String) throws -> [String: Any] {
-        guard let result = Self.decode(json) else { throw SettingsSupportError(message: "Invalid result") }
+        guard let result = Self.decode(json) else { throw AppError("Invalid result") }
         return result
     }
 
@@ -85,9 +85,4 @@ final class SettingsSupport {
               let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return "{}" }
         return String(decoding: data, as: UTF8.self)
     }
-}
-
-struct SettingsSupportError: LocalizedError {
-    let message: String
-    var errorDescription: String? { message }
 }

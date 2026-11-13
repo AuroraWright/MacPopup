@@ -1,8 +1,8 @@
 import Compression
 import Foundation
 
-/// Unpacks a zip on iOS, which has no ditto: the stored and deflated entries Python's zipfile writes (the converted
-/// models' scripts), including Zip64. Entries are streamed to disk, so large models don't need their size in memory.
+/// Unpacks a zip on iOS, which has no ditto: the stored and deflated entries that Python's zipfile writes (the model
+/// conversion scripts use it), including Zip64. Entries are streamed to disk, so large models don't need their size in memory.
 enum ZipArchive {
     struct Failure: LocalizedError {
         let errorDescription: String?
@@ -127,7 +127,6 @@ enum ZipArchive {
         }
         return entries
     }
-
 }
 
 private extension Data {

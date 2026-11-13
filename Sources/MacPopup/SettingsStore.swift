@@ -1,6 +1,6 @@
 import Foundation
 
-/// Persists the settings JSON blob shared by all web views.
+/// Persists the settings JSON blob shared by the overlay's page and the Settings window.
 /// The web side owns the schema (web/src/lib/settings-defaults.js); Swift only reads the few keys it needs.
 final class SettingsStore {
     static let shared = SettingsStore()
@@ -22,6 +22,14 @@ final class SettingsStore {
         for observer in observers {
             observer(newJSON)
         }
+    }
+
+    /// Saves `changes` over the stored settings.
+    func update(_ changes: [String: Any]) {
+        let settings = dictionary.merging(changes) { $1 }
+        guard let data = try? JSONSerialization.data(withJSONObject: settings),
+              let json = String(data: data, encoding: .utf8) else { return }
+        update(json: json)
     }
 
     func observe(_ observer: @escaping (String) -> Void) {

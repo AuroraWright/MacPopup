@@ -91,10 +91,10 @@ struct KeyCombination: Equatable {
     }
 }
 
-/// Global hotkeys: popup keyboard shortcuts, registered only while a popup shows (see
-/// web/src/overlay.js), and the sentence audio shortcut (SentenceAudio.swift). The overlay never has keyboard focus, so the app being read keeps it; a
-/// registered hotkey's key goes to MacPopup instead, and back to that app once it's unregistered.
-/// Global hotkeys need no permission.
+/// Global hotkeys: popup keyboard shortcuts, registered only while a popup shows (see web/src/overlay.js),
+/// and the sentence audio shortcut (SentenceAudio.swift). The overlay never has keyboard focus, so the app
+/// being read keeps it; a registered hotkey's key goes to MacPopup instead, and back to that app once it's
+/// unregistered. Global hotkeys need no permission.
 @MainActor
 final class HotkeyController {
     /// Called with the index of the pressed hotkey in the list last set.

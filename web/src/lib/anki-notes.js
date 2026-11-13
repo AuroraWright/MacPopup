@@ -32,11 +32,11 @@ const localMarkers = new Set([
 // Markers that need I/O and are left empty when only checking for duplicates.
 const deferredMarkers = new Set(['sentence-furigana', 'sentence-furigana-plain', 'document-title', 'clipboard-text', 'clipboard-image', 'screenshot']);
 
-export function getFieldMarkers(value) {
+function getFieldMarkers(value) {
 	return [...value.matchAll(markerPattern)].map((match) => match[1]);
 }
 
-export function formatField(value, getMarkerValue) {
+function formatField(value, getMarkerValue) {
 	return value.replace(markerPattern, (_, marker) => getMarkerValue(marker) ?? '');
 }
 
@@ -54,7 +54,7 @@ function getPrimarySource(dictionaryEntry) {
 }
 
 // Port of getCloze() from Yomitan's data/anki-note-data-creator.js.
-export function getCloze(dictionaryEntry, sentence) {
+function getCloze(dictionaryEntry, sentence) {
 	let originalText = '';
 	let term = '';
 	let reading = '';
@@ -219,7 +219,7 @@ async function playerSentenceAudio(player, cardFormat, fields) {
 	}
 }
 
-export function createNoteOptions(cardFormat) {
+function createNoteOptions(cardFormat) {
 	const settings = getSettings();
 	let duplicateScope = settings.duplicateScope;
 	let deckName = null;

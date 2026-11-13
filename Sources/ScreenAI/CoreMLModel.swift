@@ -1,16 +1,16 @@
 import CoreML
 import Foundation
 
-/// A compiled Core ML model converted from one of the original's TFLite models. They run on the GPU, or on the CPU
-/// when asked (Resources.cpuOnly): the models are in 32-bit floats, which the Neural Engine can't run. On the CPU,
-/// detectors converted before their outputs were transposed as flattened_nhwc in scripts/convert-screenai.py does
-/// crash on inputs 32 or 64 pixels wide (Core ML reads past a buffer).
+/// A compiled Core ML model converted from one of the original's TFLite models. The models run on the GPU, or on the
+/// CPU when asked to (Resources.cpuOnly); the Neural Engine can't run them, as they're in 32-bit floats. Detectors
+/// converted before scripts/convert-screenai.py transposed their outputs as flattened_nhwc crash on the CPU for inputs
+/// 32 or 64 pixels wide (Core ML reads past a buffer).
 final class CoreMLModel: @unchecked Sendable {
     let model: MLModel
 
-    /// - Parameter reshapes: Its input size changes from call to call (the detector's). On iOS Core ML then doesn't
-    ///   compile a model specialized for each new size: the first pictures of each size took seconds (12 s for the
-    ///   first), and the bench's 102 pictures 0.7 s on average rather than 0.1 s.
+    /// - Parameter reshapes: The model's input size changes from call to call (the detector's does). On iOS, Core ML
+    ///   then doesn't compile a model specialized for each new size: without this, the first picture of each size
+    ///   took seconds (12 s for the very first), and the bench's 102 pictures took 0.7 s on average rather than 0.1 s.
     init(_ url: URL, cpuOnly: Bool, reshapes: Bool = false) throws {
         let config = MLModelConfiguration()
         config.computeUnits = cpuOnly ? .cpuOnly : .cpuAndGPU

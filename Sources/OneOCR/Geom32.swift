@@ -1,6 +1,6 @@
 import Foundation
 
-/// A point in float32, as oneocr's geometry computes.
+/// A point in float32, as oneocr's geometry computes them.
 struct Pt: Equatable {
     var x: Float
     var y: Float
@@ -11,10 +11,11 @@ struct Pt: Equatable {
     }
 }
 
-/// A CHECK in oneocr's polygon code that throws.
+/// Thrown where a CHECK in oneocr's polygon code fails.
 struct GeometryCheckError: Error {}
 
-/// min/max as Python's (and std::min/max's) first-wins tie rule: min(a, b) is b only when b < a.
+/// min and max with Python's (and std::min/max's) tie rule, where the first argument wins: min(a, b) is b only when
+/// b < a.
 @inline(__always) func pmin<T: Comparable>(_ a: T, _ b: T) -> T { b < a ? b : a }
 @inline(__always) func pmax<T: Comparable>(_ a: T, _ b: T) -> T { b > a ? b : a }
 

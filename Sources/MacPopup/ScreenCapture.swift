@@ -21,7 +21,7 @@ enum ScreenCapture {
             let once = Once(continuation)
             let timer = Task {
                 do { try await Task.sleep(for: .seconds(seconds)) } catch { return }
-                once.resume(with: .failure(BridgeError("Screen capture didn't respond within \(Int(seconds)) seconds")))
+                once.resume(with: .failure(AppError("Screen capture didn't respond within \(Int(seconds)) seconds")))
             }
             Task {
                 let result: Result<T, Error>
@@ -55,7 +55,7 @@ enum ScreenCapture {
     static func capture(displayID: CGDirectDisplayID, fullResolution: Bool, format: String, quality: Double) async throws -> Data {
         let content = try await shareableContent(onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
-            throw BridgeError("Display not found")
+            throw AppError("Display not found")
         }
         let ownApps = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
         let filter = SCContentFilter(display: display, excludingApplications: ownApps, exceptingWindows: [])
@@ -79,7 +79,7 @@ enum ScreenCapture {
         } else {
             data = rep.representation(using: .jpeg, properties: [.compressionFactor: max(0, min(1, quality / 100))])
         }
-        guard let data else { throw BridgeError("Failed to encode screenshot") }
+        guard let data else { throw AppError("Failed to encode screenshot") }
         return data
     }
 }

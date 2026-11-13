@@ -177,7 +177,7 @@ public final class MeikiOCR: @unchecked Sendable {
             throw Failure(errorDescription: "Unexpected detection output")
         }
         var lines: [CGRect] = []
-        for index in 0..<scores.shape[2 - 1].intValue where scores[[0, index] as [NSNumber]].floatValue > detectionThreshold {
+        for index in 0..<scores.shape[1].intValue where scores[[0, index] as [NSNumber]].floatValue > detectionThreshold {
             // In the model's input pixels: back to the image's, clamped to it and truncated (as meikiocr).
             let corner = { (i: Int, limit: Int) in
                 Int(min(max(boxes[[0, index, i] as [NSNumber]].doubleValue / scale, 0), Double(limit)))
@@ -292,14 +292,15 @@ public final class MeikiOCR: @unchecked Sendable {
             if !overlaps { accepted.append(candidate) }
         }
         accepted.sort { $0.interval.start < $1.interval.start }
-        let text = String(accepted.map(\.character))
+        // Searched by candidate, not in a joined String, where a combining mark read on its own would join the
+        // character before it and shift the indices after it.
+        let characters = accepted.map(\.character)
         for (wrong, right) in swappedPairs {
-            guard let range = text.range(of: wrong) else { continue }
-            let index = text.distance(from: text.startIndex, to: range.lowerBound)
-            guard index + 1 < accepted.count else { continue }
-            let pair = Array(right)
-            accepted[index].character = pair[0]
-            accepted[index + 1].character = pair[1]
+            let wrong = Array(wrong), right = Array(right)
+            guard let index = characters.indices.dropLast().first(where: { characters[$0] == wrong[0] && characters[$0 + 1] == wrong[1] })
+            else { continue }
+            accepted[index].character = right[0]
+            accepted[index + 1].character = right[1]
         }
         return accepted
     }

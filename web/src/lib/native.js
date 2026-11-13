@@ -21,7 +21,7 @@ export function nativeCall(cmd, args = {}) {
 export async function httpPost(url, body, { timeout = 30, signal = null } = {}) {
 	if (!signal) return nativeCall('http', { url, body: JSON.stringify(body), timeout });
 	signal.throwIfAborted();
-	// (Each frame's own counter would repeat another's.)
+	// Random rather than counted: each popup frame has its own copy of this module, so counts would clash.
 	const id = Math.random().toString(36).slice(2);
 	const cancel = () => nativeCall('cancelHttp', { id }).catch(() => {});
 	signal.addEventListener('abort', cancel, { once: true });

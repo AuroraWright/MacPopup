@@ -14,7 +14,7 @@ import { log, nativeCall } from './lib/native.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
 import { adaptCssForWebKit } from './lib/webkit-css.js';
 import { getTextSourceFromPoint, searchTextSource, setHighlight, wrapRubyBases } from './lib/scanner.js';
-import { getSettings, setLocalSettings } from './lib/settings.js';
+import { getSettings, resolveTheme, setLocalSettings } from './lib/settings.js';
 import { ankiFields, kanjiEntries } from './lib/yomitan-api.js';
 import { getAudio, getAudioSources, getLoadedInfoList, startAudio } from './lib/audio-sources.js';
 import { cursorAt } from './lib/cursor.js';
@@ -155,17 +155,6 @@ function getCustomCss(settings) {
 		css += '\n' + addScopeToCss(adaptCssForWebKit(styles), `[data-dictionary="${escapedTitle}"]`);
 	}
 	return css;
-}
-
-function resolveTheme(theme, siteTheme) {
-	switch (theme) {
-		case 'site':
-			return siteTheme;
-		case 'browser':
-			return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-		default:
-			return theme;
-	}
 }
 
 // WebKit only delivers mouse moves to the key window, and the overlay never is, so :hover never

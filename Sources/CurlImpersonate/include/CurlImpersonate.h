@@ -3,7 +3,7 @@
 #pragma clang assume_nonnull begin
 
 /// HTTP requests with libcurl-impersonate (github.com/lexiforest/curl-impersonate, which scripts/build.sh puts in the
-/// app), made to look like a browser's down to its TLS and HTTP/2 fingerprints, as owocr makes them with curl_cffi.
+/// Mac app and ios/embed-curl-impersonate.sh in the iOS app), made to look like a browser's down to its TLS and HTTP/2 fingerprints, as owocr makes them with curl_cffi.
 /// The library is loaded at runtime (MPCurlLoad), so MacPopup builds and runs without it.
 typedef struct MPCurlSession MPCurlSession;
 

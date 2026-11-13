@@ -7,7 +7,6 @@ final class WindowPicker {
     struct Result {
         var windowID: CGWindowID
         var ownerName: String
-        var ownerPID: pid_t
         var title: String
         /// Normalized to the window (0–1, origin top left). Empty means the whole window.
         var regions: [CGRect]
@@ -64,11 +63,11 @@ final class WindowPicker {
     private let completion: (Choice?) -> Void
     private var windows: [PickerWindow] = []
     private var keyMonitor: Any?
-    /// Observe apps becoming active and the space changing.
+    /// Observers of apps becoming active and of the space changing.
     private var observers: [NSObjectProtocol] = []
     /// Development aid: MACPOPUP_DEBUG_PICKER_DIR=<dir> saves what the picker draws (only its own
-    /// drawing, not the screen) after each change.
-    private let debugDirectory = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_PICKER_DIR"]
+    /// drawing, not the screen) after each change, and logs clicks and button positions to stderr.
+    static let debugDirectory = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_PICKER_DIR"]
     private var debugCount = 0
 
     private init(level: NSWindow.Level, completion: @escaping (Choice?) -> Void) {
@@ -123,7 +122,7 @@ final class WindowPicker {
 
     private func redraw() {
         windows.forEach { $0.contentView?.needsDisplay = true }
-        if let debugDirectory, let view = windows.first?.contentView {
+        if let debugDirectory = Self.debugDirectory, let view = windows.first?.contentView {
             DispatchQueue.main.async {
                 guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
                 view.cacheDisplay(in: view.bounds, to: rep)
@@ -177,8 +176,7 @@ final class WindowPicker {
                 width: $0.width / bounds.width, height: $0.height / bounds.height
             )
         }
-        finish(.window(Result(windowID: window.id, ownerName: window.ownerName, ownerPID: window.ownerPID,
-                              title: window.title, regions: normalized)))
+        finish(.window(Result(windowID: window.id, ownerName: window.ownerName, title: window.title, regions: normalized)))
     }
 
     /// Removes the last area, or goes back to choosing the window.
@@ -320,10 +318,6 @@ private final class PickerView: NSView {
 
     override var isFlipped: Bool { true }
 
-    private func debugLog(_ message: String) {
-        guard ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_PICKER_DIR"] != nil else { return }
-        FileHandle.standardError.write("[picker] \(message)\n".data(using: .utf8)!)
-    }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func cursorUpdate(with event: NSEvent) {
@@ -368,6 +362,12 @@ private final class PickerView: NSView {
     override func mouseUp(with event: NSEvent) {
         debugLog("mouseUp \(globalPoint(event))")
         picker?.mouseUp()
+    }
+
+    /// With MACPOPUP_DEBUG_PICKER_DIR (see WindowPicker.debugDirectory).
+    private func debugLog(_ message: @autoclosure () -> String) {
+        guard WindowPicker.debugDirectory != nil else { return }
+        FileHandle.standardError.write("[picker] \(message())\n".data(using: .utf8)!)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -445,10 +445,7 @@ private final class PickerView: NSView {
             NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2).fill()
             titles[index].draw(at: CGPoint(x: rect.minX + 16, y: rect.minY + 7))
             buttonRects.append((button, rect))
-            if ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_PICKER_DIR"] != nil {
-                let global = rect.offsetBy(dx: globalOrigin.x, dy: globalOrigin.y)
-                FileHandle.standardError.write("[picker] button \(button) at \(global.midX),\(global.midY)\n".data(using: .utf8)!)
-            }
+            debugLog("button \(button) at \(rect.midX + globalOrigin.x),\(rect.midY + globalOrigin.y)")
             x += rect.width + spacing
         }
     }

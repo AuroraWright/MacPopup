@@ -8,9 +8,9 @@ import Foundation
 //   that image back onto the page (BoxRelativeToPageRelativeVec, curved branch).
 
 private struct Correspondence {
-    /// line image (normalized, later sample grid) coordinates
+    /// Line image coordinates, later converted to sample grid coordinates.
     var tx: Float, ty: Float
-    /// page coordinates
+    /// Page coordinates.
     var sx: Float, sy: Float
 }
 
@@ -178,7 +178,7 @@ func curvedLineImage(_ page: GrayImage, _ curve: Curve, floatThickness: Bool = t
 
 /// Line-image -> page coordinates along the mid-line curve, one sample per pixel of arc length.
 struct CurveMapper {
-    /// samples along the curve, thickness
+    /// Samples along the curve, and the thickness.
     private var along = 0, across = 0
     private var topToBottom = false
     private var mid: [(x: Double, y: Double)] = []

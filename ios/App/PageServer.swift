@@ -84,9 +84,8 @@ final class PageServer: @unchecked Sendable {
             guard let self else { return }
             var buffer = buffer
             if let data { buffer.append(data) }
-            if let target = Self.requestTarget(buffer), target == "/live/events" {
-                subscribe(connection)
-            } else if let target = Self.requestTarget(buffer) {
+            if let target = Self.requestTarget(buffer) {
+                guard target != "/live/events" else { return subscribe(connection) }
                 let response = target.map { target in
                     self.respond(to: String(target.prefix { $0 != "?" }), query: String(target.drop { $0 != "?" }.dropFirst()))
                 } ?? (status: "405 Method Not Allowed", type: "text/plain", body: Data())

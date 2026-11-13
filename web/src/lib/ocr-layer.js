@@ -1,5 +1,5 @@
-// Screen OCR mode: an invisible copy of the text Live Text found in another app's window, laid over
-// that window so the usual scanning (caret from point, Yomitan's DOM text scanner, highlights) works
+// Screen OCR mode: an invisible copy of the text Live Text (or another OCR engine) found in another
+// app's window, laid over that window so the usual scanning (caret from point, Yomitan's DOM text scanner, highlights) works
 // on it. Each character is an inline-block with the size and position of its box in the window, and
 // its glyph is stretched to fill that box, since Yomitan only accepts points inside the glyph.
 //
@@ -63,8 +63,8 @@ const isLookalike = (key) => LOOKALIKES.some(([, value]) => value === key);
  * Aligns `text` (a line from the WebSocket, which is what the game is drawing) with the recognized
  * lines and replaces what was misread. The whole of `text` is aligned against any stretch of the
  * OCR text (Needleman–Wunsch with free ends on the OCR side). Matching characters (or lookalike
- * punctuation) score 2, substitutions -1, and characters missing on either side -1 (whitespace in
- * `text` is free).
+ * punctuation) add to the score, and substitutions and characters missing on either side take from it
+ * (see the scores below; whitespace in `text` is free).
  *
  * When the whole of `text` doesn't match, a part of it still can (see correctPart): games often show a
  * long line a page at a time.
@@ -75,8 +75,8 @@ const isLookalike = (key) => LOOKALIKES.some(([, value]) => value === key);
  * @param {string} text
  * @returns {{lines: OcrLine[], quality: number, missingEnd: number, partial?: boolean}} `quality` is the
  *   share of the letters and digits of `text` that matched exactly, and `missingEnd` the characters at
- *   its end that weren't found (but for closing brackets whose opening one isn't on screen); `partial` is set when only a part of `text` matched. Without a match,
- *   the lines are returned unchanged.
+ *   its end that weren't found (except closing brackets whose opening one isn't on screen); `partial` is
+ *   set when only a part of `text` matched. Without a match, the lines are returned unchanged.
  */
 export function correctWithText(lines, text, minQuality = 0.6) {
 	// The text's units: characters, or runs of lookalike punctuation.
@@ -515,7 +515,7 @@ function continuesParagraph(previous, next) {
 }
 
 /** Groups consecutive lines into paragraphs. Lines matched with the WebSocket line form one paragraph. */
-export function groupParagraphs(lines) {
+function groupParagraphs(lines) {
 	const paragraphs = [];
 	for (const line of lines) {
 		const current = paragraphs[paragraphs.length - 1];
@@ -548,11 +548,6 @@ function measureGlyphRatios(document) {
 	return glyphRatios;
 }
 
-/**
- * Fills `container` (positioned over the window, in window points) with the lines.
- * @param {HTMLElement} container
- * @param {OcrLine[]} lines
- */
 // What each character's span shows: the character as read (see ocrCharOf).
 const spanChars = new WeakMap();
 
@@ -561,6 +556,11 @@ export function ocrCharOf(span) {
 	return spanChars.get(span) ?? null;
 }
 
+/**
+ * Fills `container` (positioned over the window, in window points) with the lines.
+ * @param {HTMLElement} container
+ * @param {OcrLine[]} lines
+ */
 export function renderLines(container, lines) {
 	const document = container.ownerDocument;
 	const [horizontalRatio, verticalRatio] = measureGlyphRatios(document);
@@ -572,7 +572,7 @@ export function renderLines(container, lines) {
 			const box = bounds(line.chars);
 			const element = document.createElement('div');
 			element.className = ['ocr-line', line.matched && 'ocr-matched', line.cloud && 'ocr-cloud'].filter(Boolean).join(' ');
-			// For where the controller starts (see firstIndex in overlay.js).
+			// For where the controller starts (see firstOcrLine in overlay.js).
 			element.dataset.area = line.area;
 			if (line.match !== undefined) element.dataset.match = line.match;
 			const style = element.style;

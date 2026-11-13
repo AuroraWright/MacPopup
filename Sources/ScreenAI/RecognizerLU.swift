@@ -130,17 +130,18 @@ private func luDecompose(_ a: inout [Float], _ n: Int) -> [Int] {
         let tsize = n - k - bs
         let piv = unblockedLU(&a, n, k, k, bs)
         for i in 0..<bs { trans[k + i] = piv[i] }
-        // apply the panel's transpositions to the columns left and right of it
+        // Apply the panel's transpositions to the columns left and right of it.
         for j in Array(0..<k) + Array((k + bs)..<n) {
             for i in k..<(k + bs) where trans[i] != i { a.swapAt(j * n + i, j * n + trans[i]) }
         }
         if tsize > 0 {
-            // A12 = A11^-1 A12 (unit lower): packet kernel (fused) on whole groups of 4 columns, scalar on the rest
+            // A12 = A11^-1 A12 (unit lower): the packet kernel (fused) on whole groups of 4 columns, scalar code on the
+            // rest.
             let packetCols = tsize >= 4 ? tsize / 4 * 4 : 0
             for jj in 0..<tsize {
                 let j = k + bs + jj
                 if tsize < 4 {
-                    // too few columns for the packet kernel: diagonal panels of 12, gebp below each
+                    // Too few columns for the packet kernel: diagonal panels of 12, with gebp below each.
                     var k1 = 0
                     while k1 < bs {
                         let w = min(bs - k1, 12)
@@ -171,8 +172,8 @@ private func luDecompose(_ a: inout [Float], _ n: Int) -> [Int] {
             // A22 -= A21 * A12
             let r0 = k + bs
             if bs + tsize + tsize < 20 {
-                // coefficient-based product, slice-vectorized: packets of 4 rows (fused chain over the depth), the
-                // rows past them one dot product each (rounded products summed in order)
+                // A coefficient-based product, slice-vectorized: packets of 4 rows (a fused chain over the depth),
+                // then the rows past them one dot product each (rounded products summed in order).
                 let packetRows = tsize / 4 * 4
                 for jj in 0..<tsize {
                     for ii in 0..<tsize {
@@ -214,7 +215,7 @@ func luSolve(_ a: inout [Float], _ n: Int, _ rhs: inout [Float], _ m: Int) {
     let panel = 12
     for j in 0..<m {
         let o = j * n
-        // unit lower, panels from the top
+        // The unit lower triangle, panels from the top.
         var k1 = 0
         while k1 < n {
             let w = min(n - k1, panel)
@@ -231,7 +232,7 @@ func luSolve(_ a: inout [Float], _ n: Int, _ rhs: inout [Float], _ m: Int) {
             }
             k1 += w
         }
-        // upper, panels from the bottom
+        // The upper triangle, panels from the bottom.
         var top = n
         while top > 0 {
             let w = min(top, panel)

@@ -8,7 +8,7 @@ def arrays(text):
         yield m.group(2), m.group(1), m.group(4)
 def header(f, srcname):
     f.write(f"// Generated from screen_ai_research/cpp/src/{srcname} by scripts/gen-screenai-tables.py. Do not edit.\n\n")
-def ints(body, enum=None):
+def ints(body):
     body = re.sub(r'//.*', '', body)
     toks = re.findall(r'0x[0-9A-Fa-f]+(?:ull|u)?|\d+(?:ull|u)?|k[A-Z]+', body)
     out = []

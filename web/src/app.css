@@ -83,10 +83,6 @@ body {
 	display: none;
 }
 
-#lines p:focus-visible {
-	outline: none;
-}
-
 #lines .show-bullet::before {
 	content: '• ';
 	opacity: 0.1;
@@ -175,7 +171,8 @@ body {
 	background-color: hsl(var(--p) / 0.35);
 }
 
-/* The character the controller is on, when it moves by character (see overlay.js). */
+/* Where the controller is (see highlightCursor in overlay.js): the character it's on, or, when it moves by word
+   without "Select matched text", its word. */
 ::highlight(macpopup-gamepad) {
 	background-color: hsl(var(--p) / 0.35);
 	text-decoration: underline 2px hsl(var(--p));

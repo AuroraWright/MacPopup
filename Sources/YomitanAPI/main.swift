@@ -4,14 +4,14 @@
 //
 // The browser starts it when Yomitan's "Enable Yomitan API" is on. It serves http://127.0.0.1:19633 and passes each
 // POST to Yomitan over stdin and stdout ({action, params, body} out, {params, responseStatusCode, data} back).
-// Unlike the script, it quits when the browser closes its stdin, and as OwOtan's Safari app does, Yomitan works on
-// several requests at once, a request whose client went away while it waited its turn is dropped, and a client that
-// waits too long gets a 504.
+// Unlike the script, it quits when the browser closes its stdin. And as OwOtan's Safari app does, it lets Yomitan work
+// on several requests at once, drops a request whose client went away while it waited its turn, and answers a client
+// that waits too long with a 504.
 import Darwin
 import Foundation
 
 let address = "127.0.0.1"
-/// YOMITAN_API_PORT: another port (for test runs).
+/// Test runs set another one with YOMITAN_API_PORT.
 let port = ProcessInfo.processInfo.environment["YOMITAN_API_PORT"].flatMap(UInt16.init) ?? 19633
 let processStartupWait: TimeInterval = 5
 let nativeMessagingVersion = 1
@@ -162,7 +162,7 @@ final class Request {
     let message: [String: Any]
     /// When it was handed to Yomitan, or nil while it waits its turn.
     var handedOut: Date?
-    /// Yomitan's answer, as members(of:) gives them.
+    /// Yomitan's answer, as members(of:) splits it.
     var answer: [String: ArraySlice<UInt8>]?
 
     init(id: Int, message: [String: Any]) {
@@ -198,7 +198,7 @@ final class Requests {
         let request = Request(id: lastId, message: ["action": action, "params": params, "body": body])
         waiting.append(request)
         let deadline = Date().addingTimeInterval(requestTimeout)
-        // (Also looks at the client's connection, and at requests Yomitan never answered, now and then.)
+        // Wakes up now and then to check the client's connection and to let go of requests Yomitan never answered.
         while request.answer == nil, Date() < deadline, !isClosed(client) {
             handOut()
             _ = condition.wait(until: min(deadline, Date().addingTimeInterval(0.25)))
@@ -230,7 +230,7 @@ final class Requests {
         }
         condition.lock()
         defer { condition.unlock() }
-        // (Not one that Yomitan took too long with.)
+        // Not if Yomitan took too long with it: handOut has let it go.
         guard let request = working.removeValue(forKey: id) else { return }
         request.answer = answer
         handOut()
@@ -436,7 +436,7 @@ func handle(_ client: Int32, requests: Requests) {
 
     let text = String(decoding: body, as: UTF8.self)
     guard let response = requests.send(action: path, params: parseQuery(query), body: text, client: client) else {
-        // (Or the client is gone, and gets nothing.)
+        // Or the client is gone, and this reaches nobody.
         respond(client, status: 504, contentType: "application/json", body: Array("\"Yomitan did not answer in time\"".utf8))
         return
     }

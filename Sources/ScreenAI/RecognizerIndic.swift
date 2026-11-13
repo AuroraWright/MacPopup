@@ -293,7 +293,7 @@ private func joinBengali(_ input: [Bytes]) -> Bytes {
 private struct Manipulator {
     /// SplittingSymbolAtomManipulator::JoinAndReorderStrings
     var join: (([Bytes]) -> Bytes)?
-    /// precomposed -> decomposed, in key order
+    /// Precomposed to decomposed sequences, in key order.
     var normalization: [(composed: Bytes, decomposed: Bytes)] = []
     /// MappingSymbolAtomManipulator::TransformFromAtomString
     var mapping: ((Bytes) -> Bytes)?
@@ -428,7 +428,7 @@ private let manipulators: [Manipulator] = [
 func joinSymbolsLogical(_ symbols: inout [RecSymbol]) {
     var pieces = symbols.enumerated().map { Piece(text: b($0.element.text), atoms: [$0.offset]) }
     for m in manipulators.reversed() {
-        if !joinSymbols(m, &pieces) { return }  // original: back to one symbol per atom
+        if !joinSymbols(m, &pieces) { return }  // the original goes back to one symbol per atom too
     }
     var changed = pieces.count != symbols.count
     var i = 0
@@ -440,7 +440,8 @@ func joinSymbolsLogical(_ symbols: inout [RecSymbol]) {
     var out: [RecSymbol] = []
     for p in pieces {
         var s = RecSymbol(text: String(decoding: p.text, as: UTF8.self))
-        // box: union of the atom boxes; confidence: product (double) of the label confidences in label order
+        // The box is the union of the atom boxes, the confidence the product (in double) of the label confidences in
+        // label order.
         let labels = p.atoms.sorted()
         var x0 = Int(Int32.max), y0 = Int(Int32.max), x1 = Int(Int32.min), y1 = Int(Int32.min)
         var conf = 1.0

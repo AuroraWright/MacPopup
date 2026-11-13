@@ -34,7 +34,7 @@ extension OneOCRDebug {
     public static func detect(models: String, images: [String]) throws -> [Any] {
         let files = ModelFiles(root: URL(fileURLWithPath: models))
         let cfg = try files.json("config.json")
-        let det = try TextDetector(model: files.model("Detector", units: .cpuAndGPU),
+        let det = try TextDetector(model: files.model("Detector", units: OneOCREngine.detectorUnits),
                                    quantization: files.json("detector.json"),
                                    config: (cfg["det_model"] as? [[String: Any]])?.first)
         return try images.map { path in

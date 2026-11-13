@@ -7,14 +7,14 @@ import ReplayKit
 /// Continuous.readFrame): with video or an animated background behind the text, the picture never does. The engines
 /// need more memory than an extension has.
 final class SampleHandler: RPBroadcastSampleHandler {
-
     private var lastCompared: CFAbsoluteTime = 0
     private var lastLogged: CFAbsoluteTime = 0
     /// Thumbnails of the areas in the last frame handed over.
     private var sent: [[UInt8]]?
     private var number: UInt64 = 0
     private var counts = (frames: 0, compared: 0, sent: 0)
-    private var writing = (count: 0, seconds: 0.0, signing: 0.0)
+    /// Time spent comparing frames and writing those sent.
+    private var seconds = (comparing: 0.0, writing: 0.0)
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         log("Broadcast started, every \(SharedFrame.interval) s")
@@ -40,7 +40,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
             log(String(
                 format: "%d frames, %d compared, %d sent; comparing %.0f ms, writing %.0f ms on average",
                 counts.frames, counts.compared, counts.sent,
-                writing.signing / Double(max(counts.compared, 1)) * 1000, writing.seconds / Double(max(writing.count, 1)) * 1000
+                seconds.comparing / Double(max(counts.compared, 1)) * 1000, seconds.writing / Double(max(counts.sent, 1)) * 1000
             ))
         }
         guard now - lastCompared >= SharedFrame.interval, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
@@ -54,15 +54,15 @@ final class SampleHandler: RPBroadcastSampleHandler {
         let attached = (CMGetAttachment(sampleBuffer, key: RPVideoSampleOrientationKey as CFString, attachmentModeOut: nil) as? NSNumber)?.uint32Value ?? 1
         let orientation: UInt32 = attached == 6 ? 8 : attached == 8 ? 6 : attached
         guard let thumbnails = Self.thumbnails(pixelBuffer, orientation: orientation) else { return }
-        writing.signing += CFAbsoluteTimeGetCurrent() - now
-        guard sent.map({ Self.differs(thumbnails, $0) }) ?? true else { return }
+        let differs = sent.map { Self.differs(thumbnails, $0) } ?? true
+        seconds.comparing += CFAbsoluteTimeGetCurrent() - now
+        guard differs else { return }
         sent = thumbnails
 
         let start = CFAbsoluteTimeGetCurrent()
         do {
             try write(pixelBuffer, orientation: orientation)
-            writing.count += 1
-            writing.seconds += CFAbsoluteTimeGetCurrent() - start
+            seconds.writing += CFAbsoluteTimeGetCurrent() - start
             counts.sent += 1
             SharedFrame.announce()
         } catch {

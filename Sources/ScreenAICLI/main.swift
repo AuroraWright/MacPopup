@@ -1,7 +1,7 @@
 // screenai-cli <models dir> <out dir> <image>...: writes each image's stage layouts (goodoc.PageLayoutProto) to
 // <out dir>/<n>/<stage>.pb, n counting the images from 0, for comparison with the C++ port's SCREENAI_STAGE_DUMP.
-// screenai-cli --lines <models dir> <image>...: prints each image's lines as the app gets them (one JSON array of
-// line texts per image).
+// screenai-cli --lines <models dir> <image>...: prints each image's lines as the app gets them (one JSON array per
+// image: its path, then the array of its line texts).
 import Foundation
 import ImageIO
 import ScreenAI

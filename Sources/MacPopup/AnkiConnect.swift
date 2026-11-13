@@ -3,11 +3,6 @@ import Foundation
 /// AnkiConnect and the Yomitan API, called from native code with the addresses in the settings (the
 /// web side has its own clients, web/src/lib/anki-connect.js and yomitan-api.js).
 enum AnkiConnect {
-    struct Failure: LocalizedError {
-        let errorDescription: String?
-        init(_ message: String) { errorDescription = message }
-    }
-
     static func invoke(_ action: String, _ params: [String: Any] = [:], settings: [String: Any]) async throws -> Any? {
         var body: [String: Any] = ["action": action, "version": 6, "params": params]
         if let key = settings["ankiConnectKey"] as? String, !key.isEmpty { body["key"] = key }
@@ -15,10 +10,10 @@ enum AnkiConnect {
         do {
             response = try await post(settings["ankiConnectUrl"] as? String ?? "http://127.0.0.1:8765", body: body, timeout: 30)
         } catch {
-            throw Failure("Anki not connected")
+            throw AppError("Anki not connected")
         }
-        guard let response = response as? [String: Any] else { throw Failure("Unexpected AnkiConnect response") }
-        if let error = response["error"] as? String { throw Failure("Anki: \(error)") }
+        guard let response = response as? [String: Any] else { throw AppError("Unexpected AnkiConnect response") }
+        if let error = response["error"] as? String { throw AppError("Anki: \(error)") }
         return response["result"]
     }
 
@@ -39,26 +34,24 @@ enum AnkiConnect {
 
     /// The card formats of the Yomitan profile: [{name, type, deck, model, fields: {name: {value}}}].
     static func yomitanCardFormats(settings: [String: Any]) async throws -> [[String: Any]] {
-        var base = settings["yomitanApiUrl"] as? String ?? "http://127.0.0.1:19633"
-        while base.hasSuffix("/") { base.removeLast() }
-        do {
-            return try await post("\(base)/ankiCardFormats", body: [:], timeout: 10) as? [[String: Any]] ?? []
-        } catch {
-            throw Failure("Yomitan API not connected")
-        }
+        try await yomitan("ankiCardFormats", settings: settings, timeout: 10) as? [[String: Any]] ?? []
     }
 
     /// The version of Yomitan that the Yomitan API answers with.
     static func yomitanVersion(settings: [String: Any]) async throws -> String {
+        let response = try await yomitan("yomitanVersion", settings: settings, timeout: 5)
+        return ((response as? [String: Any])?["version"]).map { "\($0)" } ?? "?"
+    }
+
+    /// Calls the Yomitan API at the address in the settings.
+    private static func yomitan(_ path: String, settings: [String: Any], timeout: TimeInterval) async throws -> Any {
         var base = settings["yomitanApiUrl"] as? String ?? "http://127.0.0.1:19633"
         while base.hasSuffix("/") { base.removeLast() }
-        let response: Any
         do {
-            response = try await post("\(base)/yomitanVersion", body: [:], timeout: 5)
+            return try await post("\(base)/\(path)", body: [:], timeout: timeout)
         } catch {
-            throw Failure("Yomitan API not connected")
+            throw AppError("Yomitan API not connected")
         }
-        return ((response as? [String: Any])?["version"]).map { "\($0)" } ?? "?"
     }
 
     /// For each note type of the term card formats, its field filled with the sentence: `{sentence}`,
@@ -81,13 +74,13 @@ enum AnkiConnect {
     }
 
     private static func post(_ urlString: String, body: [String: Any], timeout: TimeInterval) async throws -> Any {
-        guard let url = URL(string: urlString), url.scheme != nil else { throw Failure("Invalid URL") }
+        guard let url = URL(string: urlString), url.scheme != nil else { throw AppError("Invalid URL") }
         var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await URLSession.shared.data(for: request)
-        if let status = (response as? HTTPURLResponse)?.statusCode, status != 200 { throw Failure("HTTP \(status)") }
+        if let status = (response as? HTTPURLResponse)?.statusCode, status != 200 { throw AppError("HTTP \(status)") }
         return try JSONSerialization.jsonObject(with: data)
     }
 }

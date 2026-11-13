@@ -900,7 +900,7 @@ final class TextDetector: @unchecked Sendable {
         return pos && neg
     }
 
-    /// Is line a (mostly) a duplicate inside line b?
+    /// Whether line `a` is (mostly) a duplicate inside line `b`.
     private static func contained(_ a: DetPoly, _ b: DetPoly, _ cache: inout InterCache, _ thr: Float) throws -> Bool {
         if a.hori != b.hori { return false }
         if a.hori {

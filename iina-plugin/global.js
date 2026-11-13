@@ -50,7 +50,7 @@ global.onMessage('line', (line, player) => {
 });
 
 // The connections waiting for a reply, by request id.
-const dumps = new Map();
+const waiting = new Map();
 
 ws.onMessage((connection, message) => {
 	if (!connections.has(connection)) return;
@@ -78,14 +78,14 @@ ws.onMessage((connection, message) => {
 		send(connection, { reply: { id: request.id, error: 'The player window is gone' } });
 		return;
 	}
-	dumps.set(request.id, connection);
+	waiting.set(request.id, connection);
 	global.postMessage(player, kind, request);
 });
 
 global.onMessage('reply', (reply) => {
-	const connection = dumps.get(reply?.id);
+	const connection = waiting.get(reply?.id);
 	if (!connection) return;
-	dumps.delete(reply.id);
+	waiting.delete(reply.id);
 	send(connection, { reply });
 });
 

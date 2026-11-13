@@ -66,7 +66,8 @@ enum ScanInput {
         input.split(whereSeparator: { $0 == "," || $0.isWhitespace }).map(String.init)
     }
 
-    /// Canonical text, ordered like Yomitan: modifier keys, then mouse buttons, then the excluded ones.
+    /// Canonical text, ordered like Yomitan: modifier keys, then mouse buttons, then the excluded ones, then
+    /// the lookup names.
     static func format(_ names: some Collection<String>) -> String {
         let rank = { (name: String) -> Int in
             if let index = lookupNames.firstIndex(of: name) { return 200 + index }

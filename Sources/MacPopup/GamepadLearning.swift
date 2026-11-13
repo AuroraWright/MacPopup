@@ -1,8 +1,9 @@
 import Foundation
 
 // Learning where a controller's buttons are in its raw HID input reports. While MacPopup holds a controller (see
-// Gamepads.swift), GameController doesn't get it either, so MacPopup reads the reports itself; GameController names
-// the controls meanwhile, and its changes are matched with the reports that came with them.
+// Gamepads.swift), GameController doesn't get its presses either, so MacPopup reads the reports itself. To learn them,
+// the controller is read without holding it while its controls are pressed: GameController names what's pressed, and
+// its changes are matched with the reports that came with them.
 
 /// Where a control is in a controller's input reports. Byte 0 is the report ID (0 for a device without IDs).
 enum GamepadField: Equatable {
@@ -186,10 +187,15 @@ enum GamepadLearning {
         let analog: [String: Double]
     }
 
+    /// The ID of the controller's input reports: the most common one. Others (e.g. a Switch controller's replies to the
+    /// host) can have the same length and other bytes.
+    static func mainReportID(_ reports: [(time: Double, bytes: [UInt8])]) -> UInt8? {
+        let ids = Dictionary(reports.map { ($0.bytes.first ?? 0, 1) }, uniquingKeysWith: +)
+        return ids.max(by: { $0.value < $1.value })?.key
+    }
+
     static func samples(_ recording: GamepadRecording) -> [Sample] {
-        // Reports with other IDs (e.g. replies to the host) are left out.
-        let ids = Dictionary(recording.reports.map { ($0.bytes.first ?? 0, 1) }, uniquingKeysWith: +)
-        guard let reportID = ids.max(by: { $0.value < $1.value })?.key else { return [] }
+        guard let reportID = mainReportID(recording.reports) else { return [] }
         let reports = recording.reports.filter { $0.bytes.first == reportID }
         let lastTime = reports.last?.time ?? 0
         // Stick moves update the analog values all the time: stretches are where the pressed controls stay the same.
@@ -215,10 +221,9 @@ enum GamepadLearning {
         let samples = samples(recording)
         guard let reportID = samples.first?.report.first else { return nil }
         var learned: [String: GamepadField] = [:]
-        // D-pads sent as hat switches, all four directions at once.
-        let dpads = Set(controls.filter { $0.hasPrefix("Direction Pad ") }.map { _ in "Direction Pad" })
-        for dpad in dpads {
-            learned.merge(hat(dpad, samples) ?? [:]) { first, _ in first }
+        // A D-pad sent as a hat switch, all four directions at once.
+        if controls.contains(where: { $0.hasPrefix("Direction Pad ") }) {
+            learned = hat("Direction Pad", samples) ?? [:]
         }
         // Sticks: an axis each, found by how it follows GameController's value, then a threshold for each direction.
         for stick in GamepadControls.sticks {
@@ -248,7 +253,8 @@ enum GamepadLearning {
         return GamepadLayout(name: "", reportID: Int(reportID), controls: learned)
     }
 
-    /// The share of the pressed samples a field agrees with and of the others, as `agreement` wants them, else 0.
+    /// How well a field agrees with whether `control` is pressed: the lower of its share of the pressed samples and of
+    /// the others, or 0 if the first is under 75% or the second under 97% (see GamepadLearning).
     private static func agreement(_ control: String, _ samples: [Sample], _ isPressed: ([UInt8]) -> Bool) -> Double {
         var pressed = 0, hits = 0, released = 0, rejections = 0
         for sample in samples {
@@ -311,7 +317,8 @@ enum GamepadLearning {
                     guard let (value, count) = counts.max(by: { $0.value < $1.value }), count >= 2 else { break }
                     main.append(value)
                 }
-                guard main.count == 4, let base = [0, 1].first(where: { $0 == main[0] }), main == [0, 2, 4, 6].map({ base + $0 }) else { continue }
+                guard main.count == 4, main[0] <= 1, main == [0, 2, 4, 6].map({ main[0] + $0 }) else { continue }
+                let base = main[0]
                 var fields: [String: GamepadField] = [:]
                 for (direction, value) in zip(directions, main) {
                     let around = [-1, 0, 1].map { base + (value - base + $0 + 8) % 8 }

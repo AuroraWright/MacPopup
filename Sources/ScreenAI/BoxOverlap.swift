@@ -122,7 +122,8 @@ func axisAlignedOverlapArea(_ a: RBox, _ b: RBox) -> Float {
     return h < 0 ? 0 : w * h
 }
 
-/// SafeBoxOverlapArea for boxes without a curve: both angles 0 is axis aligned, else Rectangle<float> OverlapArea.
+/// SafeBoxOverlapArea for boxes without a curve: the axis-aligned overlap when both angles are 0, else
+/// Rectangle<float>::OverlapArea.
 func boxOverlapArea(_ a: RBox, _ b: RBox) -> Float {
     if a.angle == 0 && b.angle == 0 { return axisAlignedOverlapArea(a, b) }
     return rectOverlapArea(Rect(a), Rect(b))
@@ -147,7 +148,7 @@ func alignedBox(_ b: RBox) -> RBox {
 }
 
 struct OverlapInfo {
-    /// Intersection over union, over the first box's area, over the second's.
+    /// The intersection over the union, over the first box's area and over the second's.
     var iou: Float = 0, overFirst: Float = 0, overSecond: Float = 0
 }
 

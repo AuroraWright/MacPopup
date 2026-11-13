@@ -130,7 +130,7 @@ private struct FieldRow: View {
     var body: some View {
         if field.isWide {
             VStack(alignment: .leading, spacing: 6) {
-                // A field that's all of its section (Shortcuts) has no label of its own.
+                // A field that's all of its section (Popup Shortcuts, Controllers) has no label of its own.
                 if !field.label.isEmpty || field.hint != nil { FieldLabel(field: field) }
                 wideControl
             }
@@ -188,18 +188,12 @@ private struct FieldRow: View {
             } label: {
                 FieldLabel(field: field)
             }
-        case let .slider(min, max, step):
-            LabeledContent {
-                NumberSlider(value: (value as? NSNumber)?.doubleValue ?? min, range: min...max, step: step) { model.set(field.key, Int($0)) }
-            } label: {
-                FieldLabel(field: field)
-            }
         case let .numberSelect(options):
             let current = (value as? NSNumber).map { "\($0)" } ?? ""
             let shown = options.contains { $0.value == current } ? options : options + [SettingsOption(current)]
             Picker(selection: Binding(get: { current }, set: { new in
                 guard let number = Double(new) else { return }
-                model.set(field.key, number.rounded() == number ? Int(number) as Any : number)
+                model.set(field.key, storedNumber(number))
             })) {
                 ForEach(shown, id: \.value) { Text($0.label).tag($0.value) }
             } label: {
@@ -254,12 +248,10 @@ private struct FieldRow: View {
             }
         case let .text(test):
             LabeledContent {
-                VStack(alignment: .trailing, spacing: 4) {
-                    HStack {
-                        CommitTextField(value: value as? String ?? "", placeholder: "None") { model.set(field.key, $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-                        if let test { TestButton(test: test, model: model) }
-                        if test == .yomitan { InstallYomitanAPIButton() }
-                    }
+                HStack {
+                    CommitTextField(value: value as? String ?? "", placeholder: "None") { model.set(field.key, $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                    if let test { TestButton(test: test, model: model) }
+                    if test == .yomitan { InstallYomitanAPIButton() }
                 }
                 .frame(maxWidth: 320)
             } label: {
@@ -305,8 +297,6 @@ private struct FieldRow: View {
             CodeEditor(text: (value as? [String] ?? []).joined(separator: "\n"), height: 60) { text in
                 model.set(field.key, text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
             }
-        case .json:
-            JSONEditor(value: value as? [Any] ?? []) { model.set(field.key, $0) }
         case .replacements:
             ReplacementsControl(key: field.key, model: model)
         case .audioSources:
@@ -346,6 +336,9 @@ private struct CommitTextField: View {
     var bordered = false
     let commit: (String) -> Void
     @State private var draft = ""
+    /// The value the draft started from. Only an edit is saved: a list's rows are reused by position, so by the time a
+    /// field goes away, `value` and `commit` can be another item's.
+    @State private var original = ""
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -356,13 +349,20 @@ private struct CommitTextField: View {
             .focused($focused)
             .onSubmit(save)
             .onChange(of: focused) { if !focused { save() } }
-            .onChange(of: value) { if !focused { draft = value } }
-            .onAppear { draft = value }
+            .onChange(of: value) { if !focused { reset() } }
+            .onAppear(perform: reset)
             .onDisappear(perform: save)
     }
 
+    private func reset() {
+        draft = value
+        original = value
+    }
+
     private func save() {
-        if draft != value { commit(draft) }
+        guard draft != original else { return reset() }
+        original = draft
+        commit(draft)
     }
 }
 
@@ -542,6 +542,7 @@ private struct AnkiFieldPicker<Label: View>: View {
     }
 }
 
+/// A {key, modifiers} setting's key combination, or nil without a key.
 private func keyCombination(_ item: [String: Any]?) -> KeyCombination? {
     guard let key = item?["key"] as? String, !key.isEmpty else { return nil }
     return KeyCombination(key: key, modifiers: item?["modifiers"] as? [String] ?? [])
@@ -555,16 +556,16 @@ private struct ShortcutControl: View {
 
     var body: some View {
         HStack {
-            let isActive = recorder.activeIndex != nil
+            let isActive = recorder.activeID != nil
             Button {
                 if isActive {
                     recorder.cancel()
                 } else {
-                    recorder.start(index: 0) { commit(["key": $0.key, "modifiers": $0.modifiers]) }
+                    recorder.start(id: 0) { commit(["key": $0.key, "modifiers": $0.modifiers]) }
                 }
             } label: {
                 let title = keyCombination(value)?.displayName ?? "Record Shortcut"
-                SteadyLabel(isActive ? "Press keys…" : title, reserving: [title, "Press keys…"]).frame(minWidth: 90)
+                SteadyLabel(isActive ? recorder.prompt("Press keys…") : title, reserving: [title, "Press keys…"]).frame(minWidth: 90)
             }
             .help(isActive ? "Click to cancel" : "Click, then press a key combination")
             // While recording, it stops without changing the shortcut.
@@ -592,16 +593,16 @@ private struct KeySequenceControl<Label: View>: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
             LabeledContent {
-                let isActive = recorder.activeIndex != nil
+                let isActive = recorder.activeID != nil
                 let title = items.isEmpty ? "Record Key" : "Add Key"
                 Button {
                     if isActive {
                         recorder.cancel()
                     } else {
-                        recorder.start(index: 0) { commit(items + [["key": $0.key, "modifiers": $0.modifiers]]) }
+                        recorder.start(id: 0) { commit(items + [["key": $0.key, "modifiers": $0.modifiers]]) }
                     }
                 } label: {
-                    SteadyLabel(isActive ? "Press a key…" : title, reserving: [title, "Press a key…"])
+                    SteadyLabel(isActive ? recorder.prompt("Press a key…") : title, reserving: [title, "Press a key…"])
                 }
                 .help(isActive ? "Click to cancel" : "Click, then press a key (with any modifier keys)")
             } label: {
@@ -613,6 +614,8 @@ private struct KeySequenceControl<Label: View>: View {
                         HStack(spacing: 2) {
                             Text(keyCombination(item)?.displayName ?? "?").monospacedDigit()
                             Button {
+                                // A recording would add its key to the list as it was before.
+                                recorder.cancel()
                                 var updated = items
                                 updated.remove(at: index)
                                 commit(updated)
@@ -661,30 +664,6 @@ private struct PercentSlider: View {
     }
 }
 
-private struct NumberSlider: View {
-    let value: Double
-    let range: ClosedRange<Double>
-    let step: Double
-    let commit: (Double) -> Void
-
-    var body: some View {
-        HStack {
-            Slider(
-                value: Binding(get: { value }, set: { new in
-                    let rounded = (new / step).rounded() * step
-                    if rounded != value { commit(rounded) }
-                }),
-                in: range
-            )
-            .frame(width: 200)
-            Text("\(Int(value))")
-                .monospacedDigit()
-                .foregroundStyle(.primary)
-                .frame(width: 44, alignment: .trailing)
-        }
-    }
-}
-
 private struct RoundedBorder: ViewModifier {
     let isOn: Bool
 
@@ -724,6 +703,11 @@ private struct GroupedControl: View {
             EmptyView()
         }
     }
+}
+
+/// A number as it's saved: an integer when it's a whole one.
+private func storedNumber(_ number: Double) -> Any {
+    number.rounded() == number && abs(number) < 1e15 ? Int(number) as Any : number as Any
 }
 
 /// A number field as wide as the number in it (growing to the left while typing), saving when editing ends.
@@ -771,7 +755,7 @@ private struct FittingNumberField: View {
         if !decimals { number = number.rounded() }
         draft = Self.text(number)
         guard number != value else { return }
-        commit(number.rounded() == number && abs(number) < 1e15 ? Int(number) as Any : number as Any)
+        commit(storedNumber(number))
     }
 }
 
@@ -794,7 +778,7 @@ private struct NumberField: View {
         if let min { clamped = Swift.max(clamped, min) }
         if let max { clamped = Swift.min(clamped, max) }
         guard clamped != value else { return }
-        commit(clamped.rounded() == clamped && abs(clamped) < 1e15 ? Int(clamped) as Any : clamped as Any)
+        commit(storedNumber(clamped))
     }
 }
 
@@ -1056,19 +1040,32 @@ private struct ScanInputsControl: View {
     let values: [String]
     @ObservedObject var model: SettingsModel
     @ObservedObject var recorder: ScanInputRecorder
+    @State private var rows = RowIDs()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(values.enumerated()), id: \.offset) { index, value in
-                ScanInputRow(id: "\(key)#\(index)", value: value, recorder: recorder) { newValue in
-                    var updated = values
-                    if let newValue { updated[index] = newValue } else { updated.remove(at: index) }
+            ForEach(Array(zip(rows(values.count), values.indices)), id: \.0) { id, index in
+                ScanInputRow(id: "\(key)#\(id)", value: values[index], recorder: recorder) { newValue in
+                    // The list as it is now (`values` is as it was drawn).
+                    var updated = model[key] as? [String] ?? []
+                    guard let index = rows.index(id), updated.indices.contains(index) else { return }
+                    if let newValue {
+                        updated[index] = newValue
+                    } else {
+                        rows.remove(at: index)
+                        updated.remove(at: index)
+                    }
                     model.set(key, updated)
                 }
             }
-            RecordButton(id: "\(key)#new", title: "Record New Input", recorder: recorder) { model.set(key, values + [$0]) }
+            RecordButton(id: "\(key)#new", title: "Record New Input", recorder: recorder) { value in
+                rows.append()
+                model.set(key, (model[key] as? [String] ?? []) + [value])
+            }
             Text(SettingsSchema.scanInputsHint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
+        .onAppear { rows.sync(values.count) }
+        .onChange(of: values.count) { rows.sync(values.count) }
     }
 }
 
@@ -1141,12 +1138,91 @@ private struct RecordButton: View {
     }
 }
 
+/// A change to a row of a list that can be reordered (replacements, audio sources).
+private enum ListRowChange {
+    case set(String, Any)
+    case move(Int)
+    case remove
+
+    func apply(to items: [[String: Any]], at index: Int) -> [[String: Any]] {
+        var updated = items
+        switch self {
+        case let .set(field, value): updated[index][field] = value
+        case let .move(offset): updated.swapAt(index, index + offset)
+        case .remove: updated.remove(at: index)
+        }
+        return updated
+    }
+}
+
+/// Buttons that move a list's row up or down, and remove it.
+private struct ListRowButtons: View {
+    let isFirst: Bool
+    let isLast: Bool
+    let change: (ListRowChange) -> Void
+
+    var body: some View {
+        Group {
+            Button { change(.move(-1)) } label: { Image(systemName: "chevron.up") }
+                .disabled(isFirst).help("Move up")
+            Button { change(.move(1)) } label: { Image(systemName: "chevron.down") }
+                .disabled(isLast).help("Move down")
+            Button { change(.remove) } label: { Image(systemName: "minus.circle") }
+                .help("Remove")
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
+/// Identities for a list's rows that move with their items, so a row's views (a field being edited, a recording) stay
+/// with its item, and its changes go to that item wherever it is by then. Until `sync` gives them identities (when the
+/// list appears, and when it changed elsewhere, e.g. by Import), rows are identified by position.
+private struct RowIDs {
+    private var ids: [UUID] = []
+
+    func callAsFunction(_ count: Int) -> [AnyHashable] {
+        (0..<count).map { ids.indices.contains($0) ? AnyHashable(ids[$0]) : AnyHashable($0) }
+    }
+
+    /// Where the row with that identity is now.
+    func index(_ id: AnyHashable) -> Int? {
+        if let uuid = id.base as? UUID { return ids.firstIndex(of: uuid) }
+        return id.base as? Int
+    }
+
+    mutating func sync(_ count: Int) {
+        if ids.count != count { ids = (0..<count).map { _ in UUID() } }
+    }
+
+    mutating func append() {
+        ids.append(UUID())
+    }
+
+    mutating func remove(at index: Int) {
+        if ids.indices.contains(index) { ids.remove(at: index) }
+    }
+
+    /// The list with the change made to the row with that identity, or nil if it's gone.
+    mutating func apply(_ change: ListRowChange, to id: AnyHashable, in items: [[String: Any]]) -> [[String: Any]]? {
+        guard let index = index(id), items.indices.contains(index) else { return nil }
+        switch change {
+        case .set: break
+        case let .move(offset):
+            guard items.indices.contains(index + offset) else { return nil }
+            if ids.indices.contains(index), ids.indices.contains(index + offset) { ids.swapAt(index, index + offset) }
+        case .remove: remove(at: index)
+        }
+        return change.apply(to: items, at: index)
+    }
+}
+
 /// Replacements applied to lines: a row for each, and a field to try them on a sample line.
 private struct ReplacementsControl: View {
     let key: String
     @ObservedObject var model: SettingsModel
     @State private var sample = ""
     @State private var showJSON = false
+    @State private var rows = RowIDs()
 
     private var items: [[String: Any]] {
         (model[key] as? [Any] ?? []).map { $0 as? [String: Any] ?? [:] }
@@ -1154,19 +1230,14 @@ private struct ReplacementsControl: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                ReplacementRow(item: item, isFirst: index == 0, isLast: index == items.count - 1) { change in
-                    var updated = items
-                    switch change {
-                    case let .set(field, value): updated[index][field] = value
-                    case let .move(offset): updated.swapAt(index, index + offset)
-                    case .remove: updated.remove(at: index)
-                    }
-                    model.set(key, updated)
+            ForEach(Array(zip(rows(items.count), items.indices)), id: \.0) { id, index in
+                ReplacementRow(item: items[index], isFirst: index == 0, isLast: index == items.count - 1) { change in
+                    if let updated = rows.apply(change, to: id, in: items) { model.set(key, updated) }
                 }
             }
             HStack {
                 Button("Add Replacement") {
+                    rows.append()
                     model.set(key, items + [["pattern": "", "replaces": "", "flags": ["g"], "enabled": true]])
                 }
                 Spacer()
@@ -1191,16 +1262,12 @@ private struct ReplacementsControl: View {
                 }
             }
         }
+        .onAppear { rows.sync(items.count) }
+        .onChange(of: items.count) { rows.sync(items.count) }
     }
 }
 
 private struct ReplacementRow: View {
-    enum Change {
-        case set(String, Any)
-        case move(Int)
-        case remove
-    }
-
     /// Regular expression flags, as in JavaScript.
     private static let flags: [(name: String, help: String)] = [
         ("g", "Global: replace all matches in the line, not just the first"),
@@ -1213,7 +1280,7 @@ private struct ReplacementRow: View {
     let item: [String: Any]
     let isFirst: Bool
     let isLast: Bool
-    let change: (Change) -> Void
+    let change: (ListRowChange) -> Void
 
     private var pattern: String { item["pattern"] as? String ?? "" }
     private var flags: [String] { item["flags"] as? [String] ?? [] }
@@ -1247,15 +1314,7 @@ private struct ReplacementRow: View {
                         .help(flag.help)
                     }
                     Spacer()
-                    Group {
-                        Button { change(.move(-1)) } label: { Image(systemName: "chevron.up") }
-                            .disabled(isFirst).help("Move up")
-                        Button { change(.move(1)) } label: { Image(systemName: "chevron.down") }
-                            .disabled(isLast).help("Move down")
-                        Button { change(.remove) } label: { Image(systemName: "minus.circle") }
-                            .help("Remove")
-                    }
-                    .buttonStyle(.borderless)
+                    ListRowButtons(isFirst: isFirst, isLast: isLast, change: change)
                 }
                 if let error = SettingsSupport.shared.patternError(pattern, flags: flags) {
                     Text("Invalid pattern (skipped): \(error)").font(.caption).foregroundStyle(.red)
@@ -1287,27 +1346,26 @@ private struct AudioSourcesControl: View {
         SettingsOption("custom-json", "Custom URL (JSON)"),
     ]
 
+    @State private var rows = RowIDs()
+
     private var items: [[String: Any]] {
         (model[key] as? [Any] ?? []).map { $0 as? [String: Any] ?? [:] }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                AudioSourceRow(index: index, item: item, isFirst: index == 0, isLast: index == items.count - 1) { change in
-                    var updated = items
-                    switch change {
-                    case let .set(field, value): updated[index][field] = value
-                    case let .move(offset): updated.swapAt(index, index + offset)
-                    case .remove: updated.remove(at: index)
-                    }
-                    model.set(key, updated)
+            ForEach(Array(zip(rows(items.count), items.indices)), id: \.0) { id, index in
+                AudioSourceRow(index: index, item: items[index], isFirst: index == 0, isLast: index == items.count - 1) { change in
+                    if let updated = rows.apply(change, to: id, in: items) { model.set(key, updated) }
                 }
             }
             Button("Add Audio Source") {
+                rows.append()
                 model.set(key, items + [["type": unusedType(), "url": "", "voice": "", "apiKey": ""]])
             }
         }
+        .onAppear { rows.sync(items.count) }
+        .onChange(of: items.count) { rows.sync(items.count) }
     }
 
     /// As in Yomitan: the first of its usual sources that isn't listed yet.
@@ -1319,12 +1377,6 @@ private struct AudioSourcesControl: View {
 }
 
 private struct AudioSourceRow: View {
-    enum Change {
-        case set(String, Any)
-        case move(Int)
-        case remove
-    }
-
     /// The voices WebKit's speech synthesis can use (not the Siri ones), Japanese first, as in Yomitan.
     private static let voices: [SettingsOption] = {
         let all = AVSpeechSynthesisVoice.speechVoices().filter { !$0.identifier.contains(".siri") }
@@ -1336,7 +1388,7 @@ private struct AudioSourceRow: View {
     let item: [String: Any]
     let isFirst: Bool
     let isLast: Bool
-    let change: (Change) -> Void
+    let change: (ListRowChange) -> Void
 
     private var type: String { item["type"] as? String ?? "" }
 
@@ -1357,15 +1409,7 @@ private struct AudioSourceRow: View {
                     .labelsHidden()
                     .fixedSize()
                     Spacer()
-                    Group {
-                        Button { change(.move(-1)) } label: { Image(systemName: "chevron.up") }
-                            .disabled(isFirst).help("Move up")
-                        Button { change(.move(1)) } label: { Image(systemName: "chevron.down") }
-                            .disabled(isLast).help("Move down")
-                        Button { change(.remove) } label: { Image(systemName: "minus.circle") }
-                            .help("Remove")
-                    }
-                    .buttonStyle(.borderless)
+                    ListRowButtons(isFirst: isFirst, isLast: isLast, change: change)
                 }
                 switch type {
                 case "custom", "custom-json":
@@ -1413,7 +1457,8 @@ private struct AnkiTemplatesControl: View {
     @ObservedObject var model: SettingsModel
 
     private var stored: [String: Any] {
-        // Settings from before an import keep the import's other values (dictionaries, output modes).
+        // Null until Yomitan settings are imported, so until then the other values (dictionaries, output modes) are
+        // Yomitan's defaults. Saving keeps whichever are there.
         model[key] as? [String: Any] ?? ["fieldTemplates": NSNull(), "dictionaries": [Any](), "resultOutputMode": "group", "readingMode": NSNull()]
     }
 
@@ -1434,9 +1479,11 @@ private struct AnkiTemplatesControl: View {
 
     private func save(_ templates: String?) {
         var value = stored
-        let isDefault = templates == nil || templates!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || templates == SettingsSupport.shared.defaultFieldTemplates
-        value["fieldTemplates"] = isDefault ? NSNull() : templates!
+        if let templates, !templates.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, templates != SettingsSupport.shared.defaultFieldTemplates {
+            value["fieldTemplates"] = templates
+        } else {
+            value["fieldTemplates"] = NSNull()
+        }
         model.set(key, value)
     }
 }
@@ -1450,7 +1497,7 @@ enum ConnectionTester {
             var base = settings["yomitanApiUrl"] as? String ?? ""
             while base.hasSuffix("/") { base.removeLast() }
             let (status, body) = try await post("\(base)/yomitanVersion", body: [:])
-            guard status == 200 else { throw SettingsSupportError(message: "Yomitan API returned an error (HTTP \(status))") }
+            guard status == 200 else { throw AppError("Yomitan API returned an error (HTTP \(status))") }
             let version = (SettingsSupport.decode(body)?["version"]).map { "\($0)" } ?? "?"
             return "Connected (Yomitan \(version))"
         case .anki:
@@ -1460,16 +1507,16 @@ enum ConnectionTester {
             do {
                 body = try await post(settings["ankiConnectUrl"] as? String ?? "", body: request).body
             } catch {
-                throw SettingsSupportError(message: "Could not connect to Anki (make sure Anki is running with AnkiConnect installed)")
+                throw AppError("Could not connect to Anki (make sure Anki is running with AnkiConnect installed)")
             }
             let result = SettingsSupport.decode(body)
-            if let error = result?["error"] as? String { throw SettingsSupportError(message: error) }
+            if let error = result?["error"] as? String { throw AppError(error) }
             return "Connected (AnkiConnect v\(result?["result"].map { "\($0)" } ?? body))"
         }
     }
 
     private static func post(_ urlString: String, body: [String: Any]) async throws -> (status: Int, body: String) {
-        guard let url = URL(string: urlString), url.scheme != nil else { throw SettingsSupportError(message: "Invalid URL format") }
+        guard let url = URL(string: urlString), url.scheme != nil else { throw AppError("Invalid URL format") }
         var request = URLRequest(url: url, timeoutInterval: 5)
         request.httpMethod = "POST"
         request.httpBody = Data(SettingsSupport.encode(body).utf8)
@@ -1482,7 +1529,10 @@ enum ConnectionTester {
 /// Records the next key press, with the modifier keys held, for a keyboard shortcut.
 @MainActor
 private final class ShortcutRecorder: ObservableObject {
-    @Published private(set) var activeIndex: Int?
+    /// The row that's recording.
+    @Published private(set) var activeID: AnyHashable?
+    /// The modifier keys held while recording, as macOS shows them (e.g. "⌥⇧").
+    @Published private(set) var heldModifiers = ""
     private var monitor: Any?
     private var completion: ((KeyCombination) -> Void)?
     private var othersStarting: AnyCancellable?
@@ -1496,13 +1546,19 @@ private final class ShortcutRecorder: ObservableObject {
         }
     }
 
-    func start(index: Int, completion: @escaping (KeyCombination) -> Void) {
+    func start(id: AnyHashable, completion: @escaping (KeyCombination) -> Void) {
         cancel()
         NotificationCenter.default.post(name: .settingsRecordingStarted, object: self)
-        activeIndex = index
+        activeID = id
         self.completion = completion
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, let combination = KeyCombination(event: event) else { return nil }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
+            guard let self else { return nil }
+            if event.type == .flagsChanged {
+                let symbols: [(NSEvent.ModifierFlags, String)] = [(.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")]
+                heldModifiers = symbols.filter { event.modifierFlags.contains($0.0) }.map(\.1).joined()
+                return event
+            }
+            guard let combination = KeyCombination(event: event) else { return nil }
             let completion = self.completion
             cancel()
             completion?(combination)
@@ -1510,10 +1566,16 @@ private final class ShortcutRecorder: ObservableObject {
         }
     }
 
+    /// What a recording button says: the modifiers held so far, waiting for the key (a modifier alone isn't one).
+    func prompt(_ waiting: String) -> String {
+        heldModifiers.isEmpty ? waiting : "\(heldModifiers)…"
+    }
+
     func cancel() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-        activeIndex = nil
+        activeID = nil
+        heldModifiers = ""
         completion = nil
     }
 }
@@ -1633,6 +1695,7 @@ private struct HotkeysControl: View {
     @ObservedObject var model: SettingsModel
     @StateObject private var recorder = ShortcutRecorder()
     @State private var confirmingReset = false
+    @State private var rows = RowIDs()
 
     /// Yomitan's popup shortcut actions, with its names (switching profiles isn't supported).
     static let actions: [SettingsOption] = [
@@ -1669,39 +1732,40 @@ private struct HotkeysControl: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                HotkeyRow(index: index, item: item, isDuplicate: isDuplicate(index), buttonsNote: buttonsNote(index), recorder: recorder) { change in
+            ForEach(Array(zip(rows(items.count), items.indices)), id: \.0) { id, index in
+                HotkeyRow(id: id, item: items[index], isDuplicate: isDuplicate(index), buttonsNote: buttonsNote(index), recorder: recorder) { change in
                     var updated = items
+                    guard let index = rows.index(id), updated.indices.contains(index) else { return }
                     switch change {
                     case let .set(values): updated[index].merge(values) { _, new in new }
-                    case .remove: updated.remove(at: index)
+                    case .remove:
+                        rows.remove(at: index)
+                        updated.remove(at: index)
                     }
                     model.set(key, updated)
                 }
             }
             HStack {
                 Button("Add Shortcut") {
+                    rows.append()
                     model.set(key, items + [["action": "close", "argument": "", "key": "", "modifiers": [String](), "enabled": true]])
                 }
                 Button("Reset to Defaults") { confirmingReset = true }
             }
             .padding(.top, 8)
         }
+        .onAppear { rows.sync(items.count) }
+        .onChange(of: items.count) { rows.sync(items.count) }
         .onDisappear { recorder.cancel() }
         .confirmationDialog("Replace all keyboard shortcuts with Yomitan’s defaults?", isPresented: $confirmingReset) {
             Button("Reset", role: .destructive) { model.set(key, SettingsSupport.shared.defaults[key] ?? [Any]()) }
         }
     }
 
-    private static func combination(_ item: [String: Any]) -> KeyCombination? {
-        guard let key = item["key"] as? String, !key.isEmpty else { return nil }
-        return KeyCombination(key: key, modifiers: item["modifiers"] as? [String] ?? [])
-    }
-
     /// Whether an enabled shortcut above has the same keys (only the first one works).
     private func isDuplicate(_ index: Int) -> Bool {
-        guard items[index]["enabled"] as? Bool ?? true, let combination = Self.combination(items[index]) else { return false }
-        return items[..<index].contains { ($0["enabled"] as? Bool ?? true) && Self.combination($0) == combination }
+        guard items[index]["enabled"] as? Bool ?? true, let combination = keyCombination(items[index]) else { return false }
+        return items[..<index].contains { ($0["enabled"] as? Bool ?? true) && keyCombination($0) == combination }
     }
 
     /// Why a shortcut's controller buttons don't work, if they don't: the controller scan key or an earlier shortcut
@@ -1726,7 +1790,7 @@ private struct HotkeyRow: View {
         case remove
     }
 
-    let index: Int
+    let id: AnyHashable
     let item: [String: Any]
     let isDuplicate: Bool
     let buttonsNote: String?
@@ -1747,10 +1811,7 @@ private struct HotkeyRow: View {
     private var action: String { item["action"] as? String ?? "" }
     private var argument: String { item["argument"] as? String ?? "" }
 
-    private var combination: KeyCombination? {
-        guard let key = item["key"] as? String, !key.isEmpty else { return nil }
-        return KeyCombination(key: key, modifiers: item["modifiers"] as? [String] ?? [])
-    }
+    private var combination: KeyCombination? { keyCombination(item) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -1800,18 +1861,18 @@ private struct HotkeyRow: View {
     }
 
     private var recordButton: some View {
-        let isActive = recorder.activeIndex == index
+        let isActive = recorder.activeID == id
         return Button {
             if isActive {
                 recorder.cancel()
             } else {
-                recorder.start(index: index) { combination in
+                recorder.start(id: id) { combination in
                     change(.set(["key": combination.key, "modifiers": combination.modifiers]))
                 }
             }
         } label: {
             let title = combination?.displayName ?? "Record Shortcut"
-            SteadyLabel(isActive ? "Press keys…" : title, reserving: [title, "Press keys…"]).frame(minWidth: 90)
+            SteadyLabel(isActive ? recorder.prompt("Press keys…") : title, reserving: [title, "Press keys…"]).frame(minWidth: 90)
         }
         .help(isActive ? "Click to cancel" : "Click, then press a key combination")
     }

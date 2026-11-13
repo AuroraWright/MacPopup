@@ -445,7 +445,7 @@ extension PageLayout {
 // MARK: - ClusterAndSortParagraphs
 
 private struct OrderNode {
-    /// Leaves: the paragraph entity.
+    /// The paragraph entity, for leaves.
     var paragraph = -1
     var parent = -1
     /// Children ordered in columns (the GCN's prediction).
@@ -694,7 +694,8 @@ extension PageLayout {
         }
         struct EdgeMeta {
             var to: Int, dir: Int
-            /// Union height under twice the smaller height; under three times it plus both heights.
+            /// The union's height is under twice the smaller height (close), or under three times it plus both
+            /// heights (near).
             var close: Bool, near: Bool
         }
         var adjacent = [[EdgeMeta]](repeating: [], count: n)

@@ -305,7 +305,7 @@ enum CV {
                     }
                     out.data[dy * width * c + dx] = sum * scale
                 } else {
-                    // the partial windows at the right and bottom edges: the plain average of what's inside
+                    // The partial windows at the right and bottom edges: the plain average of what's inside.
                     var sum: Float = 0
                     var count = 0
                     let sx0 = xofs
@@ -672,7 +672,7 @@ enum CV {
         }
         var err = dx - (dy + dy)
         let plusDelta = dx + dx, minusDelta = -(dy + dy)
-        // steps along the major axis (minus) and the extra minor step when err < 0 (plus)
+        // The step along the major axis (minus), and the extra minor step when err < 0 (plus).
         let minusX = vert ? 0 : deltaX, minusY = vert ? deltaX : 0
         let plusX = vert ? deltaY : 0, plusY = vert ? 0 : deltaY
         for _ in 0...dx {

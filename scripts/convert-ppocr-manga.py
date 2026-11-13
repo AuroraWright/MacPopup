@@ -32,7 +32,7 @@ import torch
 from onnx import helper, numpy_helper
 
 REPOSITORY = ("Kellenok/PP-OCRv6_manga", "d65838996a00ef6b1c73ca3a700d7a8c5fbbef8a")
-# (file, SHA-256, output name, input name, input shape, output name)
+# (file, SHA-256, Core ML model name, input name, input shape, output name)
 MODELS = [
     ("det/manga_det.onnx", "97c434ae8deaad83513fb132b605d5085a3af8ffac2cb15e2aa096815c206172",
      "PPOCRMangaDetection", "image", (1, 3, ct.RangeDim(32, 2048, default=544), ct.RangeDim(32, 2048, default=960)),
@@ -136,7 +136,7 @@ def convert(graph, input_name, shape, output_name, separate_biases):
     passes = ct.PassPipeline.DEFAULT
     if separate_biases:
         model = biases_after(model)
-        # Which would put them back into the convolutions.
+        # The pass that would put them back into the convolutions.
         passes.remove_passes({"common::fuse_conv_bias"})
     example_shape = tuple(d.default if isinstance(d, ct.RangeDim) else d for d in shape)
     with torch.no_grad():

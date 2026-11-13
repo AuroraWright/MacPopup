@@ -227,10 +227,10 @@ automatically:
 **Settings → Game Sentence Audio** lets you press a single global shortcut after mining a card to
 automatically record the character's voice line from your game's dialogue backlog:
 
-1. MacPopup brings your game window to the front and presses your recorded
-   **Keys to open backlog**, and waits for you to replay the voice line.
-2. Records the game's own audio, or of
-   every app but MacPopup when no window is captured. With **Automatically detect start and end of speech** enabled, macOS's sound
+1. MacPopup brings your game window to the front, presses your recorded **Keys to open backlog**,
+   and waits for you to replay the voice line.
+2. Records the game's own audio (or that of every app but MacPopup when no window is captured).
+   With **Automatically detect start and end of speech** enabled, macOS's sound
    classifier ignores background music and sound effects, starts recording when speech begins, and
    stops automatically after the voice ends. If no voice is heard in time, nothing is saved. With
    detection off, press the shortcut again to stop recording.
@@ -251,8 +251,8 @@ made from them the line's own frame and audio:
 
 1. Click **Install** in *Settings → IINA Integration*, which opens the plugin in IINA (or run
    `iina-plugin link iina-plugin` from IINA's `Contents/MacOS` for development), turn the plugin on in IINA's
-   *Settings → Plugins*, and restart IINA. The plugin requests the permission to access files for the live stream and
-   cookie support (see 3).
+   *Settings → Plugins*, and restart IINA. The plugin asks for permission to access files, which it needs for live streams and
+   cookies (see step 3).
 2. Add `ws://localhost:6680` in MacPopup's *Settings → WebSockets* (the port can be changed in the
    plugin's settings). Each subtitle line arrives like a text hooker's, so you can read them in the text box, or hover
    the subtitles on the video in OCR Mode with **Match and fix OCR with WebSocket text** on.

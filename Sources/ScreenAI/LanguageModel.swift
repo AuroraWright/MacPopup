@@ -47,7 +47,7 @@ private struct BitmapIndex {
     /// Position of the r-th one (0-based), numBits if none.
     func select1(_ r: Int) -> Int {
         if r >= rank.last! { return numBits }
-        // the last word w with rank[w] <= r
+        // The last word w with rank[w] <= r.
         var lo = 0, hi = rank.count
         while lo < hi {
             let mid = (lo + hi) / 2

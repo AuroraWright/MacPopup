@@ -84,7 +84,7 @@ export const defaultSettings = {
 	displayIndex: 0,
 	windowLevel: 'screenSaver',
 
-	// Screen OCR mode: popups for the text of another app's window, read with Live Text (see lib/ocr-layer.js).
+	// Screen OCR mode: popups for the text of another app's window, read with ocrEngine (see lib/ocr-layer.js).
 	ocrMode: false,
 	// The window to read, {ownerName, title}, found again by these when MacPopup starts.
 	ocrWindow: null,
@@ -154,8 +154,7 @@ export const defaultSettings = {
 	// Game controller buttons (GameController's names, e.g. "Button A") that give the text controller focus (see
 	// overlay.js); popup shortcuts can have `buttons` too.
 	gamepadScanButtons: [],
-	// How long (ms) the controller's cursor rests on a character before its word is looked up, with scanResolution
-	// 'character'.
+	// How long (ms) the controller rests on a character or word before its popup opens.
 	gamepadPopupDelay: 1000,
 	// Where the controller starts in OCR Mode text without a WebSocket match: 'bottom' or 'top' (left or right in
 	// vertical text).
@@ -214,14 +213,14 @@ export const defaultSettings = {
 	// Play buttons are shown (Yomitan's audio.enabled).
 	audioEnabled: true,
 	audioAutoPlay: false,
-	// With audio sources set, Yomitan's default ones for Japanese follow them (Yomitan's
+	// With audio sources set, Yomitan's default ones for the language follow them (Yomitan's
 	// audio.enableDefaultAudioSources).
 	audioDefaultSources: true,
 	// Percent.
 	audioVolume: 100,
 	// Played when no audio is found: 'none', 'click' or 'bloop'.
 	audioFallbackSound: 'click',
-	// Yomitan's audio sources from Import Yomitan, [{type, url, voice}], listed by right-clicking a play button.
+	// Yomitan's audio sources from Import Yomitan, [{type, url, voice, apiKey}], listed by right-clicking a play button.
 	audioSources: [],
 
 	// Anki

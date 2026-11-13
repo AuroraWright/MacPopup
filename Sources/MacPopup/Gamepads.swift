@@ -6,11 +6,11 @@ import IOKit.hid
 /// holding them so the app in front doesn't get their presses meanwhile.
 ///
 /// GameController reads controllers while another app is in front, but that app (the game) gets their presses too.
-/// IOKit can open a controller to seize it: it then stops reaching other apps, GameController included, until it's let
-/// go, without games seeing it disconnect, and without asking for a permission. MacPopup reads a held controller's
-/// reports itself, with the layout learned for its model in Settings (see GamepadLearning.swift), and reads it that way
-/// while it isn't held too. A controller without a layout isn't used: GameController only names the controls while one
-/// is learned.
+/// IOKit can instead open a controller and seize it: its presses then stop reaching other apps, GameController
+/// included, until it's let go, without games seeing it disconnect and without asking for a permission. So MacPopup
+/// reads each controller's reports itself, held or not, with the layout learned for its model in Settings (see
+/// GamepadLearning.swift). A controller without a layout isn't used: GameController is only there to name the controls
+/// while a layout is learned.
 @MainActor
 final class GamepadController: ObservableObject {
     static let shared = GamepadController()
@@ -19,6 +19,9 @@ final class GamepadController: ObservableObject {
         /// The model, "vendor:product" in hex, which layouts are saved by.
         let id: String
         let name: String
+        /// How many controllers of the model are connected. It's only learned with one, as their reports can't be
+        /// told apart.
+        let count: Int
     }
 
     /// A learning session in Settings (see startLearning).
@@ -29,10 +32,12 @@ final class GamepadController: ObservableObject {
         let controls: [String]
         /// Whether GameController reads this controller: if not, controls are only learned one at a time.
         let hasGameController: Bool
+        /// Whether that's because another connected controller has the same name (see startLearning).
+        let sharesName: Bool
         var learned: [String: GamepadField] = [:]
         /// Controls learned from one press each (see learnPress).
         var pressedOnce: [String: GamepadField] = [:]
-        /// The control a press is waited for.
+        /// The control whose next press is waited for (see learnPress).
         var waitingFor: String?
         /// What GameController says is held now.
         var held: Set<String> = []
@@ -44,7 +49,8 @@ final class GamepadController: ObservableObject {
     @Published private(set) var learning: Learning?
     @Published private(set) var layouts: [String: GamepadLayout] = [:]
 
-    /// Called with the held controls when they change, for the overlay (not while Settings records them).
+    /// Called with the held controls when they change, for the overlay (not while Settings records a combination or
+    /// learns a controller).
     var onChange: ((Set<String>) -> Void)?
     /// Whether the overlay is shown: controllers are only held then.
     var overlayVisible = false {
@@ -87,6 +93,8 @@ final class GamepadController: ObservableObject {
     private var recording = GamepadRecording()
     private var learningStart = Date()
     private var learningTimer: Timer?
+    /// The GameController controller of the model being learned, if it's known which one it is.
+    private weak var learningController: GCController?
     /// The report a press is compared with (see learnPress), the bits that change by themselves, and the first report
     /// that changed once the press was waited for.
     private var pressBaseline: (report: [UInt8], noise: [UInt8], firstChange: [UInt8]?)?
@@ -192,8 +200,8 @@ final class GamepadController: ObservableObject {
         scheduleApply()
     }
 
-    /// How each controller is opened: held while asked (and the overlay is shown, and no controller is being
-    /// learned), shared to read it otherwise, and not at all without a layout (GameController reads it then).
+    /// How each controller is opened: held while the overlay asks for it (if the overlay is shown and no controller is
+    /// being learned), opened just to read it otherwise, and not at all without a layout unless it's being learned.
     private func applyModes() {
         let hold = holdRequested && overlayVisible && learning == nil
         for pad in pads {
@@ -216,8 +224,8 @@ final class GamepadController: ObservableObject {
             IOHIDDeviceClose(pad.device, current)
         }
         pad.mode = nil
-        // Reopened (to hold it or let it go), its controls stay held until its next report says otherwise: the
-        // scan key that asked for the hold is still held then.
+        // When it's reopened (to hold it or let it go), its controls stay held until its next report says otherwise:
+        // the scan key that asked for the hold is still held at that point.
         if mode == nil { pad.pressed = [] }
         if let mode {
             var status = IOHIDDeviceOpen(pad.device, mode)
@@ -248,7 +256,10 @@ final class GamepadController: ObservableObject {
 
     private func deviceAdded(_ device: IOHIDDevice) {
         guard !pads.contains(where: { $0.device === device }) else { return }
-        pads.append(Pad(device: device))
+        let pad = Pad(device: device)
+        pads.append(pad)
+        // Another controller of the model being learned: their reports would mix (see Connected.count).
+        if learning?.key == pad.key { stopLearning(save: false) }
         updateConnected()
         scheduleApply()
     }
@@ -264,16 +275,17 @@ final class GamepadController: ObservableObject {
 
     private func updateConnected() {
         var seen = Set<String>()
-        connected = pads.filter { seen.insert($0.key).inserted }.map { Connected(id: $0.key, name: $0.name) }
+        connected = pads.filter { seen.insert($0.key).inserted }.map { first in
+            Connected(id: first.key, name: first.name, count: pads.filter { $0.key == first.key }.count)
+        }
     }
 
     private func report(_ bytes: [UInt8], from pad: Pad) {
         guard pad.mode != nil else { return }
-        let previous = pad.lastReport
         pad.lastReport = bytes
         if learning?.key == pad.key {
             recording.reports.append((Date().timeIntervalSince(learningStart), bytes))
-            checkPress(bytes, previous: previous)
+            checkPress(bytes)
         }
         guard let layout = layouts[pad.key], let pressed = layout.pressed(bytes), pressed != pad.pressed else { return }
         pad.pressed = pressed
@@ -292,9 +304,8 @@ final class GamepadController: ObservableObject {
     }
 
     private func gameControllerChanged(_ controller: GCController, _ profile: GCPhysicalInputProfile) {
-        guard active else { return }
+        guard active, let learning, controller === learningController else { return }
         let state = Self.state(profile)
-        guard let learning, learning.name == controller.vendorName else { return }
         recording.states.append(GamepadRecording.State(time: Date().timeIntervalSince(learningStart), pressed: state.pressed, analog: state.analog))
         if state.pressed != learning.held { self.learning?.held = state.pressed }
     }
@@ -368,13 +379,20 @@ final class GamepadController: ObservableObject {
     /// time (see learnPress).
     func startLearning(key: String) {
         stopLearning(save: false)
-        guard let pad = pads.first(where: { $0.key == key }) else { return }
-        let controller = GCController.controllers().first { $0.vendorName == pad.name }
-        let controls = controller.map { Self.controls($0.physicalInputProfile) }
+        let models = pads.filter { $0.key == key }
+        guard models.count == 1, let pad = models.first else { return }
+        // GameController doesn't say which device a controller is, so it's matched by name: its changes are only
+        // recorded when no other connected controller has that name (they would mix in the recording). Its controls
+        // are the model's either way.
+        let named = GCController.controllers().filter { $0.vendorName == pad.name }
+        let sharesName = named.count > 1 || pads.filter({ $0.name == pad.name }).count > 1
+        learningController = sharesName ? nil : named.first
+        let controls = named.first.map { Self.controls($0.physicalInputProfile) }
         recording = GamepadRecording()
         recording.analogButtons = controls?.analog ?? []
         learningStart = Date()
-        learning = Learning(key: key, name: pad.name, controls: controls?.names ?? GamepadControls.standard, hasGameController: controller != nil)
+        learning = Learning(key: key, name: pad.name, controls: controls?.names ?? GamepadControls.standard,
+                            hasGameController: learningController != nil, sharesName: sharesName && !named.isEmpty)
         scheduleApply()
         learningTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.relearn() }
@@ -388,20 +406,17 @@ final class GamepadController: ObservableObject {
 
     /// Learns `control` from its next press: whatever changes then in the controller's main report (see
     /// GamepadLearning.field), other than what changes by itself. That's the bits that changed in the half second
-    /// before (e.g. a stick's; not longer, as the user may have pressed this very button just before), and the whole of
-    /// a byte that changed in many of the reports of the two seconds before: a counter's top bit can stay the same for
-    /// over a second (a Switch Pro Controller's timer, in byte 1).
+    /// before (e.g. a stick's; not longer, as the user may have pressed this very button just before), and all of any
+    /// byte that changed in over a quarter of the reports of the two seconds before: a counter's top bit can stay the
+    /// same for over a second (a Switch Pro Controller's timer, in byte 1).
     func learnPress(_ control: String) {
         guard learning != nil, let pad = pads.first(where: { $0.key == learning?.key }) else { return }
         learning?.waitingFor = control
         let now = Date().timeIntervalSince(learningStart)
         let recentReports = recording.reports.filter { $0.time >= now - 2 }
-        // Other reports (e.g. a Switch controller's replies to the host) can have the same length and other bytes.
-        let ids = Dictionary(recentReports.map { ($0.bytes.first ?? 0, 1) }, uniquingKeysWith: +)
-        let id = ids.max { $0.value < $1.value }?.key ?? pad.lastReport.first ?? 0
+        let id = GamepadLearning.mainReportID(recentReports) ?? pad.lastReport.first ?? 0
         let timed = recentReports.filter { $0.bytes.first == id }
-        let reports = timed.map(\.bytes)
-        guard let baseline = reports.last ?? (pad.lastReport.first == id ? pad.lastReport : nil) else {
+        guard let baseline = timed.last?.bytes ?? (pad.lastReport.first == id ? pad.lastReport : nil) else {
             pressBaseline = nil
             return
         }
@@ -423,9 +438,9 @@ final class GamepadController: ObservableObject {
         pressBaseline = nil
     }
 
-    /// Once something changed for the control waited for, the report 150 ms later decides (an analog value is still
-    /// rising at first), or the first one that changed if the button was already let go.
-    private func checkPress(_ report: [UInt8], previous: [UInt8]) {
+    /// Once a report changes something for the control being waited for, the report 150 ms later decides its field (an
+    /// analog value is still rising at first), or that first changed report if the control was let go by then.
+    private func checkPress(_ report: [UInt8]) {
         guard let control = learning?.waitingFor, let baseline = pressBaseline, baseline.firstChange == nil,
               report.count == baseline.report.count, report.first == baseline.report.first,
               GamepadLearning.field(for: control, before: baseline.report, during: report, noise: baseline.noise) != nil else { return }
@@ -453,6 +468,7 @@ final class GamepadController: ObservableObject {
         relearn()
         let final = self.learning ?? learning
         self.learning = nil
+        learningController = nil
         pressBaseline = nil
         if let debugFolder {
             let url = URL(fileURLWithPath: debugFolder).appendingPathComponent("gamepad-\(final.key.replacingOccurrences(of: ":", with: "-"))-\(Int(Date().timeIntervalSince1970)).json")
@@ -463,8 +479,9 @@ final class GamepadController: ObservableObject {
         }
         if save {
             let controls = final.learned.merging(final.pressedOnce) { _, once in once }
-            let reportID = GamepadLearning.samples(recording).first?.report.first.map(Int.init)
-                ?? pads.first { $0.key == final.key }?.lastReport.first.map(Int.init) ?? 0
+            // Controls learned one press at a time (without GameController's state, so without samples) were too.
+            let reportID = (GamepadLearning.mainReportID(recording.reports) ?? pads.first { $0.key == final.key }?.lastReport.first)
+                .map(Int.init) ?? 0
             var layout = layouts[final.key].flatMap { $0.reportID == reportID ? $0 : nil } ?? GamepadLayout(name: final.name, reportID: reportID, controls: [:])
             layout.name = final.name
             layout.controls.merge(controls) { _, new in new }

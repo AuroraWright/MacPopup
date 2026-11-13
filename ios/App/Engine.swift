@@ -10,7 +10,7 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
     case screenAI = "screenai"
     case oneOCR = "oneocr"
     case ppocrManga = "ppocrmanga"
-    /// Online (CloudOCR, as the Mac's cloud recognition reads).
+    /// Online, with the requests of the Mac's cloud recognition (CloudOCR).
     case googleLens
     case bing
 
@@ -36,7 +36,7 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
     /// Screen AI's models need converting with scripts/convert-screenai.py's fix for that (see CoreMLModel).
     var readsContinuously: Bool { !isCloud }
 
-    /// Screen AI and OneOCR need the models the user converts on the Mac (loading them comes in a later version).
+    /// Screen AI and OneOCR need the models the user converts on the Mac, loaded in Settings (see ImportedModels).
     var isAvailable: Bool {
         switch self {
         case .liveText: MPLiveText.isAvailable()

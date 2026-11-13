@@ -61,7 +61,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "getSettings":
             return SettingsStore.shared.json
         case "setSettings":
-            guard let json = body["json"] as? String else { throw BridgeError("Missing json") }
+            guard let json = body["json"] as? String else { throw AppError("Missing json") }
             SettingsStore.shared.update(json: json)
             return nil
         case "http":
@@ -90,24 +90,25 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             if let image = try await host?.ocrWindowScreenshot(fullResolution: fullResolution) {
                 return try ScreenCapture.encode(image, format: format, quality: quality).base64EncodedString()
             }
-            guard let displayID = host?.overlayDisplayID() else { throw BridgeError("No display") }
+            guard let displayID = host?.overlayDisplayID() else { throw AppError("No display") }
             let data = try await ScreenCapture.capture(displayID: displayID, fullResolution: fullResolution, format: format, quality: quality)
             return data.base64EncodedString()
         case "mediaClip":
             guard let source = body["source"] as? [String: Any],
                   let start = (body["start"] as? NSNumber)?.doubleValue, let end = (body["end"] as? NSNumber)?.doubleValue
-            else { throw BridgeError("Missing source or range") }
+            else { throw AppError("Missing source or range") }
             let audio = try MediaClip.Source(source, socket: body["socket"] as? String)
             return try await MediaClip.audio(audio, start: start, end: end).base64EncodedString()
         case "mediaFrame":
             guard let source = body["source"] as? [String: Any], let time = (body["time"] as? NSNumber)?.doubleValue
-            else { throw BridgeError("Missing source or time") }
+            else { throw AppError("Missing source or time") }
             let video = try MediaClip.Source(source, socket: body["socket"] as? String)
             let png = body["format"] as? String == "png"
             let quality = (body["quality"] as? NSNumber)?.doubleValue ?? 92
             return try await MediaClip.frame(video, time: time, png: png, quality: quality).base64EncodedString()
         case "clipboard":
-            let pasteboard = NSPasteboard.general
+            // Anki's {clipboard-text} and {clipboard-image} fields (a test instance's own pasteboard in tests).
+            let pasteboard = ClipboardMonitor.pasteboard
             var result: [String: Any] = [:]
             if let text = pasteboard.string(forType: .string) {
                 result["text"] = text
@@ -138,17 +139,11 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             guard SettingsStore.shared.dictionary["sentenceAudioEnabled"] as? Bool == true else { return nil }
             host?.pressSentenceAudioShortcut()
             return nil
-        case "openURL":
-            guard let string = body["url"] as? String, let url = URL(string: string) else {
-                throw BridgeError("Invalid URL")
-            }
-            NSWorkspace.shared.open(url)
-            return nil
         case "openMedia":
             // A dictionary image clicked in a popup, which Yomitan opens in a new tab: in its default app, from a
             // temporary copy named after it.
             guard let content = body["content"] as? String, let data = Data(base64Encoded: content) else {
-                throw BridgeError("Invalid media")
+                throw AppError("Invalid media")
             }
             let name = ((body["path"] as? String ?? "") as NSString).lastPathComponent
             let file = FileManager.default.temporaryDirectory
@@ -173,12 +168,12 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "debugSnapshot":
             // Development hook, only available together with MACPOPUP_TEST_SCRIPT.
             guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil,
-                  let path = body["path"] as? String, let host else { throw BridgeError("Unavailable") }
+                  let path = body["path"] as? String, let host else { throw AppError("Unavailable") }
             try await host.snapshotOverlay().write(to: URL(fileURLWithPath: path))
             return nil
         case "debugMouse":
             guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
-                throw BridgeError("Unavailable")
+                throw AppError("Unavailable")
             }
             host.simulateMouse(
                 x: (body["x"] as? NSNumber)?.doubleValue ?? 0,
@@ -188,7 +183,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             return ["ignoresMouseEvents": host.overlayIgnoresMouseEvents]
         case "debugSentenceAudio":
             guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
-                throw BridgeError("Unavailable")
+                throw AppError("Unavailable")
             }
             host.pressSentenceAudioShortcut()
             return nil
@@ -208,13 +203,13 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             if let json = body["json"] as? String { OCRDebugLog.append(json) }
             return nil
         default:
-            throw BridgeError("Unknown command \(cmd)")
+            throw AppError("Unknown command \(cmd)")
         }
     }
 
     private func http(_ body: [String: Any]) async throws -> [String: Any] {
         guard let string = body["url"] as? String, let url = URL(string: string) else {
-            throw BridgeError("Invalid URL")
+            throw AppError("Invalid URL")
         }
         var request = URLRequest(url: url, timeoutInterval: (body["timeout"] as? NSNumber)?.doubleValue ?? 30)
         request.httpMethod = body["method"] as? String ?? "POST"
@@ -237,8 +232,3 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 }
 
-struct BridgeError: LocalizedError {
-    let message: String
-    init(_ message: String) { self.message = message }
-    var errorDescription: String? { message }
-}

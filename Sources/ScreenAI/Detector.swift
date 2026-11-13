@@ -810,9 +810,9 @@ private func assignParagraphs(_ paras: [ParagraphPrediction], _ l1: inout [Level
 /// google_ocr::MergedBoxesStruct (the fields used downstream).
 private struct MergedLine {
     var box = RBox()
-    /// Level-1 boxes (indices), cluster order.
+    /// Indices of the level-1 boxes, in cluster order.
     var l1: [Int] = []
-    /// Raw boxes.
+    /// The number of raw boxes.
     var count = 0
     var avgHeight: Float = 0, avgScore: Float = 0, minCos: Float = 1
     var leftPadding: Float = 0, rightPadding: Float = 0

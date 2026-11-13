@@ -19,7 +19,7 @@ private let chunkInput = pad + chunkWidth + pad  // 168
 private struct RecognizerConfig {
     var recognizerName = "", modelPath = "", labelMapPath = "", scriptId = ""
     var baseDirRtl = false
-    /// ctc_decoder_config with an LM: CtcBeamDecoder instead of greedy decoding
+    /// The config has a ctc_decoder_config with an LM: CtcBeamDecoder decodes instead of greedy decoding.
     var hasCtcDecoder = false
     var scriptNames: [String] = [], supportedScripts: [String] = [], contentTypeNames: [String] = []
     /// Output indices of the optional heads (0 = not used: the line gets default symbol boxes, no script/content
@@ -446,7 +446,7 @@ private final class ScriptRecognizer {
                     }
                 }
             }
-            // gated heads: keep the raw per-frame activations until all chunks of the line are merged
+            // The gated heads keep their raw per-frame activations until all the chunks of the line are merged.
             for j in 0..<batchSize where b0 + j < chunkData.count {
                 let r = refs[b0 + j]
                 let nf = (r.width + frameWidth - 1) / frameWidth
@@ -467,7 +467,7 @@ private final class ScriptRecognizer {
                 }
             }
         }
-        // reduce the gated heads: stored per frame as [act x C, gate]
+        // Reduces a gated head, stored per frame as [act x C, gate].
         func reduce(_ v: [Float], _ frames: Int) -> [Float] {
             if v.isEmpty || frames == 0 { return v }
             let stride = v.count / frames
@@ -547,7 +547,7 @@ private func beamDecode(_ L: LineTensors, _ dec: CTCBeamDecoder) -> [DecodedLabe
         let v = row.sorted(by: >)
         var j = 0
         while j < k && Int(rintf(rid[rid.startIndex + j])) != l.label { j += 1 }
-        if j == k { j = 0 }  // original: error status
+        if j == k { j = 0 }  // an error status in the original
         let logit = row[j]
         let conf = 1 / eigenSumExp(v.map { $0 - logit })
         labels.append(DecodedLabel(id: l.label, frame: l.frame, prob: conf))
@@ -614,7 +614,7 @@ private func orientationFromAngle(_ a: Float) -> Int {
 }
 
 private struct LineDecode {
-    /// line-relative boxes
+    /// Their boxes are relative to the line.
     var symbols: [RecSymbol] = []
     var text = ""
     var confidence: Float = 0
@@ -653,7 +653,7 @@ private func decodeLine(_ L: LineTensors, _ r: ScriptRecognizer, _ line: GrayIma
         height = h2
     }
     let have = !left.isEmpty && !right.isEmpty && !top.isEmpty && !height.isEmpty
-    // first non-space label's vertical extent (for space symbols)
+    // The vertical extent of the first label that isn't a space, which space symbols get.
     var nsTop = 0, nsH = Int(H)
     for l in labels {
         guard let s = r.label(l.id), s != " " else { continue }
@@ -761,7 +761,7 @@ private func scaleLineBoxes(_ f: Float, _ symbols: inout [RecSymbol], _ words: i
 
 final class LineRecognizer {
     private let resources: Resources
-    /// recognizer key -> config file (MultiPassLineRecognitionMutatorConfig)
+    /// The config file of each recognizer key (MultiPassLineRecognitionMutatorConfig).
     private var configFiles: [String: String] = [:]
     private var defaultKey = ""
     private var maximumIterations = 0
@@ -822,9 +822,10 @@ final class LineRecognizer {
         }
     }
 
-    /// How many script recognizers stay loaded besides the default one. On iOS each holds GPU memory of its own once it
-    /// has run, and pictures with lines in several scripts kept loading more (1.1 GB for screenshots of Japanese games
-    /// on an iPhone 15 Pro Max), so the least recently used one is let go and loaded again when it's needed.
+    /// How many script recognizers stay loaded besides the default one. On iOS each holds memory of its own once it
+    /// has run (on the GPU, unless the models run on the CPU), and pictures with lines in several scripts kept loading
+    /// more (1.1 GB for screenshots of Japanese games on an iPhone 15 Pro Max), so the least recently used one is let
+    /// go and loaded again when it's needed.
     #if os(iOS)
     private static let keptRecognizers = 2
     #else
@@ -886,13 +887,13 @@ final class LineRecognizer {
     private struct LineState {
         var decode = LineDecode()
         var words: [RecWord] = []
-        /// recognizer used
+        /// The recognizer used.
         var key = ""
-        /// line image of the first pass (every pass starts from it)
+        /// The line image of the first pass (every pass starts from it).
         var baseImage = GrayImage()
-        /// line-image -> page pixels (1000 / detection_image_scale)
+        /// Line-image pixels to page pixels (1000 / detection_image_scale).
         var boxScale: Float = 1
-        /// box turned by 180 degrees (direction head) since the first pass
+        /// The box was turned by 180 degrees (by the direction head) since the first pass.
         var flipped = false
     }
 

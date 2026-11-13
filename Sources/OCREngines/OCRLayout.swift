@@ -591,7 +591,7 @@ public enum OCRLayout {
         // How far a half-cell is from empty, for placing a character in it: a faint glyph (a small "。") can have a
         // little less ink than counts as text.
         let fill = (0..<units).map { min(max(ink($0, past: true) * 2 - 1, 0), 1) }
-        guard !chars.isEmpty, units > 0 else { return narrowed() }
+        guard units > 0 else { return narrowed() }
         // A run of dots, dashes or tildes is one item, which takes from one cell up to one per character:
         // Live Text often reads an ellipsis or a long dash as more characters than the cells it's drawn
         // in (e.g. "……" as seven "・"). As when matching WebSocket lines (see web/src/lib/ocr-layer.js).
@@ -621,7 +621,7 @@ public enum OCRLayout {
             // the grid, 1 off it before a half-width character and 2 off it after one (see offGridCost).
             var cost = [[Double]](repeating: [Double](repeating: .infinity, count: (units + 1) * 3), count: m)
             var from = [[(state: Int, start: Int)]](repeating: [(state: Int, start: Int)](repeating: (-1, -1), count: (units + 1) * 3), count: m)
-            // How many items up to `item` are off the grid on the best way to its `state`: fewer than half.
+            // Whether fewer than half of the items up to `item` are off the grid on the best way to its `state`.
             func isMinority(_ item: Int, _ state: Int) -> Bool {
                 var count = 0, item = item, state = state
                 while item >= 0, state >= 0, state % 3 != 0 {

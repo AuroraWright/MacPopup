@@ -387,20 +387,21 @@ func estimateWordColors(_ img: GrayImage, _ symbols: [RecSymbol], _ words: inout
             }
             return n
         }
-        // above
+        // Above the word.
         let a0 = max(0, Int(Float(cb.top) - m))
         var bgN = sample(cb.left, cb.right, a0, cb.top, (cb.top - a0) * (cb.right - cb.left), &bgHist, &lists[1])
-        // below
+        // Below it.
         let b1 = min(H, Int(m + Float(cb.bottom)))
         bgN += sample(cb.left, cb.right, cb.bottom + 1, b1, (b1 - (cb.bottom + 1)) * (cb.right - cb.left), &bgHist,
                       &lists[2])
-        // right, up to this word's break
+        // To its right, up to this word's break.
         var lim = W
         if let bb = word.brk?.box { lim = min(lim, bb.left + bb.width) }
         lim = min(lim, Int(m + Float(cb.right)))
         bgN += sample(cb.right + 1, lim, cb.top, cb.bottom, (lim - (cb.right + 1)) * (cb.bottom - cb.top), &bgHist,
                       &lists[3])
-        // left, from the previous word's break
+        // To its left, from the previous word's break. As in Chrome's EstimateWordColorsSymbolAware, this one goes into
+        // the same list as the one below, and over the rows from the image's top.
         var prev = 0
         if wi > 0, let pb = words[wi - 1].brk?.box { prev = max(0, pb.left) }
         let lo = max(prev, Int(Float(cb.left) - m))

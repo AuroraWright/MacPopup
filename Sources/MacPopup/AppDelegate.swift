@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         schemeHandler = WebAssetsSchemeHandler(root: WebViewFactory.webRoot)
         bridge.host = self
 
-        // Both web views share one configuration, so they share the bridge and the asset scheme.
+        // The overlay's web view, with the bridge and the asset scheme.
         let configuration = WebViewFactory.makeConfiguration(bridge: bridge, schemeHandler: schemeHandler)
         overlay = OverlayController(configuration: configuration)
         settingsWindow = SettingsWindowController { [weak self] in self?.ocr.selectWindow() }
@@ -168,7 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         let image = try await overlay.webView.takeSnapshot(configuration: nil)
         guard let tiff = image.tiffRepresentation,
               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
-            throw BridgeError("Snapshot failed")
+            throw AppError("Snapshot failed")
         }
         return png
     }
@@ -210,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         }
         let websocketLines = connected ? connectedWebsockets.map { "WebSocket: \($0) connected" } : ["No WebSocket connected"]
 
-        // Lines that can't be chosen, one for each WebSocket.
+        // Lines that can't be chosen: the Yomitan API's, then one for each WebSocket.
         if let menu = statusItem.menu {
             for item in statusLines { menu.removeItem(item) }
             statusLines = ([yomitanStatus] + websocketLines).map { title in

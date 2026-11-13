@@ -29,10 +29,6 @@ async function call(path, body = {}, signal = null) {
 	return JSON.parse(text);
 }
 
-export function yomitanVersion() {
-	return call('yomitanVersion');
-}
-
 /** Aborting `signal` (for a line that's gone) drops the request if it's still waiting its turn. */
 export async function tokenize(text, signal = null) {
 	const { scanLength, parser } = getSettings();

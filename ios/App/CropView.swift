@@ -20,13 +20,12 @@ struct CropView: View {
     @State private var dragStart: CGRect?
     private let image: UIImage
 
-    init(picture: Picture, title: String = "Crop", action: String = "Read", initial: CGRect? = nil, done: @escaping (CGRect) -> Void) {
+    init(picture: Picture, title: String = "Crop", action: String = "Read", done: @escaping (CGRect) -> Void) {
         self.picture = picture
         self.title = title
         self.action = action
         self.done = done
         image = UIImage(cgImage: picture.image)
-        _crop = State(initialValue: initial ?? CGRect(x: 0, y: 0, width: 1, height: 1))
     }
 
     var body: some View {

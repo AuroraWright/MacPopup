@@ -33,7 +33,7 @@ function escapeQuery(text) {
 	return text.replace(/"/g, '');
 }
 
-export function getNoteQuery(note) {
+function getNoteQuery(note) {
 	let query = '';
 	switch (note.options?.duplicateScope) {
 		case 'deck':
@@ -54,7 +54,7 @@ export async function findNoteIds(notes) {
 	const byQuery = new Map();
 	queries.forEach((query, i) => {
 		const result = results[i];
-		// (Rather than no duplicates, e.g. for an action AnkiConnect turned down.)
+		// An error fails the check rather than counting as no duplicates (e.g. an action AnkiConnect turned down).
 		if (typeof result?.error === 'string') throw new Error(result.error);
 		byQuery.set(query, Array.isArray(result) ? result : Array.isArray(result?.result) ? result.result : []);
 	});

@@ -103,7 +103,7 @@ enum PostFilter {
             }
             let hx = comp.filter { lines[$0].isHorizontal }, vy = comp.filter { !lines[$0].isHorizontal }
             if hx.isEmpty || vy.isEmpty { continue }
-            // the language-model scores are 0 without decoder models
+            // The language-model scores are 0 without decoder models.
             let confX = hx.reduce(0.0) { $0 + lines[$1].lineScore } / Double(hx.count)
             let confY = vy.reduce(0.0) { $0 + lines[$1].lineScore } / Double(vy.count)
             let charsX = Double(hx.reduce(0) { $0 + counts[$1] }), charsY = Double(vy.reduce(0) { $0 + counts[$1] })

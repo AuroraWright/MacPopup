@@ -17,19 +17,19 @@ enum MediaClip {
         init(_ body: [String: Any], socket: String?) throws {
             let stream = (body["stream"] as? NSNumber)?.intValue
             if let file = body["file"] as? String, let stream {
-                guard (0...999).contains(stream) else { throw BridgeError("Invalid stream") }
+                guard (0...999).contains(stream) else { throw AppError("Invalid stream") }
                 self = .file(file, stream: stream)
             } else if let string = body["url"] as? String, let stream {
                 guard let url = URL(string: string), ["http", "https"].contains(url.scheme?.lowercased()),
                       (0...999).contains(stream)
-                else { throw BridgeError("Invalid stream URL") }
+                else { throw AppError("Invalid stream URL") }
                 self = .url(url, stream: stream, headers: Self.headers(body["headers"]), proxy: Self.proxy(body["proxy"]))
             } else if let key = body["fragments"] as? String {
                 self = .fragments(key: key, socket: try Self.localSocket(socket))
             } else if let key = body["cache"] as? String {
                 self = .cache(key: key, socket: try Self.localSocket(socket))
             } else {
-                throw BridgeError("Invalid source")
+                throw AppError("Invalid source")
             }
         }
 
@@ -50,14 +50,14 @@ enum MediaClip {
         private static func localSocket(_ socket: String?) throws -> URL {
             guard let socket = socket.flatMap(URL.init(string:)), socket.scheme == "ws",
                   ["127.0.0.1", "localhost", "::1"].contains(socket.host ?? "")
-            else { throw BridgeError("No local WebSocket to ask the player for the line") }
+            else { throw AppError("No local WebSocket to ask the player for the line") }
             return socket
         }
     }
 
     static func audio(_ source: Source, start: Double, end: Double) async throws -> Data {
         guard start.isFinite, end.isFinite, start >= 0, end > start, end - start <= 600 else {
-            throw BridgeError("Invalid audio range")
+            throw AppError("Invalid audio range")
         }
         let output = ["-vn", "-sn", "-dn", "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-f", "ipod"]
         if let (part, offset) = try await playerPart(source, type: "audio", start: start, end: end) {
@@ -75,7 +75,7 @@ enum MediaClip {
     /// The frame shown at `time`, without subtitles, at the video's size (non-square pixels made square).
     /// - Parameter quality: JPEG quality, 0–100.
     static func frame(_ source: Source, time seconds: Double, png: Bool, quality: Double) async throws -> Data {
-        guard seconds.isFinite, seconds >= 0 else { throw BridgeError("Invalid time") }
+        guard seconds.isFinite, seconds >= 0 else { throw AppError("Invalid time") }
         // ffmpeg's JPEG quality scale goes from 2 (best) to 31.
         let scale = Int((2 + (100 - min(100, max(0, quality))) * 29 / 100).rounded())
         let output = ["-an", "-sn", "-dn", "-frames:v", "1", "-vf", "scale=trunc(iw*sar/2)*2:ih"]
@@ -119,7 +119,7 @@ enum MediaClip {
         case .file(let file, let stream):
             var isDirectory: ObjCBool = false
             guard file.hasPrefix("/"), FileManager.default.fileExists(atPath: file, isDirectory: &isDirectory), !isDirectory.boolValue else {
-                throw BridgeError("No video file at \(file)")
+                throw AppError("No video file at \(file)")
             }
             // "file:" so that a name with a colon isn't taken for a protocol.
             return ["-i", "file:" + file, "-map", "0:\(stream)"]
@@ -130,7 +130,7 @@ enum MediaClip {
                 + (proxy.map { ["-http_proxy", $0.absoluteString] } ?? [])
                 + ["-i", url.absoluteString, "-map", "0:\(stream)"]
         case .fragments, .cache:
-            throw BridgeError("The player’s part is read from its file")
+            throw AppError("The player’s part is read from its file")
         }
     }
 
@@ -145,7 +145,7 @@ enum MediaClip {
             guard line.hasPrefix("out_time_us=") else { return nil }
             return Double(line.dropFirst("out_time_us=".count)).map { $0 / 1_000_000 }
         }.last
-        guard let length, length > 0 else { throw BridgeError("The player’s cache had no audio to place the line by") }
+        guard let length, length > 0 else { throw AppError("The player’s cache had no audio to place the line by") }
         return end - length
     }
 
@@ -154,7 +154,7 @@ enum MediaClip {
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("macpopup-clip-\(UUID().uuidString).\(`extension`)")
         defer { try? FileManager.default.removeItem(at: output) }
         _ = try await ffmpeg(try arguments(output.path), what: what)
-        guard let data = try? Data(contentsOf: output), !data.isEmpty else { throw BridgeError("ffmpeg couldn’t \(what)") }
+        guard let data = try? Data(contentsOf: output), !data.isEmpty else { throw AppError("ffmpeg couldn’t \(what)") }
         return data
     }
 
@@ -162,7 +162,7 @@ enum MediaClip {
     private static func ffmpeg(_ arguments: [String], what: String) async throws -> String {
         let ffmpeg = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/ffmpeg")
         guard FileManager.default.isExecutableFile(atPath: ffmpeg.path) else {
-            throw BridgeError("This build of MacPopup has no ffmpeg (see scripts/build.sh)")
+            throw AppError("This build of MacPopup has no ffmpeg (see scripts/build.sh)")
         }
         let process = Process()
         process.executableURL = ffmpeg
@@ -188,7 +188,7 @@ enum MediaClip {
         let (standardOutput, standardError) = await (outputData, errorData)
         guard status == 0 else {
             let message = String(data: standardError, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            throw BridgeError("ffmpeg couldn’t \(what): \(message.isEmpty ? "status \(status)" : message)")
+            throw AppError("ffmpeg couldn’t \(what): \(message.isEmpty ? "status \(status)" : message)")
         }
         return String(data: standardOutput, encoding: .utf8) ?? ""
     }
@@ -208,14 +208,14 @@ private enum Player {
         guard let initSegment = (reply["init"] as? String).flatMap(URL.init(string:)), http(initSegment),
               !parts.isEmpty, parts.count <= 500, urls.count == parts.count, urls.allSatisfy(http),
               let first = (parts[0]["start"] as? NSNumber)?.doubleValue
-        else { throw BridgeError("IINA sent no fragments") }
+        else { throw AppError("IINA sent no fragments") }
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
         // The player's own Cookie header.
         configuration.httpShouldSetCookies = false
         if let proxy = MediaClip.Source.proxy(reply["proxy"]), let host = proxy.host {
-            guard proxy.user == nil else { throw BridgeError("A proxy with a password isn’t supported for DASH") }
+            guard proxy.user == nil else { throw AppError("A proxy with a password isn’t supported for DASH") }
             let port = proxy.port ?? 80
             configuration.connectionProxyDictionary = [
                 kCFNetworkProxiesHTTPEnable as String: true, kCFNetworkProxiesHTTPProxy as String: host,
@@ -233,7 +233,7 @@ private enum Player {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("macpopup-fragments-\(id).mp4")
         guard FileManager.default.createFile(atPath: file.path, contents: nil),
               let handle = try? FileHandle(forWritingTo: file)
-        else { throw BridgeError("Couldn’t save the video’s fragments") }
+        else { throw AppError("Couldn’t save the video’s fragments") }
         defer { try? handle.close() }
         do {
             for url in [initSegment] + urls {
@@ -241,7 +241,7 @@ private enum Player {
                 for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
                 let (data, response) = try await session.data(for: request)
                 guard let status = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(status) else {
-                    throw BridgeError("The video’s server refused a fragment")
+                    throw AppError("The video’s server refused a fragment")
                 }
                 try handle.write(contentsOf: data)
             }
@@ -257,10 +257,10 @@ private enum Player {
         let id = UUID().uuidString
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("macpopup-dump-\(id).mkv")
         let reply = try await ask(["dump": ["id": id, "key": key, "start": start, "end": end, "file": file.path]], id: id, socket: socket)
-        guard reply["file"] as? String == file.path else { throw BridgeError("IINA sent another file") }
+        guard reply["file"] as? String == file.path else { throw AppError("IINA sent another file") }
         guard let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0 else {
             try? FileManager.default.removeItem(at: file)
-            throw BridgeError("IINA couldn’t dump the line from its cache")
+            throw AppError("IINA couldn’t dump the line from its cache")
         }
         return file
     }
@@ -290,12 +290,12 @@ private enum Player {
             }
             group.addTask {
                 try await Task.sleep(for: .seconds(20))
-                throw BridgeError("IINA didn’t answer (is the player window still open?)")
+                throw AppError("IINA didn’t answer (is the player window still open?)")
             }
             defer { group.cancelAll() }
             return try await group.next()!
         }
-        if let error = reply["error"] as? String { throw BridgeError(error) }
+        if let error = reply["error"] as? String { throw AppError(error) }
         return reply
     }
 }

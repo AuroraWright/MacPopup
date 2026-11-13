@@ -25,13 +25,13 @@ function element(tag, className) {
 	return created;
 }
 
-/** Scales each reading's picture and text to the page's width. */
+// The functions that scale each reading's picture and text to the page's width, run again when it resizes.
 const fits = [];
 addEventListener('resize', () => fits.forEach((fit) => fit()));
 
 /**
  * Shows a reading ({image: {width, height}, lines, engine, language, createdAt}) in `container`, its picture at
- * `base`/image: the picture with the text layer, scaled together to the page's width. Returns its lines.
+ * `base`/image: the picture with the text layer, scaled together to the page's width. Returns its lines and its <img>.
  */
 function renderReading(container, base, reading) {
 	const { width, height } = reading.image;

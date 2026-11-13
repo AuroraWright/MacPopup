@@ -20,8 +20,6 @@ struct SettingsField: Identifiable {
         case number(min: Double? = nil, max: Double? = nil, step: Double? = nil)
         /// A fraction from 0 to 1, shown as a percentage.
         case percentSlider(step: Double)
-        /// A whole number in a range, shown as it is.
-        case slider(min: Double, max: Double, step: Double)
         case select([SettingsOption])
         /// A menu of numbers (option values are the numbers as text).
         case numberSelect([SettingsOption])
@@ -30,8 +28,6 @@ struct SettingsField: Identifiable {
         case textarea
         /// A list of strings, one per line.
         case lines
-        /// A JSON array.
-        case json
         /// Replacements applied to lines (see web/src/lib/replacements.js).
         case replacements
         /// Yomitan's audio sources, [{type, url, voice}] (see web/src/lib/audio-sources.js).
@@ -105,7 +101,7 @@ struct SettingsField: Identifiable {
     /// Shown across the whole width, below its label.
     var isWide: Bool {
         switch kind {
-        case .textarea, .lines, .json, .replacements, .audioSources, .scanInputs, .hotkeys, .terminationCharacters, .ankiTemplates, .gamepads: true
+        case .textarea, .lines, .replacements, .audioSources, .scanInputs, .hotkeys, .terminationCharacters, .ankiTemplates, .gamepads: true
         default: false
         }
     }
@@ -294,7 +290,7 @@ enum SettingsSchema {
                     SettingsField(
                         "ocrCloudEngine", "Cloud recognition (second pass)",
                         .select([SettingsOption("none", "None"), SettingsOption("googleLens", "Google Lens"), SettingsOption("bing", "Bing")]),
-                        hint: "Re-reads the dialogue area using Google Lens or Bing for higher accuracy after local OCR finishes. Because online lookups take about a second, text updates slightly later. Sends an image of the dialogue area to Google or Microsoft. Lines matched with a WebSocket line keep its text."
+                        hint: "Re-reads the dialogue area using Google Lens or Bing for higher accuracy after local OCR finishes. Because online lookups take about a second, text updates slightly later. Sends an image of the dialogue area to Google or Microsoft. Lines matched with a WebSocket line keep the WebSocket text."
                     ),
                     SettingsField(
                         "ocrResolution", "Capture resolution",
@@ -413,7 +409,7 @@ enum SettingsSchema {
                 ),
                 SettingsField("selectMatchedText", "Select matched text", .checkbox, hint: "Visually highlights the matched word while its popup is open."),
                 SettingsField(
-                    "parser", "Parse sentences using", .select([SettingsOption("scanning-parser", "Yomitan's internal parser"), SettingsOption("mecab", "MeCab")]),
+                    "parser", "Parse sentences using", .select([SettingsOption("scanning-parser", "Yomitan’s internal parser"), SettingsOption("mecab", "MeCab")]),
                     hint: "Yomitan’s internal parser parses sentence words using Yomitan’s dictionaries, by repeatedly detecting the longest term at the start of the sentence. Since grammatical structure is not taken into account, it can sometimes yield incorrect segmentation. MeCab is a third-party program which uses its own dictionaries and parsing algorithm, and may provide more accurate results (Japanese only). For MeCab, both MeCab and a native messaging component must be installed, and MeCab enabled in Yomitan’s settings."
                 ),
                 SettingsField(
@@ -685,7 +681,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "sentenceAudioField", "Sentence audio field", .ankiField,
-                        hint: "The Anki field for sentence audio: recorded from a game (Game Sentence Audio) or cut from a video in IINA (IINA Integration). It's only filled when empty."
+                        hint: "The Anki field for sentence audio: recorded from a game (Game Sentence Audio) or cut from a video in IINA (IINA Integration). It’s only filled in when it’s empty."
                     ),
                     SettingsField(
                         "screenshotFormat", "Screenshot format", .select([SettingsOption("png", "PNG"), SettingsOption("jpeg", "JPEG")]),
@@ -701,7 +697,7 @@ enum SettingsSchema {
             ),
             SettingsSection(
                 title: "Game Sentence Audio", symbol: "waveform",
-                description: "Press a shortcut to automatically record voice audio from your game to attach it to the Anki card you just created, in the sentence audio field chosen in Settings → Anki. MacPopup can switch to the game, press keys to open its dialogue backlog and wait for you to replay the voice line, record until the character finishes speaking, and close the backlog. It records the audio of the captured window (Settings → General), or of every app. Requires Accessibility permission, and permission to record system audio.",
+                description: "Press a shortcut to record a voice line from your game and attach it to the Anki card you just created, in the sentence audio field chosen in Settings → Anki. MacPopup can switch to the game, press keys to open its dialogue backlog and wait for you to replay the voice line, record until the character finishes speaking, and close the backlog. It records the audio of the captured window (Settings → General), or of every app. Requires Accessibility permission, and permission to record system audio.",
                 fields: [
                     SettingsField("sentenceAudioEnabled", "Enable sentence audio recording", .checkbox),
                     SettingsField(
@@ -718,7 +714,7 @@ enum SettingsSchema {
                         SettingsOption("none", "Don’t switch apps"),
                     ]), hint: "Brings the game to the front so it receives the backlog keystrokes."),
                     SettingsField(
-                        "sentenceAudioAppName", "Application name", .text(), hint: "Exact app name as shown in the Dock (e.g. Parallels Desktop).",
+                        "sentenceAudioAppName", "Application name", .text(), hint: "The app’s exact name as shown in the Dock (e.g. Parallels Desktop).",
                         showIf: { $0["sentenceAudioApp"] as? String == "named" }
                     ),
                     SettingsField(

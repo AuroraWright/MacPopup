@@ -140,7 +140,7 @@ final class OverlayController: NSObject {
         let screens = NSScreen.screens
         guard screens.count > 1 else { return }
         let current = screens.firstIndex(where: { $0.frame == panel.frame }) ?? 0
-        updateSetting("displayIndex", value: (current + 1) % screens.count)
+        SettingsStore.shared.update(["displayIndex": (current + 1) % screens.count])
     }
 
     var displayID: CGDirectDisplayID? {
@@ -183,7 +183,7 @@ final class OverlayController: NSObject {
         panel.level = Self.windowLevel(store.string("windowLevel"))
     }
 
-    static func windowLevel(_ name: String?) -> NSWindow.Level {
+    private static func windowLevel(_ name: String?) -> NSWindow.Level {
         switch name {
         case "floating": return .floating
         case "statusBar": return .statusBar
@@ -191,14 +191,6 @@ final class OverlayController: NSObject {
         case "shielding": return NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
         default: return .screenSaver
         }
-    }
-
-    private func updateSetting(_ key: String, value: Any) {
-        var dictionary = SettingsStore.shared.dictionary
-        dictionary[key] = value
-        guard let data = try? JSONSerialization.data(withJSONObject: dictionary),
-              let json = String(data: data, encoding: .utf8) else { return }
-        SettingsStore.shared.update(json: json)
     }
 
     @objc private func screenParametersChanged() {

@@ -70,7 +70,7 @@ function getPositionForVerticalText(sourceRect, frameWidth, frameHeight, viewpor
 	return { left, top, width, height, after, below };
 }
 
-export function getBoundingSourceRect(sourceRects) {
+function getBoundingSourceRect(sourceRects) {
 	if (sourceRects.length === 0) return { left: 0, top: 0, right: 0, bottom: 0 };
 	let { left, top, right, bottom } = sourceRects[0];
 	for (const rect of sourceRects.slice(1)) {

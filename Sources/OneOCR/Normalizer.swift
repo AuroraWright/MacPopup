@@ -59,7 +59,7 @@ final class TextLine {
     var lineSize = (0, 0)
     var mapper = LineMapper(origin: Pt(0, 0))
     var sourceHeight = 0.0
-    // set by the analyzer
+    // Set by the analyzer.
     var ocrMode = OCRMode.auto
     var orientationAmbiguous = false
     var scriptUnknown = false

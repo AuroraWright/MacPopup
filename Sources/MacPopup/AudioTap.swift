@@ -37,8 +37,8 @@ final class AudioTap {
         var aggregateID = AudioObjectID(kAudioObjectUnknown)
         var ioProcID: AudioDeviceIOProcID?
 
-        /// Records `objects` (Core Audio's process objects), or, when `exclusive`, every process but those
-        /// that plays on the default output device.
+        /// Records `objects` (Core Audio's process objects), or, when `exclusive`, what every process but
+        /// those plays on the default output device.
         init(exclusive: Bool, objects: [AudioObjectID], queue: DispatchQueue, onBuffer: @escaping (AVAudioPCMBuffer) -> Void) throws {
             self.exclusive = exclusive
             self.objects = objects
@@ -59,7 +59,7 @@ final class AudioTap {
                   let tapFormat = AVAudioFormat(streamDescription: &streamDescription),
                   let format = AVAudioFormat(standardFormatWithSampleRate: tapFormat.sampleRate, channels: tapFormat.channelCount) else {
                 AudioHardwareDestroyProcessTap(tapID)
-                throw SentenceAudioError("Couldn’t read the audio tap’s format")
+                throw AppError("Couldn’t read the audio tap’s format")
             }
             self.tapID = tapID
             self.format = format
@@ -192,7 +192,7 @@ final class AudioTap {
         onBuffer(buffer)
     }
 
-    /// The processes to tap: the app's (until it has played sound, none, by leaving them all out), or
+    /// The processes to tap: the app's (none until it has played sound, by leaving every process out), or
     /// every one but the app's.
     private func target() -> (exclusive: Bool, objects: [AudioObjectID], summary: String) {
         let all = Self.audioProcesses()
@@ -288,7 +288,7 @@ final class AudioTap {
     // MARK: Core Audio
 
     private static func check(_ status: OSStatus, _ action: String) throws {
-        guard status == noErr else { throw SentenceAudioError("Couldn’t \(action) (\(status))") }
+        guard status == noErr else { throw AppError("Couldn’t \(action) (\(status))") }
     }
 
     /// The UID of the default output device.

@@ -44,13 +44,13 @@ public final class OneOCREngine: @unchecked Sendable {
     /// On iOS the detector runs on the CPU: on the GPU its first prediction grew the app past its memory limit (3.3 GB
     /// on an iPhone 15 Pro Max, iOS 27.2), where the Mac stays under 0.5 GB.
     #if os(iOS)
-    private static let detectorUnits = MLComputeUnits.cpuOnly
+    static let detectorUnits = MLComputeUnits.cpuOnly
     #else
-    private static let detectorUnits = MLComputeUnits.cpuAndGPU
+    static let detectorUnits = MLComputeUnits.cpuAndGPU
     #endif
 
-    /// Loads the models from an unpacked models archive; with `cpuOnly`, the detector runs on the CPU on the Mac too (the
-    /// other models always do).
+    /// Loads the models from an unpacked models archive. The detector runs on the Mac's GPU, or on the CPU with
+    /// `cpuOnly`; the other models always run on the CPU.
     public init(modelsDirectory: URL, cpuOnly: Bool = false) throws {
         let files = ModelFiles(root: modelsDirectory)
         let cfg = try files.json("config.json")
@@ -191,6 +191,7 @@ public final class OneOCREngine: @unchecked Sendable {
         }
         var out: [(TextLine, OcrLine)] = []
         var ci = 0
+        // oneocr.dll reads this environment variable too, with the same default.
         let ratio = Double(ProcessInfo.processInfo.environment["MAX_LINE_COUNT_BATCH_SIZE_RATIO"] ?? "") ?? 1.1
         while out.count < Self.maxLineCount {
             let target = max(4, Int((Double(Self.maxLineCount - out.count) * ratio + 0.5).rounded(.down)))

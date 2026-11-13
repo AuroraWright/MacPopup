@@ -2,7 +2,7 @@ import AppKit
 import AVFoundation
 import SoundAnalysis
 
-/// Records a game's voice line for the sentence audio of the cards just added (Settings → Sentence
+/// Records a game's voice line for the sentence audio of the cards just added (Settings → Game Sentence
 /// Audio): a shortcut switches to the game, presses the keys that open its backlog (where the line is
 /// replayed), records the game's audio until the voice ends, closes the backlog again, and adds the
 /// recording to the newest Anki cards with the same sentence.
@@ -261,11 +261,11 @@ final class SentenceAudioController {
     /// format fills with the sentence.
     private func addToCards(_ url: URL) async throws -> Int {
         let settings = settings
-        guard settings["ankiEnabled"] as? Bool ?? true else { throw SentenceAudioError("Anki integration is off (Settings → Anki)") }
+        guard settings["ankiEnabled"] as? Bool ?? true else { throw AppError("Anki integration is off (Settings → Anki)") }
         let audioField = string("sentenceAudioField", "SentenceAudio")
-        guard !audioField.isEmpty else { throw SentenceAudioError("Choose the sentence audio field in Settings → Anki") }
+        guard !audioField.isEmpty else { throw AppError("Choose the sentence audio field in Settings → Anki") }
         let sentenceFields = try await AnkiConnect.sentenceFields(settings: settings)
-        guard !sentenceFields.isEmpty else { throw SentenceAudioError("No Yomitan card format has a field with {sentence}") }
+        guard !sentenceFields.isEmpty else { throw AppError("No Yomitan card format has a field with {sentence}") }
         let query = "added:1 \(Self.fieldQuery(audioField))"
         let ids = try await AnkiConnect.invoke("findNotes", ["query": query], settings: settings) as? [NSNumber] ?? []
         let notes = (try await AnkiConnect.invoke("notesInfo", ["notes": ids], settings: settings) as? [[String: Any]] ?? []).filter {
@@ -279,13 +279,13 @@ final class SentenceAudioController {
         }
         func noteId(_ note: [String: Any]) -> Int64 { (note["noteId"] as? NSNumber)?.int64Value ?? 0 }
         guard let newest = notes.max(by: { noteId($0) < noteId($1) }) else {
-            throw SentenceAudioError("No card added today has the field \(audioField) and a sentence from Yomitan")
+            throw AppError("No card added today has the field \(audioField) and a sentence from Yomitan")
         }
         let newestSentence = sentence(newest)
         let targets = notes.filter {
             sentence($0) == newestSentence && field($0, audioField).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        guard !targets.isEmpty else { throw SentenceAudioError("The newest card already has sentence audio") }
+        guard !targets.isEmpty else { throw AppError("The newest card already has sentence audio") }
 
         let data = try Data(contentsOf: url)
         let stored = try await AnkiConnect.invoke(
@@ -341,11 +341,6 @@ final class SentenceAudioController {
 /// Logged to stderr, like the page's log messages.
 func sentenceAudioLog(_ message: String) {
     FileHandle.standardError.write("[sentence audio] \(message)\n".data(using: .utf8)!)
-}
-
-struct SentenceAudioError: LocalizedError {
-    let errorDescription: String?
-    init(_ message: String) { errorDescription = message }
 }
 
 /// One recording of an app's audio (or, for tests, a sound file played at its own pace), and the voice

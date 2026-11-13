@@ -14,7 +14,7 @@ public enum ConvertedModelsKind: String, CaseIterable {
         }
     }
 
-    /// Of the folder in Application Support/MacPopup.
+    /// The folder's name in Application Support/MacPopup.
     var folderName: String {
         switch self {
         case .screenAI: "ScreenAI"
@@ -22,7 +22,7 @@ public enum ConvertedModelsKind: String, CaseIterable {
         }
     }
 
-    /// The script that makes the zip, which writes this file (with the format's version) at its root.
+    /// The script that makes the zip.
     public var script: String {
         switch self {
         case .screenAI: "scripts/convert-screenai.py"
@@ -30,6 +30,7 @@ public enum ConvertedModelsKind: String, CaseIterable {
         }
     }
 
+    /// The file the script writes at the zip's root, with the format's version.
     var infoFileName: String {
         switch self {
         case .screenAI: "screenai.json"
@@ -122,7 +123,7 @@ public final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sen
     }
 
     /// Replaces the models with those in a zip made by the kind's script: unpacks it next to the models directory,
-    /// compiles its Core ML models for this Mac and checks that they load before swapping it in.
+    /// compiles its Core ML models for this device and checks that they load before swapping it in.
     public func installModels(from archive: URL) async throws {
         let manager = FileManager.default
         let parent = directory.deletingLastPathComponent()

@@ -15,7 +15,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// in Preview and Photos. It isn't public API for this use, so availability is checked at runtime.
 @interface MPLiveText : NSObject
 + (BOOL)isAvailable;
-/// Calls `completion` on the main queue with the recognized lines in reading order.
+/// Calls `completion` on the main queue with the recognized lines (not always in reading order: see
+/// OCRLayout.inReadingOrder).
 + (void)recognizeImage:(CGImageRef)image
                locales:(NSArray<NSString *> *)locales
             completion:(void (^)(NSArray<MPLiveTextItem *> *_Nullable lines, NSError *_Nullable error))completion;

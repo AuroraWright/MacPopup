@@ -5,16 +5,17 @@ import ScreenCaptureKit
 import UniformTypeIdentifiers
 
 /// Screen OCR mode: instead of showing the text box, MacPopup reads the text of another app's window
-/// with Live Text and lays an invisible copy of it over the window (see web/src/lib/ocr-layer.js), so
-/// hovering the window's own text opens popups. Without a captured window (Settings → General), it reads
-/// the whole screen the overlay is on instead, apart from MacPopup's own windows; "window" below then
-/// means that screen.
+/// with the engine chosen in Settings → OCR Mode (Live Text by default) and lays an invisible copy of it
+/// over the window (see web/src/lib/ocr-layer.js), so hovering the window's own text opens popups.
+/// Without a captured window (Settings → General), it reads the whole screen the overlay is on instead,
+/// apart from MacPopup's own windows; "window" below then means that screen.
 ///
-/// The window is captured with ScreenCaptureKit and watched for changes (all the time, or with "Watch
-/// after mouse use" while the mouse is used and, for the dialogue, after each reading of it). With a WebSocket connected, each new line is also the
-/// cue to read the window again; it doesn't replace watching, since the dialogue can go away (e.g. a
-/// menu opened) or show the line in parts, a click at a time. Recognition waits until the picture has
-/// stopped changing, since games often draw text gradually after the hooked line arrives.
+/// The window is captured with ScreenCaptureKit and watched for changes: all the time, or, with "Only
+/// check for changes after mouse activity", while the mouse is used and, for the dialogue, for a while
+/// after each reading of it. With a WebSocket connected, each new line is also the cue to read the window
+/// again; it doesn't replace watching, since the dialogue can go away (e.g. a menu opened) or show the
+/// line in parts, a click at a time. Recognition waits until the text has stopped changing, since games
+/// often draw text gradually after the hooked line arrives.
 ///
 /// With several regions, only the first is the dialogue that works that way. The others (e.g. menus or
 /// names) are assumed to appear at once: they're read as soon as they change.
@@ -28,7 +29,6 @@ final class OCRController {
 
     /// Thumbnails of the watched areas, used to tell whether the window changed.
     private struct Frame {
-        var time: Date
         var thumbnails: [[UInt8]]
         /// The width of each thumbnail.
         var widths: [Int]
@@ -49,12 +49,12 @@ final class OCRController {
     private var boundsChangedAt = Date.distantPast
     /// A WebSocket is connected and its lines are used: each is a cue to read the window.
     private var websocketConnected = false
-    /// The dialogue is watched until then, for "Watch for" after each reading of it, mouse used or not
-    /// (a line read as soon as it's still may not have been finished being drawn).
+    /// The dialogue is watched until then, for "Keep checking after activity for" after each reading of it,
+    /// whether the mouse was used or not (a line read as soon as it was still may not have been fully drawn).
     private var watchUntil = Date.distantPast
     private var lastCursorPoint: CGPoint?
-    /// With "Only check for changes after mouse activity", the window is only read until a while after the mouse was last used
-    /// (moved or clicked), not while it rests.
+    /// With "Only check for changes after mouse activity", the window is only read until a while after the
+    /// mouse was last used (moved or clicked), not while it rests.
     private var mouseActiveUntil = Date.distantPast
     /// The mouse started being used: check for changes right away.
     private var checkSoon = false
@@ -98,6 +98,8 @@ final class OCRController {
         }
         mouseActiveUntil = max(mouseActiveUntil, Date().addingTimeInterval(duration))
     }
+
+    /// The window state last sent to the page, so that it's only sent when it changes.
     private var lastSentWindowState = ""
 
     private var trackTimer: Timer?
@@ -186,7 +188,7 @@ final class OCRController {
             readAgain()
         } else if readsScreen {
             return
-        } else if let target, saved?["ownerName"] as? String != target.ownerName || saved?["title"] as? String ?? "" != target.title {
+        } else if let target, !Self.isSaved(target, saved) {
             self.target = nil
             restoreSavedTarget()
             readAgain()
@@ -225,18 +227,8 @@ final class OCRController {
         }
     }
 
-    private func updateSettings(_ changes: [String: Any]) {
-        var dictionary = SettingsStore.shared.dictionary
-        for (key, value) in changes {
-            dictionary[key] = value
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: dictionary),
-              let json = String(data: data, encoding: .utf8) else { return }
-        SettingsStore.shared.update(json: json)
-    }
-
     func setEnabled(_ enabled: Bool) {
-        updateSettings(["ocrMode": enabled])
+        SettingsStore.shared.update(["ocrMode": enabled])
     }
 
     // MARK: Lifecycle
@@ -246,8 +238,7 @@ final class OCRController {
             CGRequestScreenCaptureAccess()
         }
         // Another window may have been saved while OCR mode was off.
-        let saved = settings["ocrWindow"] as? [String: Any]
-        if let target, saved?["ownerName"] as? String != target.ownerName || saved?["title"] as? String ?? "" != target.title {
+        if let target, !Self.isSaved(target, settings["ocrWindow"] as? [String: Any]) {
             self.target = nil
         }
         restoreSavedTarget()
@@ -306,6 +297,11 @@ final class OCRController {
         guard let match = windows.first(where: { $0.title == title }) ?? windows.first else { return }
         target = Target(windowID: match.id, ownerName: match.ownerName, title: match.title)
         regions = Self.decodeRegions(settings["ocrRegions"])
+    }
+
+    /// Whether `target` is the window saved in the settings (`saved`, the "ocrWindow" setting).
+    private static func isSaved(_ target: Target, _ saved: [String: Any]?) -> Bool {
+        saved?["ownerName"] as? String == target.ownerName && saved?["title"] as? String ?? "" == target.title
     }
 
     private static func decodeRegions(_ value: Any?) -> [CGRect] {
@@ -371,7 +367,7 @@ final class OCRController {
                 ]
             }
             self.readAgain()
-            self.updateSettings(changes)
+            SettingsStore.shared.update(changes)
         }
     }
 
@@ -646,9 +642,8 @@ final class OCRController {
             }
             if !websocketConnected, !isWatchingDialogue, pendingCue != .immediate {
                 // Without WebSocket lines, wait until the mouse is used (or the dialogue was read, which
-                // watches it for a while). Readings that were asked for
-                // (e.g. after coming back from another space) wait too, but not the first one of a newly
-                // chosen window or screen.
+                // watches it for a while). Readings that were asked for (e.g. after coming back from another
+                // space) wait too, but not the first one of a newly chosen window or screen.
                 if !waitingForMouse {
                     waitingForMouse = true
                     log("waiting for the mouse\(pendingCue.map { " (\($0) pending)" } ?? "")")
@@ -696,7 +691,7 @@ final class OCRController {
     /// the picture to be still (which an animated background can keep it from being). Each reading goes
     /// to the page as provisional, which takes it as soon as it matches the WebSocket line.
     /// - Parameter cue: For a new line, the text only counts as settled once the picture changed, unless
-    ///   that doesn't happen within "Wait for a new line to appear" (the line may already be on screen):
+    ///   that doesn't happen within "Max wait for screen update" (the line may already be on screen):
     ///   until then it's the previous line's.
     private func settleAndRecognize(cue: Cue?) async {
         log("reading until settled for \(cue.map { "\($0)" } ?? "change")")
@@ -762,7 +757,7 @@ final class OCRController {
                 frames = []
             }
             if let (thumbnails, widths) = await thumbnailing.value {
-                frames.append(Frame(time: started, thumbnails: thumbnails, widths: widths))
+                frames.append(Frame(thumbnails: thumbnails, widths: widths))
             }
             if sawChange, let previous, started.timeIntervalSince(previous.time) >= settleTime {
                 log("settled after \(String(format: "%.2f", Date().timeIntervalSince(start)))s")
@@ -801,8 +796,9 @@ final class OCRController {
     /// often takes a second or more, too long for each reading while the text changes, which the local engine reads.
     /// Nothing of the dialogue is shown meanwhile. The page corrects the cloud reading with the WebSocket line as it
     /// would the local one, so the line's text gets the cloud reading's boxes. Lines the local engine read where the
-    /// cloud engine found nothing are kept. The local reading is sent when the cloud engine fails or reads nothing; neither is when the dialogue was read again since. A local reading with the text
-    /// of the one the last cloud reading replaced gets that one again right away.
+    /// cloud engine found nothing are kept. When the cloud engine fails or reads nothing, the local reading is sent
+    /// instead; when the dialogue was read again meanwhile, neither is. A local reading with the same text as the one
+    /// the last cloud reading replaced gets that cloud reading again right away.
     private func finishReading(_ image: CGImage?, frame: Frame?, areas indices: [Int], started: Date, extra: [String: Any] = [:]) {
         guard let engine = cloudEngine, let image, let frame, let bounds, let local = areaLines.first, !local.isEmpty,
               let crop = image.cropping(to: pixelRect(of: areas[0], in: image)) else {
@@ -1191,11 +1187,7 @@ final class OCRController {
                 onCPU[engine.rawValue] = system
                 showCrashNotice("\(engine.name) crashed MacPopup while loading, so it now runs on the CPU, which is slower.")
             } else {
-                var settings = SettingsStore.shared.dictionary
-                settings["ocrEngine"] = Engine.liveText.rawValue
-                if let data = try? JSONSerialization.data(withJSONObject: settings), let json = String(data: data, encoding: .utf8) {
-                    SettingsStore.shared.update(json: json)
-                }
+                SettingsStore.shared.update(["ocrEngine": Engine.liveText.rawValue])
                 showCrashNotice("\(engine.name) crashed MacPopup while loading, so OCR Mode now uses Live Text.")
                 return false
             }
@@ -1265,7 +1257,7 @@ final class OCRController {
                 if let lines {
                     continuation.resume(returning: lines)
                 } else {
-                    continuation.resume(throwing: error ?? BridgeError("Live Text failed"))
+                    continuation.resume(throwing: error ?? AppError("Live Text failed"))
                 }
             }
         }
@@ -1311,7 +1303,7 @@ final class OCRController {
             guard let image = try await captureImage(part: capturedPart, scale: scale),
                   let (thumbnails, widths) = thumbnails(of: image) else { return nil }
             captureFailures = 0
-            return (image, Frame(time: Date(), thumbnails: thumbnails, widths: widths))
+            return (image, Frame(thumbnails: thumbnails, widths: widths))
         } catch {
             log("capture failed: \(error)")
             // A single failure can happen while windows change (e.g. switching spaces); report it
@@ -1458,7 +1450,6 @@ final class OCRController {
             reference.thumbnails[index] = frame.thumbnails[index]
             reference.widths[index] = frame.widths[index]
         }
-        reference.time = frame.time
         lastRecognizedFrame = reference
     }
 

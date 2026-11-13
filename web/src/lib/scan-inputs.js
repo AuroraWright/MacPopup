@@ -14,7 +14,7 @@ export const modifierNames = ['meta', 'ctrl', 'alt', 'shift'];
 
 export const lookupNames = ['terms', 'kanji'];
 
-export function isMouseButton(name) {
+function isMouseButton(name) {
 	return /^mouse[0-5]$/.test(name);
 }
 
@@ -72,7 +72,7 @@ export function matchScanInput(mode, customInputs, state) {
 }
 
 /** Whether any active scan input uses the right mouse button (whose context menu should then be suppressed). */
-export function usesRightMouseButton(settings) {
+function usesRightMouseButton(settings) {
 	return [
 		[settings.scanModifier, settings.scanInputs],
 		[settings.popupScanModifier, settings.popupScanInputs],
