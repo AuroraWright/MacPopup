@@ -11,13 +11,17 @@ final class SettingsStore {
     private var observers: [(String) -> Void] = []
 
     private(set) var json: String
+    /// `json` parsed: once per change, as some settings are read many times a second (e.g. by screen OCR mode).
+    private(set) var dictionary: [String: Any]
 
     private init() {
         json = defaults.string(forKey: defaultsKey) ?? "{}"
+        dictionary = Self.parse(json)
     }
 
     func update(json newJSON: String) {
         json = newJSON
+        dictionary = Self.parse(newJSON)
         defaults.set(newJSON, forKey: defaultsKey)
         for observer in observers {
             observer(newJSON)
@@ -36,7 +40,7 @@ final class SettingsStore {
         observers.append(observer)
     }
 
-    var dictionary: [String: Any] {
+    private static func parse(_ json: String) -> [String: Any] {
         guard let data = json.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return [:]

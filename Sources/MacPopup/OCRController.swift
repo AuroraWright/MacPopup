@@ -482,8 +482,11 @@ final class OCRController {
     }
 
     private static func windows(onScreenOnly: Bool) -> [WindowInfo] {
-        let options: CGWindowListOption = onScreenOnly ? [.optionOnScreenOnly, .excludeDesktopElements] : [.optionAll, .excludeDesktopElements]
-        let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+        windows(onScreenOnly ? [.optionOnScreenOnly, .excludeDesktopElements] : [.optionAll, .excludeDesktopElements])
+    }
+
+    private static func windows(_ options: CGWindowListOption, relativeTo window: CGWindowID = kCGNullWindowID) -> [WindowInfo] {
+        let list = CGWindowListCopyWindowInfo(options, window) as? [[String: Any]] ?? []
         let ownPID = ProcessInfo.processInfo.processIdentifier
         return list.compactMap(windowInfo).filter {
             $0.layer == 0 && $0.ownerPID != ownPID && $0.bounds.width >= 40 && $0.bounds.height >= 40
@@ -605,7 +608,8 @@ final class OCRController {
 
     /// Whether another window is in front of the target where the cursor is, so its text can't be hovered.
     private func cursorMoved(to point: CGPoint) {
-        if point != lastCursorPoint {
+        let moved = point != lastCursorPoint
+        if moved {
             mouseUsed()
             lastCursorPoint = point
         }
@@ -613,17 +617,12 @@ final class OCRController {
             setCursorCovered(false)
             return
         }
-        guard Date().timeIntervalSince(lastCoverCheck) > 0.1 else { return }
+        // Windows can also come and go under a resting cursor, but that's checked less often (each check is a round
+        // trip to the window server).
+        guard Date().timeIntervalSince(lastCoverCheck) > (moved ? 0.1 : 0.5) else { return }
         lastCoverCheck = Date()
-        var covered = false
-        for window in Self.onScreenWindows() {
-            if window.id == target.windowID { break }
-            if window.bounds.contains(point) {
-                covered = true
-                break
-            }
-        }
-        setCursorCovered(covered)
+        let inFront = Self.windows([.optionOnScreenAboveWindow, .excludeDesktopElements], relativeTo: target.windowID)
+        setCursorCovered(inFront.contains { $0.bounds.contains(point) })
     }
 
     private func setCursorCovered(_ covered: Bool) {
