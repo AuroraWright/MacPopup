@@ -119,6 +119,14 @@ final class OCRController {
     /// MacPopup itself, left out when the whole screen is read.
     private var scOwnApps: [SCRunningApplication] = []
     private var captureFailures = 0
+    /// Where the checks for changes come from (see comparisonImage).
+    private var comparisonStream: CaptureStream?
+    /// When a check for changes last asked for a picture: the stream stops a while after.
+    private var lastComparison = Date.distantPast
+    /// After the stream failed, screenshots are taken instead until then.
+    private var streamRetryAt = Date.distantPast
+    /// A stream is being started (checks meanwhile take screenshots).
+    private var isStartingStream = false
     /// The window bounds `scWindow` and `scDisplay` were looked up for.
     private var scBounds: CGRect = .null
     /// The scale the window is read at: 1 when it's drawn at 1x (e.g. a VM or game that isn't Retina
@@ -211,6 +219,7 @@ final class OCRController {
 
     private func readAgain() {
         forgetCloudReading()
+        stopComparisonStream()
         scWindow = nil
         scDisplay = nil
         readingScale = nil
@@ -270,6 +279,7 @@ final class OCRController {
         trackTimer = nil
         loopTask?.cancel()
         loopTask = nil
+        stopComparisonStream()
         forgetCloudReading()
         overlay.preferredScreen = nil
         lastRecognizedFrame = nil
@@ -494,6 +504,7 @@ final class OCRController {
     }
 
     private func trackWindow() {
+        if comparisonStream != nil, Date().timeIntervalSince(lastComparison) > 1 { stopComparisonStream() }
         guard isEnabled, !isPicking else { return }
         if readsScreen {
             trackScreen()
@@ -1338,6 +1349,10 @@ final class OCRController {
             configuration.width = max(1, Int(partRect.width * scale))
             configuration.height = max(1, Int(partRect.height * scale))
             configuration.showsCursor = false
+            if scale == Self.comparisonScale,
+               let image = await comparisonImage(filter, configuration, key: "screen \(scDisplay.displayID) \(bounds) \(part)") {
+                return image
+            }
             return try await ScreenCapture.image(filter: filter, configuration: configuration)
         }
         guard let target else { return nil }
@@ -1349,7 +1364,52 @@ final class OCRController {
             scBounds = bounds
         }
         guard let scWindow else { return nil }
-        return try await Self.captureWindow(scWindow, display: scDisplay, bounds: bounds, part: part, scale: scale)
+        let (filter, configuration) = Self.captureSetup(scWindow, display: scDisplay, bounds: bounds, part: part, scale: scale)
+        if scale == Self.comparisonScale,
+           let image = await comparisonImage(filter, configuration, key: "window \(scWindow.windowID) \(bounds) \(part)") {
+            return image
+        }
+        return try await ScreenCapture.image(filter: filter, configuration: configuration)
+    }
+
+    /// The latest picture of a stream of what the checks for changes capture (see CaptureStream), started by the first
+    /// check and stopped a second after the last (see trackWindow), or when what's captured changes. Nil, for a
+    /// screenshot instead, until its first picture comes, and for a while after it failed.
+    private func comparisonImage(_ filter: SCContentFilter, _ configuration: SCStreamConfiguration, key: String) async -> CGImage? {
+        lastComparison = Date()
+        if let stream = comparisonStream, stream.key == key {
+            if !stream.hasStopped { return stream.latest }
+            log("capture stream stopped")
+            streamRetryAt = Date().addingTimeInterval(2)
+        }
+        stopComparisonStream()
+        guard Date() >= streamRetryAt, !isStartingStream else { return nil }
+        isStartingStream = true
+        defer { isStartingStream = false }
+        // Pictures as often as the loop checks at most (only when it changed), so they lag behind by little.
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 20)
+        do {
+            let stream = try CaptureStream(filter: filter, configuration: configuration, key: key)
+            try await stream.start()
+            // OCR mode may have stopped meanwhile (then nothing would stop the stream).
+            guard isEnabled, !Task.isCancelled else {
+                stream.stop()
+                return nil
+            }
+            comparisonStream = stream
+            log("capture stream started")
+        } catch {
+            log("capture stream failed: \(error)")
+            streamRetryAt = Date().addingTimeInterval(10)
+        }
+        return comparisonStream?.latest
+    }
+
+    private func stopComparisonStream() {
+        guard let stream = comparisonStream else { return }
+        stream.stop()
+        comparisonStream = nil
+        log("capture stream ended")
     }
 
     /// `part` (normalized) of a rectangle, relative to it.
@@ -1364,6 +1424,14 @@ final class OCRController {
     private static func captureWindow(
         _ scWindow: SCWindow, display scDisplay: SCDisplay?, bounds: CGRect, part: CGRect, scale: CGFloat
     ) async throws -> CGImage {
+        let (filter, configuration) = captureSetup(scWindow, display: scDisplay, bounds: bounds, part: part, scale: scale)
+        return try await ScreenCapture.image(filter: filter, configuration: configuration)
+    }
+
+    /// What `captureWindow` captures.
+    private static func captureSetup(
+        _ scWindow: SCWindow, display scDisplay: SCDisplay?, bounds: CGRect, part: CGRect, scale: CGFloat
+    ) -> (SCContentFilter, SCStreamConfiguration) {
         let filter: SCContentFilter
         let configuration = SCStreamConfiguration()
         // In window points.
@@ -1379,7 +1447,7 @@ final class OCRController {
         configuration.width = max(1, Int(partRect.width * scale))
         configuration.height = max(1, Int(partRect.height * scale))
         configuration.showsCursor = false
-        return try await ScreenCapture.image(filter: filter, configuration: configuration)
+        return (filter, configuration)
     }
 
     /// The captured window (Settings → General), whole, at its display's resolution or at 1x, for the

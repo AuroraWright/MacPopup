@@ -1,5 +1,6 @@
 import AppKit
 import ScreenCaptureKit
+import VideoToolbox
 
 /// Screenshots for the `{screenshot}` Anki marker, and ScreenCaptureKit's calls with a time limit.
 enum ScreenCapture {
@@ -16,7 +17,7 @@ enum ScreenCapture {
     /// ScreenCaptureKit's calls can, rarely, never return (once in OCR mode, which then stopped reading for good, since
     /// it waits for each capture). This gives up on `operation` after `seconds` with an error. It's left running, as it may
     /// not stop when cancelled, and what it returns then is dropped.
-    private static func limited<T>(seconds: Double = 5, _ operation: @escaping () async throws -> T) async throws -> T {
+    fileprivate static func limited<T>(seconds: Double = 5, _ operation: @escaping () async throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             let once = Once(continuation)
             let timer = Task {
@@ -87,5 +88,63 @@ enum ScreenCapture {
 extension NSScreen {
     var displayID: CGDirectDisplayID? {
         (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber).map { CGDirectDisplayID($0.uint32Value) }
+    }
+}
+
+/// One ScreenCaptureKit stream, for a picture that's captured often (screen OCR mode's checks for changes). A screenshot
+/// each time makes the system check the permission and update its recording indicator for every capture (tccd,
+/// ControlCenter, systemstatusd and replayd took about half a core between them at 10 a second); a stream does that once,
+/// and only sends a picture when it changed.
+final class CaptureStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+    /// What it captures: another stream is started when that changes.
+    let key: String
+    private var stream: SCStream!
+    private let queue = DispatchQueue(label: "com.aury.macpopup.capture-stream")
+    private let lock = NSLock()
+    private var pixels: CVPixelBuffer?
+    /// `pixels` as an image, made when it's asked for.
+    private var image: CGImage?
+    private var stopped = false
+
+    init(filter: SCContentFilter, configuration: SCStreamConfiguration, key: String) throws {
+        self.key = key
+        super.init()
+        stream = SCStream(filter: filter, configuration: configuration, delegate: self)
+        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+    }
+
+    func start() async throws {
+        try await ScreenCapture.limited { [stream] in try await stream!.startCapture() }
+    }
+
+    func stop() {
+        lock.withLock { stopped = true }
+        Task { [stream] in try? await stream!.stopCapture() }
+    }
+
+    /// The latest picture: nil until the first one came.
+    var latest: CGImage? {
+        lock.withLock {
+            if image == nil, let pixels { VTCreateCGImageFromCVPixelBuffer(pixels, options: nil, imageOut: &image) }
+            return image
+        }
+    }
+
+    /// Whether it stopped, by itself (e.g. the window closed) or with `stop()`.
+    var hasStopped: Bool { lock.withLock { stopped } }
+
+    func stream(_ stream: SCStream, didOutputSampleBuffer buffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        // Only complete frames have a picture: the others say it hasn't changed (idle) or can't be seen (blank, suspended).
+        let attachments = CMSampleBufferGetSampleAttachmentsArray(buffer, createIfNecessary: false) as? [[CFString: Any]]
+        let status = attachments?.first?[SCStreamFrameInfo.status.rawValue as CFString] as? Int
+        guard type == .screen, status == SCFrameStatus.complete.rawValue, let frame = CMSampleBufferGetImageBuffer(buffer) else { return }
+        lock.withLock {
+            pixels = frame
+            image = nil
+        }
+    }
+
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        lock.withLock { stopped = true }
     }
 }
