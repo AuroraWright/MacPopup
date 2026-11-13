@@ -5,7 +5,8 @@ import Darwin
 /// Records what some processes play, with a Core Audio process tap: an app with its helper
 /// processes, or every process but some. Apps often play their sound from another process (WebKit's GPU
 /// process for web views, a browser's helpers, Parallels' VM process), which ScreenCaptureKit's
-/// recording of an app leaves out.
+/// recording of an app leaves out. A Windows app in Parallels' Coherence mode has a window of its own
+/// helper app, which can't be told from the VM's process: the sound of every Parallels VM is recorded.
 ///
 /// A tap keeps recording the processes it was made with: Core Audio doesn't follow changes to them while
 /// it runs. So when the processes to record change (a process is added to the ones Core Audio knows
@@ -107,6 +108,8 @@ final class AudioTap {
 
     private let processes: Processes
     private let bundle: String?
+    /// A Windows app's helper in Parallels' Coherence mode, whose sound the VM's process plays.
+    private let isParallelsApp: Bool
     private let queue: DispatchQueue
     private let onBuffer: (AVAudioPCMBuffer) -> Void
     private var recorder: Recorder?
@@ -124,6 +127,9 @@ final class AudioTap {
         bundle = switch processes {
         case let .app(pid), let .allBut(pid): Self.bundlePath(of: pid)
         }
+        // Parallels runs the VM as root, so it isn't the helper's child, and the helper is in a folder of
+        // the user's, not in Parallels' app.
+        isParallelsApp = bundle.flatMap { Bundle(path: $0)?.bundleIdentifier }?.hasPrefix("com.parallels.winapp.") ?? false
         self.queue = queue
         self.onBuffer = onBuffer
     }
@@ -199,7 +205,9 @@ final class AudioTap {
         let app = switch processes {
         case let .app(pid), let .allBut(pid): pid
         }
-        let matching = all.filter { Self.belongs($0.pid, to: app, bundle: bundle) }
+        let matching = all.filter {
+            Self.belongs($0.pid, to: app, bundle: bundle) || (isParallelsApp && $0.bundleID == "com.parallels.vm")
+        }
         let pids = matching.map { "\($0.pid)" }.joined(separator: ", ")
         switch processes {
         case .app where matching.isEmpty:
@@ -229,8 +237,9 @@ final class AudioTap {
 
     // MARK: Processes
 
-    /// Core Audio's objects for the processes that have played or recorded sound, with their process IDs.
-    private static func audioProcesses() -> [(object: AudioObjectID, pid: pid_t)] {
+    /// Core Audio's objects for the processes that have played or recorded sound, with their process IDs
+    /// and bundle IDs.
+    private static func audioProcesses() -> [(object: AudioObjectID, pid: pid_t, bundleID: String)] {
         var address = address(kAudioHardwarePropertyProcessObjectList)
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr else { return [] }
@@ -238,7 +247,9 @@ final class AudioTap {
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &objects) == noErr else { return [] }
         return objects.compactMap { object in
             var pid: pid_t = -1
-            return get(object, kAudioProcessPropertyPID, &pid) == noErr ? (object, pid) : nil
+            var bundleID = "" as CFString
+            _ = get(object, kAudioProcessPropertyBundleID, &bundleID)
+            return get(object, kAudioProcessPropertyPID, &pid) == noErr ? (object, pid, bundleID as String) : nil
         }
     }
 
