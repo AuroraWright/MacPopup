@@ -17,6 +17,10 @@ final class OverlayPanel: NSPanel {
 /// Accepts the first click even though its window is never key and the app is never active.
 final class OverlayWebView: WKWebView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// No AppKit tooltips, which WebKit shows while the app is active (e.g. with Settings open): below the panel,
+    /// alongside the page's own (web/src/lib/tooltip.js).
+    override func addToolTip(_ rect: NSRect, owner: Any, userData data: UnsafeMutableRawPointer?) -> NSView.ToolTipTag { 0 }
 }
 
 /// Owns the overlay panel. The web page reports the rectangles that should receive the mouse

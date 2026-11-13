@@ -73,6 +73,8 @@ const state = {
 	paused: false,
 	nextId: 1,
 	renderKey: '',
+	// The order and writing direction the lines are laid out in, which settings can have changed since.
+	lineLayout: { reverseLineOrder: false, displayVertical: false },
 };
 
 function formatLineText(text, preserveWhitespace) {
@@ -100,7 +102,7 @@ function countLine(text, delta) {
 }
 
 function isScrolledToEnd() {
-	const settings = getSettings();
+	const settings = state.lineLayout;
 	const el = linesElement;
 	if (settings.displayVertical) {
 		return settings.reverseLineOrder ? el.scrollLeft >= -2 : Math.abs(el.scrollLeft) + el.clientWidth >= el.scrollWidth - 2;
@@ -264,15 +266,14 @@ function createLineElement(line, animate) {
 }
 
 function rerenderLines() {
-	const atEnd = isScrolledToEnd();
 	const settings = getSettings();
+	state.lineLayout = { reverseLineOrder: settings.reverseLineOrder, displayVertical: settings.displayVertical };
 	linesElement.textContent = '';
 	const ordered = settings.reverseLineOrder ? [...state.lines].reverse() : state.lines;
 	for (const line of ordered) {
 		line.element = createLineElement(line, false);
 		linesElement.append(line.element);
 	}
-	if (atEnd) scrollToEnd();
 }
 
 // WebSockets (same message format as texthooker-ui: raw text, or JSON with a `sentence` key). A video player's
@@ -1852,6 +1853,8 @@ function applySettings(settings) {
 	document.documentElement.lang = lang;
 	$('#ocr-text').lang = lang;
 	const shown = box.hidden && !settings.ocrMode;
+	// Before the font, writing direction or line order change the scroll position.
+	const atEnd = isScrolledToEnd();
 	box.hidden = !!settings.ocrMode;
 	$('#ocr-layer').classList.toggle('show-boxes', !!settings.ocrShowBoxes);
 	if (!settings.ocrMode) setOcrWindow({ visible: false });
@@ -1878,7 +1881,7 @@ function applySettings(settings) {
 		rerenderLines();
 	}
 	// It doesn't scroll while it's hidden in OCR mode, which keeps adding lines.
-	if (shown) scrollToEnd();
+	if (atEnd || shown) scrollToEnd();
 	syncSockets();
 	updateOcrWebsocket();
 	renderClipboardButton();

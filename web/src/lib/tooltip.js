@@ -1,7 +1,8 @@
-// Tooltips for titles. WebKit doesn't show them while the overlay's app isn't active, and it never is, so these
-// stand in for them, as AppKit shows WebKit's (NSToolTipPanel): 1.5 s after the pointer enters an element with a
-// title, or 0.25 s when it comes from another one whose tooltip shows; at the pointer and 19 px below it; hidden by
-// a press or scroll until the pointer moves to another element.
+// Tooltips for titles. WebKit doesn't show them while the overlay's app isn't active, which it usually isn't, and the
+// overlay turns them off for when it is (OverlayWebView in OverlayController.swift), so these stand in for them, as
+// AppKit shows WebKit's (NSToolTipPanel): 1.5 s after the pointer enters an element with a title, or 0.25 s when it
+// comes from another one whose tooltip shows; at the pointer and 19 px below it; hidden by a press or scroll until the
+// pointer moves to another element.
 
 // As AppKit's, which follow the system appearance: the 11 pt system font, and as measured on screen over pages of
 // several colors, the toolTip material (a tint over what's behind, blurred), its text (labelColor with vibrancy), and
