@@ -34,6 +34,8 @@ final class OverlayController: NSObject {
 
     private let uiDelegate = WebViewUIDelegate()
     private var hitRects: [CGRect] = []
+    /// Toasts waiting for the page (see showToast).
+    private var pendingToasts: [String] = []
     private var timer: Timer?
     private var lastMouseLocation = NSPoint(x: -1, y: -1)
     private var lastModifiers: NSEvent.ModifierFlags = []
@@ -166,6 +168,22 @@ final class OverlayController: NSObject {
 
     func evaluate(_ js: String) {
         webView.evaluateJavaScript(js)
+    }
+
+    /// Shows a message at the bottom of the text box (or of the OCR toast's place in OCR mode) for a few seconds; one
+    /// sent before the page can show it (e.g. as the app starts) waits for it (see pageReady).
+    func showToast(_ message: String) {
+        guard let data = try? JSONSerialization.data(withJSONObject: [message]), let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.__macpopupToast ? (window.__macpopupToast(...\(json)), true) : false") { [weak self] shown, _ in
+            if shown as? Bool != true { self?.pendingToasts.append(message) }
+        }
+    }
+
+    /// The page (re)loaded: it shows the toasts it missed.
+    func pageReady() {
+        let toasts = pendingToasts
+        pendingToasts = []
+        toasts.forEach(showToast)
     }
 
     func setHitRects(_ rects: [CGRect]) {

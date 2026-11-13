@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
             guard let data = try? JSONSerialization.data(withJSONObject: pressed.sorted()), let json = String(data: data, encoding: .utf8) else { return }
             self?.overlay.evaluate("window.__macpopupGamepad?.(\(json))")
         }
+        GamepadController.shared.onToast = { [weak self] message in self?.overlay.showToast(message) }
         yomitanAPI = YomitanAPIStatus()
         yomitanAPI.onChange = { [weak self] in self?.updateStatusIcon() }
 
@@ -149,6 +150,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     }
 
     func ocrMessage(_ body: [String: Any]) {
+        // The page tells OCR when it has (re)loaded.
+        if body["action"] as? String == "ready" { overlay.pageReady() }
         ocr.handle(body)
     }
 

@@ -54,6 +54,8 @@ final class GamepadController: ObservableObject {
     /// Called with the held controls when they change, for the overlay (not while Settings records a combination or
     /// learns a controller).
     var onChange: ((Set<String>) -> Void)?
+    /// Called with a message for the overlay to show (when another app holds a controller).
+    var onToast: ((String) -> Void)?
     /// Whether the overlay is shown: controllers are only held then.
     var overlayVisible = false {
         didSet { scheduleApply() }
@@ -66,6 +68,10 @@ final class GamepadController: ObservableObject {
         let buffer: UnsafeMutablePointer<UInt8>
         let bufferSize: Int
         var mode: IOOptionBits?
+        /// When it was found (connected, or already there when MacPopup started reading controllers).
+        let added = Date()
+        /// Whether another app holds it, so it can't even be read (see setMode).
+        var heldElsewhere = false
         var pressed: Set<String> = []
         var lastReport: [UInt8] = []
         var reportIDs: Set<Int> = []
@@ -93,6 +99,11 @@ final class GamepadController: ObservableObject {
     /// Whether the overlay asked for the controllers to be held.
     private var holdRequested = false
     private var applyScheduled = false
+    /// Whether opening the controllers that another app holds is tried again soon (see setMode).
+    private var retryScheduled = false
+    /// How long a controller isn't held after it's found. A game opens one as it connects, and its open would fail
+    /// while MacPopup holds it: SDL (which most games use) then goes without it until a controller connects again.
+    private static let holdDelay: TimeInterval = 2
     private var recording = GamepadRecording()
     private var learningStart = Date()
     private var learningTimer: Timer?
@@ -218,7 +229,8 @@ final class GamepadController: ObservableObject {
             if learning?.key == pad.key {
                 mode = IOOptionBits(kIOHIDOptionsTypeNone)
             } else if active, layouts[pad.key] != nil {
-                mode = IOOptionBits(hold ? kIOHIDOptionsTypeSeizeDevice : kIOHIDOptionsTypeNone)
+                let settled = Date().timeIntervalSince(pad.added) >= Self.holdDelay
+                mode = IOOptionBits(hold && settled ? kIOHIDOptionsTypeSeizeDevice : kIOHIDOptionsTypeNone)
             } else {
                 mode = nil
             }
@@ -238,12 +250,26 @@ final class GamepadController: ObservableObject {
         if mode == nil { pad.pressed = [] }
         if let mode {
             var status = IOHIDDeviceOpen(pad.device, mode)
-            if status != kIOReturnSuccess, mode != IOOptionBits(kIOHIDOptionsTypeNone) {
-                NSLog("MacPopup: couldn't hold \(pad.name) (0x%08x), reading it without", UInt32(bitPattern: status))
-                status = IOHIDDeviceOpen(pad.device, IOOptionBits(kIOHIDOptionsTypeNone))
-                if status == kIOReturnSuccess { pad.mode = IOOptionBits(kIOHIDOptionsTypeNone) }
-            } else if status == kIOReturnSuccess {
+            if status == kIOReturnSuccess {
                 pad.mode = mode
+            } else if mode != IOOptionBits(kIOHIDOptionsTypeNone) {
+                let held = IOHIDDeviceOpen(pad.device, IOOptionBits(kIOHIDOptionsTypeNone))
+                if held == kIOReturnSuccess {
+                    NSLog("MacPopup: couldn't hold \(pad.name) (0x%08x), reading it without", UInt32(bitPattern: status))
+                    pad.mode = IOOptionBits(kIOHIDOptionsTypeNone)
+                }
+                status = held
+            }
+            // Another app holds it: until it lets go, it can't be held or read. That isn't announced, so it's tried again.
+            let heldElsewhere = status == kIOReturnExclusiveAccess
+            if heldElsewhere, !pad.heldElsewhere { onToast?("Can’t use \(pad.name) while it’s held by another app") }
+            pad.heldElsewhere = heldElsewhere
+            if heldElsewhere, !retryScheduled {
+                retryScheduled = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    self?.retryScheduled = false
+                    self?.scheduleApply()
+                }
             }
             if pad.mode != nil {
                 let context = Unmanaged.passUnretained(pad).toOpaque()
@@ -267,6 +293,7 @@ final class GamepadController: ObservableObject {
         guard !pads.contains(where: { $0.device === device }) else { return }
         let pad = Pad(device: device)
         pads.append(pad)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.holdDelay) { [weak self] in self?.scheduleApply() }
         // Another controller of the model being learned: their reports would mix (see Connected.count).
         if learning?.key == pad.key { stopLearning(save: false) }
         updateConnected()

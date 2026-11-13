@@ -333,8 +333,7 @@ final class SentenceAudioController {
     }
 
     private func showToast(_ message: String) {
-        guard let data = try? JSONSerialization.data(withJSONObject: [message]), let json = String(data: data, encoding: .utf8) else { return }
-        overlay.evaluate("window.__macpopupToast?.(...\(json))")
+        overlay.showToast(message)
     }
 }
 
