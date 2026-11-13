@@ -1402,7 +1402,7 @@ function scanOcr(x, y, mods, lineElement) {
 
 // Game controllers (Gamepads.swift). The host sends the held controls by GameController's names ("Button A",
 // "Direction Pad Left", "Left Thumbstick Up"). The controller scan key's buttons give the text controller focus: the
-// D-pad (or left stick) then moves through the text box or OCR Mode text until they're pressed again. It moves by
+// D-pad (or a stick) then moves through the text box or OCR Mode text until they're pressed again. It moves by
 // character (a cursor whose word is looked up once it rests) or by word, as Scan resolution says; either way, the
 // popup opens once it rests for gamepadPopupDelay. Popup shortcuts can have buttons too. While the text has controller
 // focus, or a popup with such shortcuts is open, the host holds the controllers, so the game doesn't get their presses.
@@ -1431,10 +1431,11 @@ const gamepad = {
 	ocrMode: null,
 };
 
-const isDirectionControl = (name) => /^(Direction Pad|Left Thumbstick|Right Thumbstick) (Up|Down|Left|Right)$/.test(name);
+/** The direction of a control that moves through the text (the D-pad's, or a stick's: a Joy-Con on its own has only
+ * one), or null. */
+const moveDirection = (name) => /^(?:Direction Pad|Left Thumbstick|Right Thumbstick) (Up|Down|Left|Right)$/.exec(name)?.[1] ?? null;
 
-/** The direction of a control that moves through the text (the D-pad's, or the left stick's), or null. */
-const moveDirection = (name) => /^(?:Direction Pad|Left Thumbstick) (Up|Down|Left|Right)$/.exec(name)?.[1] ?? null;
+const isDirectionControl = (name) => moveDirection(name) !== null;
 
 const sameButtons = (a, b) => a.length === b.length && a.every((name) => b.includes(name));
 

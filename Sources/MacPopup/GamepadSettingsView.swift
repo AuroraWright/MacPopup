@@ -13,11 +13,12 @@ struct GamepadsControl: View {
         let isConnected: Bool
         /// How many are connected (see GamepadController.Connected.count).
         var count = 1
+        var reportIDs: Set<Int> = []
         let layout: GamepadLayout?
     }
 
     private var rows: [Row] {
-        let connected = gamepads.connected.map { Row(id: $0.id, name: $0.name, isConnected: true, count: $0.count, layout: gamepads.layouts[$0.id]) }
+        let connected = gamepads.connected.map { Row(id: $0.id, name: $0.name, isConnected: true, count: $0.count, reportIDs: $0.reportIDs, layout: gamepads.layouts[$0.id]) }
         let others = gamepads.layouts.filter { key, _ in !connected.contains { $0.id == key } }.sorted { $0.key < $1.key }
             .map { Row(id: $0.key, name: $0.value.name, isConnected: false, layout: $0.value) }
         return connected + others
@@ -55,7 +56,13 @@ struct GamepadsControl: View {
     }
 
     private func status(_ row: Row) -> String {
-        let state = row.layout == nil ? "Not set up yet, so MacPopup won’t use it" : row.isConnected ? "Ready" : "Ready · Not connected"
+        let state = if let layout = row.layout {
+            !row.isConnected ? "Ready · Not connected"
+                : row.reportIDs.isEmpty || row.reportIDs.contains(where: layout.reads) ? "Ready"
+                : "Not set up as it’s connected now (e.g. a Joy-Con on its own, not in a pair), so MacPopup won’t use it: set it up again"
+        } else {
+            "Not set up yet, so MacPopup won’t use it"
+        }
         // Their reports can't be told apart while learning.
         return row.count > 1 ? "\(state) · \(row.count) connected: keep only one connected to set it up" : state
     }
@@ -74,7 +81,7 @@ private struct GamepadLearningPanel: View {
                     ? "Press each button, D-pad direction and trigger a few times, one at a time, then push each stick all the way in every direction. A check mark appears next to each control MacPopup has picked up. If one stays unchecked, click its Learn button and press it once."
                     : learning.sharesName
                     ? "Another connected controller has the same name, and macOS doesn’t say which is which, so set this one up one control at a time: click Learn next to a control, then press it on this controller. Or disconnect the other one and click Set Up again."
-                    : "macOS doesn’t recognize this controller’s buttons, so set them up one at a time: click Learn next to a control, then press it on the controller."
+                    : "macOS doesn’t report this controller’s buttons, so set them up one at a time: click Learn next to a control, then press it on the controller."
             )
             .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), alignment: .leading)], alignment: .leading, spacing: 6) {

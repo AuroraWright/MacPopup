@@ -361,7 +361,7 @@ enum SettingsSchema {
                 SettingsField("scanInputs", "Advanced scanning inputs", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
                 SettingsField(
                     "gamepadScanButtons", "Controller scan key (text box/OCR Mode text)", .gamepadCombo,
-                    hint: "Press this button combination on a game controller to start looking up words, then move through the text box or OCR Mode text with the D-pad or left stick—one character or one word at a time, depending on Scan resolution. Press the combination again to close the popup and hand the controller back to your game. Only controllers set up in Settings → Controllers work, and while you’re looking up words, your game won’t react to them. Your game does see this combination itself, so pick buttons it doesn’t use (for example L3 + R3)."
+                    hint: "Press this button combination on a game controller to start looking up words, then move through the text box or OCR Mode text with the D-pad or a stick—one character or one word at a time, depending on Scan resolution. Press the combination again to close the popup and hand the controller back to your game. Only controllers set up in Settings → Controllers work, and while you’re looking up words, your game won’t react to them. Your game does see this combination itself, so pick buttons it doesn’t use (for example L3 + R3)."
                 ),
                 SettingsField(
                     "gamepadPopupDelay", "Controller popup delay (in milliseconds)", .number(min: 0),
