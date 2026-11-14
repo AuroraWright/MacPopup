@@ -11,8 +11,8 @@ import UniformTypeIdentifiers
 /// apart from MacPopup's own windows; "window" below then means that screen.
 ///
 /// The window is captured with ScreenCaptureKit and watched for changes: all the time, or, with "Only
-/// check for changes after mouse activity", while the mouse is used and, for the dialogue, for a while
-/// after each reading of it. With a WebSocket connected, each new line is also the cue to read the window
+/// check for changes after input activity", while the mouse, keyboard or a controller is used and, for the
+/// dialogue, for a while after each reading that changed its text. With a WebSocket connected, each new line is also the cue to read the window
 /// again; it doesn't replace watching, since the dialogue can go away (e.g. a menu opened) or show the
 /// line in parts, a click at a time. Recognition waits until the text has stopped changing, since games
 /// often draw text gradually after the hooked line arrives.
@@ -49,16 +49,20 @@ final class OCRController {
     private var boundsChangedAt = Date.distantPast
     /// A WebSocket is connected and its lines are used: each is a cue to read the window.
     private var websocketConnected = false
-    /// The dialogue is watched until then, for "Keep checking after activity for" after each reading of it,
-    /// whether the mouse was used or not (a line read as soon as it was still may not have been fully drawn).
+    /// The dialogue is watched until then, for "Keep checking after activity for" after each reading that changed its
+    /// text, whether there was input or not (a line read as soon as it was still may not have been fully drawn).
     private var watchUntil = Date.distantPast
+    /// The dialogue's text when watchUntil was last set by a reading (see noteReading).
+    private var watchedTexts: [String]?
     private var lastCursorPoint: CGPoint?
-    /// With "Only check for changes after mouse activity", the window is only read until a while after the
-    /// mouse was last used (moved or clicked), not while it rests.
-    private var mouseActiveUntil = Date.distantPast
-    /// The mouse started being used: check for changes right away.
+    /// With "Only check for changes after input activity", the window is only read until a while after the
+    /// mouse, keyboard or a controller was last used, not while they rest.
+    private var inputActiveUntil = Date.distantPast
+    /// When the mouse or keyboard was last used, as macOS last told (see checkInput).
+    private var lastInput = Date.distantPast
+    /// Input started: check for changes right away.
     private var checkSoon = false
-    private var waitingForMouse = false
+    private var waitingForInput = false
     /// Per area, thumbnail blocks that were seen animating while the text stayed the same.
     private var animatedBlocks: [Set<Int>] = []
     /// Per area, the lines last read there: an area is read on its own, and sent with the others.
@@ -69,46 +73,61 @@ final class OCRController {
     /// with the next reading.
     private var otherAreasOutdated = false
 
-    private var isCursorActive: Bool {
-        Date() < mouseActiveUntil
+    private var isInputActive: Bool {
+        Date() < inputActiveUntil
     }
 
     /// Whether the window is watched for changes now: all the time, or (with
-    /// "Only check for changes after mouse activity") only for a while after the mouse was used.
+    /// "Only check for changes after input activity") only for a while after input.
     private var isWatching: Bool {
-        !(settings["ocrMouseWatch"] as? Bool ?? true) || isCursorActive
+        !(settings["ocrMouseWatch"] as? Bool ?? true) || isInputActive
     }
 
-    /// The dialogue is also watched for a while after each reading of it.
+    /// The dialogue is also watched for a while after each reading that changed its text.
     private var isWatchingDialogue: Bool {
         isWatching || Date() < watchUntil
     }
 
-    func mouseClicked() {
-        mouseUsed()
+    /// The game was paused (see GamePause) and goes on: like after input, the dialogue is watched for a
+    /// while, e.g. for the rest of a line it was drawing when it was read while paused.
+    func gameResumed() {
+        log("game resumed")
+        watchUntil = max(watchUntil, Date().addingTimeInterval(number("ocrMouseWatchTime", 2000) / 1000))
+        checkSoon = true
     }
 
-    /// The window is watched for a while after the mouse was used (e.g. a click advancing a game's text,
-    /// or the cursor moving to it), since the text that brings up takes a moment to appear.
-    private func mouseUsed() {
+    /// The window is watched for a while after input (e.g. a click, key or controller button advancing a game's
+    /// text, or the cursor moving to it), since the text that brings up takes a moment to appear.
+    func inputUsed() {
         let duration = number("ocrMouseWatchTime", 2000) / 1000
-        if !isCursorActive {
+        if !isInputActive {
             checkSoon = true
-            log("mouse used (\(duration)s)")
+            log("input (\(duration)s)")
         }
-        mouseActiveUntil = max(mouseActiveUntil, Date().addingTimeInterval(duration))
+        inputActiveUntil = max(inputActiveUntil, Date().addingTimeInterval(duration))
+    }
+
+    /// Notes mouse and keyboard input (moves, clicks, scrolls, key presses), whichever app it went to, from when macOS
+    /// last saw any (from the devices: not events apps make). Controllers aren't in it: Gamepads.swift tells those.
+    private func checkInput() {
+        let since = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)
+        let input = Date().addingTimeInterval(-since)
+        // A little later each time it's asked while nothing happens (it's measured to the nearest moment).
+        guard input.timeIntervalSince(lastInput) > 0.02 else { return }
+        lastInput = input
+        inputUsed()
     }
 
     /// The window state last sent to the page, so that it's only sent when it changes.
     private var lastSentWindowState = ""
+    /// Whether the overlay was last logged as shown over the window (nil: not yet, it's in the session record).
+    private var loggedVisible: Bool?
 
     private var trackTimer: Timer?
     private var loopTask: Task<Void, Never>?
     private var pendingCue: Cue?
     private var lastRecognizedFrame: Frame?
     private var isPicking = false
-    /// MACPOPUP_DEBUG_OCR=1 logs what triggers readings to stderr.
-    private let debug = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_OCR"] != nil
     /// MACPOPUP_DEBUG_OCR_DIR=<directory> saves each area read there (read-N-areaI.png).
     private let debugDirectory = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_OCR_DIR"]
     private var debugReadings = 0
@@ -119,6 +138,8 @@ final class OCRController {
     /// MacPopup itself, left out when the whole screen is read.
     private var scOwnApps: [SCRunningApplication] = []
     private var captureFailures = 0
+    /// How many times in a row a round's cue was kept for the next one, as a capture failed (see settleAndRecognize).
+    private var keptCues = 0
     /// Where the checks for changes come from (see comparisonImage).
     private var comparisonStream: CaptureStream?
     /// When a check for changes last asked for a picture: the stream stops a while after.
@@ -148,6 +169,9 @@ final class OCRController {
         case retry
         /// Read right away (e.g. after choosing the window).
         case immediate
+        /// Read the window as it is now, without waiting for it to settle: the game is paused (see GamePause), so it
+        /// won't change.
+        case now
     }
 
     init(overlay: OverlayController) {
@@ -166,6 +190,7 @@ final class OCRController {
     }
 
     private func applySettings() {
+        if isEnabled { logSettingsChanges() }
         let enabled = settings["ocrMode"] as? Bool ?? false
         if enabled != isEnabled {
             isEnabled = enabled
@@ -231,7 +256,8 @@ final class OCRController {
         lastSentWindowState = ""
         send(["type": "changing"])
         trackWindow()
-        if hasSource {
+        // (A reading as it is reads it all the same.)
+        if hasSource, pendingCue != .now {
             pendingCue = .immediate
         }
     }
@@ -260,7 +286,10 @@ final class OCRController {
         }
         RunLoop.main.add(timer, forMode: .common)
         trackTimer = timer
+        loggedVisible = nil
         trackWindow()
+        logSession()
+        loggedSettings = OCRDebugLog.ocrSettings.mapValues(Self.json)
         startedEngine = engine
         startedLanguage = language
         startedStripsFurigana = stripsFurigana
@@ -384,19 +413,66 @@ final class OCRController {
     // MARK: Messages from the page
 
     private func log(_ message: @autoclosure () -> String) {
-        guard debug else { return }
-        let time = String(format: "%.3f", ProcessInfo.processInfo.systemUptime)
-        FileHandle.standardError.write("[ocr \(time)] \(message())\n".data(using: .utf8)!)
+        OCRDebugLog.note(message())
     }
 
-    func handle(_ body: [String: Any]) {
+    /// The settings OCRDebugLog keeps, as last logged (each as JSON, to compare): changes are logged as they're made.
+    private var loggedSettings: [String: String] = [:]
+
+    private func logSettingsChanges() {
+        let current = OCRDebugLog.ocrSettings.mapValues(Self.json)
+        defer { loggedSettings = current }
+        guard OCRDebugLog.isOn, !loggedSettings.isEmpty else { return }
+        // Just turned on: a new log starts (the last was deleted as it was turned off).
+        if current["ocrShowBoxes"] != loggedSettings["ocrShowBoxes"] {
+            logSession()
+            return
+        }
+        let changed = Set(current.keys).union(loggedSettings.keys).filter { current[$0] != loggedSettings[$0] }
+        guard !changed.isEmpty else { return }
+        OCRDebugLog.record(["type": "settings", "changed": Dictionary(uniqueKeysWithValues: changed.map { ($0, OCRDebugLog.ocrSettings[$0] ?? NSNull()) })])
+    }
+
+    private static func json(_ value: Any) -> String {
+        guard JSONSerialization.isValidJSONObject([value]),
+              let data = try? JSONSerialization.data(withJSONObject: [value], options: [.sortedKeys]) else { return "\(value)" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func logSession() {
+        var window = windowForLog
+        window?["overlayShown"] = loggedVisible
+        OCRDebugLog.session(window: window)
+    }
+
+    /// The window read (or the screen), for the debug log's session record.
+    private var windowForLog: [String: Any]? {
+        var window: [String: Any] = readsScreen ? ["screen": true] : [:]
+        if let target { window.merge(["owner": target.ownerName, "title": target.title]) { $1 } }
+        if let bounds {
+            window["bounds"] = [bounds.minX, bounds.minY, bounds.width, bounds.height]
+            let screen = NSScreen.screens.first { Self.globalFrame(of: $0).contains(CGPoint(x: bounds.midX, y: bounds.midY)) }
+            window["scale"] = screen?.backingScaleFactor
+        }
+        return window.isEmpty ? nil : window
+    }
+
+    /// Returns whether it's done: for readNow, whether the window will be read.
+    @discardableResult
+    func handle(_ body: [String: Any]) -> Bool {
         log("page: \(body["action"] ?? "")\(body["connected"].map { " \($0)" } ?? "")")
         switch body["action"] as? String {
+        case "readNow":
+            // The game was paused: a reading on its way stops, and the window is read as it is.
+            guard isEnabled, !isPicking, hasSource, bounds != nil, isWindowAvailable else { return false }
+            pendingCue = .now
+            dropCloudRequest()
         case "websocket":
             websocketConnected = body["connected"] as? Bool ?? false
         case "cue":
-            // Read when the window is available, which may be later (e.g. it's in another space).
-            pendingCue = .newLine
+            // Read when the window is available, which may be later (e.g. it's in another space). A reading as it
+            // is that's waiting reads it too (the page waits for that one, see readOcrNow in web/src/overlay.js).
+            if pendingCue != .now { pendingCue = .newLine }
             dropCloudRequest()
         case "accept":
             acceptedReading = true
@@ -419,9 +495,11 @@ final class OCRController {
         default:
             break
         }
+        return true
     }
 
     private func send(_ message: [String: Any]) {
+        if message["type"] as? String == "error" { log("error shown: \(message["message"] ?? "")") }
         guard let data = try? JSONSerialization.data(withJSONObject: message),
               let json = String(data: data, encoding: .utf8) else { return }
         overlay.evaluate("window.__macpopupOcr?.(\(json))")
@@ -517,7 +595,7 @@ final class OCRController {
                 lastRefind = Date()
                 restoreSavedTarget()
                 if self.target != nil {
-                    log("found the saved window")
+                    log("found the saved window: \(windowForLog ?? [:])")
                     readAgain()
                 }
             }
@@ -526,6 +604,7 @@ final class OCRController {
         let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], target.windowID) as? [[String: Any]] ?? []
         guard let info = list.first.flatMap(Self.windowInfo), info.id == target.windowID else {
             // Closed: wait for the app to open a window again (e.g. a restarted game).
+            if bounds != nil { log("window closed") }
             bounds = nil
             isWindowAvailable = false
             sendWindowState(visible: false)
@@ -549,8 +628,8 @@ final class OCRController {
         }
         if let old = bounds, old.size != info.bounds.size, lastResult != nil {
             log("resized \(old.size) -> \(info.bounds.size)")
-            // Resized: the text moved, so read it again (a new line waiting to be read will be).
-            if pendingCue != .newLine { pendingCue = .retry }
+            // Resized: the text moved, so read it again (a cue waiting already reads it).
+            if pendingCue == nil { pendingCue = .retry }
             otherAreasOutdated = true
         }
         if bounds != info.bounds {
@@ -558,10 +637,15 @@ final class OCRController {
         }
         let onDisplay = NSScreen.screens.contains { Self.globalFrame(of: $0).intersects(info.bounds) }
         let available = info.isOnScreen && onDisplay && Date().timeIntervalSince(boundsChangedAt) >= 0.3
+        if !available, isWindowAvailable {
+            let reasons = [info.isOnScreen ? nil : "not on screen (e.g. another space, minimized)", onDisplay ? nil : "off the displays",
+                           Date().timeIntervalSince(boundsChangedAt) < 0.3 ? "moving" : nil]
+            log("window unavailable: \(reasons.compactMap { $0 }.joined(separator: ", "))")
+        }
         if available, !isWindowAvailable, lastResult != nil {
             // Back (e.g. from another space): it may have changed or been drawn again differently.
-            log("available again")
-            if pendingCue != .newLine { pendingCue = .retry }
+            log("available again at \(info.bounds)")
+            if pendingCue == nil { pendingCue = .retry }
             otherAreasOutdated = true
         }
         bounds = info.bounds
@@ -578,7 +662,7 @@ final class OCRController {
         let frame = Self.globalFrame(of: screen)
         if bounds != frame {
             boundsChangedAt = Date()
-            if bounds != nil, lastResult != nil, pendingCue != .newLine { pendingCue = .retry }
+            if bounds != nil, lastResult != nil, pendingCue == nil { pendingCue = .retry }
             if bounds != nil { otherAreasOutdated = true }
         }
         bounds = frame
@@ -613,6 +697,12 @@ final class OCRController {
         }
         let key = message.keys.sorted().map { "\($0)=\(message[$0]!)" }.joined(separator: ",")
         guard key != lastSentWindowState else { return }
+        // Only when it's shown or hidden (moves are seen as "window unavailable: moving" and "available again").
+        let visible = message["visible"] as? Bool == true
+        if let loggedVisible, loggedVisible != visible {
+            log(visible ? "overlay shown over the window" : "overlay hidden: the window can't be seen")
+        }
+        loggedVisible = visible
         lastSentWindowState = key
         send(message)
     }
@@ -621,7 +711,6 @@ final class OCRController {
     private func cursorMoved(to point: CGPoint) {
         let moved = point != lastCursorPoint
         if moved {
-            mouseUsed()
             lastCursorPoint = point
         }
         guard isEnabled, let target, let bounds, bounds.contains(point) else {
@@ -639,6 +728,7 @@ final class OCRController {
     private func setCursorCovered(_ covered: Bool) {
         guard covered != isCursorCovered else { return }
         isCursorCovered = covered
+        log(covered ? "another window is in front under the pointer" : "nothing in front under the pointer")
         send(["type": "covered", "value": covered])
     }
 
@@ -650,18 +740,19 @@ final class OCRController {
                 try? await Task.sleep(for: .milliseconds(200))
                 continue
             }
-            if !websocketConnected, !isWatchingDialogue, pendingCue != .immediate {
-                // Without WebSocket lines, wait until the mouse is used (or the dialogue was read, which
-                // watches it for a while). Readings that were asked for (e.g. after coming back from another
-                // space) wait too, but not the first one of a newly chosen window or screen.
-                if !waitingForMouse {
-                    waitingForMouse = true
-                    log("waiting for the mouse\(pendingCue.map { " (\($0) pending)" } ?? "")")
+            checkInput()
+            if !websocketConnected, !isWatchingDialogue, pendingCue != .immediate, pendingCue != .now {
+                // Without WebSocket lines, wait for input (or the dialogue was read, which watches it for a
+                // while). Readings that were asked for (e.g. after coming back from another space) wait too,
+                // but not the first one of a newly chosen window or screen.
+                if !waitingForInput {
+                    waitingForInput = true
+                    log("waiting for input\(pendingCue.map { " (\($0) pending)" } ?? "")")
                 }
                 try? await Task.sleep(for: .milliseconds(50))
                 continue
             }
-            waitingForMouse = false
+            waitingForInput = false
             if let cue = pendingCue {
                 pendingCue = nil
                 await settleAndRecognize(cue: cue)
@@ -709,7 +800,9 @@ final class OCRController {
         log("reading until settled for \(cue.map { "\($0)" } ?? "change")")
         roundStarted = Date()
         defer { roundStarted = nil }
-        dropCloudRequest()
+        // The window changed: a cloud reading on its way is outdated, and the local reading it was for is shown, as it
+        // would be without a cloud engine (e.g. a line drawn in bursts shows as it's drawn, not only once complete).
+        dropCloudRequest(showingLocal: cue == nil)
         if cue == .newLine || cue == .retry {
             send(["type": "changing"])
         }
@@ -724,34 +817,64 @@ final class OCRController {
         // The images read since the text last changed, to learn animated spots from.
         var frames: [Frame] = []
         acceptedReading = false
-        // The picture of the latest reading, which the page may take.
+        // The picture of the latest reading, which the page may take, and the window as it was then (see readFrame).
         var lastImage: CGImage?
+        var lastImageFrame: Frame?
+        // The areas read from it.
+        var lastImageAreas: [Int] = []
+        // What the round is for: its cue, or a new line's that came meanwhile. A capture that fails (e.g. while windows
+        // change) ends the round with it kept for the next one, so that the line is still read.
+        var roundCue = cue
+        let keepCue = { [self] in
+            // A few times (it would start over at once otherwise, e.g. while the window can't be captured).
+            if keptCues < 2 {
+                keptCues += 1
+                if pendingCue == nil || roundCue == .now { pendingCue = roundCue }
+            } else {
+                keptCues = 0
+                // The page waits for it.
+                if roundCue == .now { send(["type": "error", "message": "The window couldn't be captured"]) }
+            }
+        }
         // How the round waited before the next reading (see waitForChange), for the page's debug log.
         var waited: [String: Any] = [:]
         while !Task.isCancelled {
             guard isWindowAvailable else {
                 log("window left while reading")
-                if pendingCue == nil { pendingCue = .retry }
+                if roundCue == .now {
+                    pendingCue = .now
+                } else if pendingCue == nil {
+                    pendingCue = .retry
+                }
+                return
+            }
+            if pendingCue == .now {
+                log("reading as it is instead")
                 return
             }
             if pendingCue == .newLine {
                 // Another line arrived: start over.
                 pendingCue = nil
+                roundCue = .newLine
                 start = Date()
                 sawChange = false
                 previous = nil
                 acceptedReading = false
                 send(["type": "changing"])
             }
-            let read = cue == .immediate || otherAreasOutdated || areaLines.count != areas.count ? Array(areas.indices) : [0]
+            let read = cue == .immediate || cue == .now || otherAreasOutdated || areaLines.count != areas.count ? Array(areas.indices) : [0]
             if acceptedReading {
                 log("the page took a reading")
-                otherAreasOutdated = false
-                finishReading(lastImage, frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: Date(), extra: waited.merging(["accepted": true]) { $1 })
+                // The areas read from that picture (the others may have been outdated since).
+                if lastImageAreas.count == areas.count { otherAreasOutdated = false }
+                finishReading(lastImage, frame: lastImageFrame, areas: lastImageAreas, started: Date(), extra: waited.merging(["accepted": true]) { $1 })
                 return
             }
             if !sawChange {
-                guard let (_, frame) = await capture(scale: Self.comparisonScale) else { return }
+                guard let (_, frame) = await capture(scale: Self.comparisonScale) else {
+                    keepCue()
+                    return
+                }
                 if let last = lastRecognizedFrame, differs(frame, last, only: [0]) {
                     sawChange = true
                     previous = nil
@@ -761,14 +884,35 @@ final class OCRController {
             }
             // How the window looked before this reading, to wait for it to change after it (see below).
             let before = sawChange ? await capture(scale: Self.comparisonScale)?.1 : nil
+            // The reference for changes once the round ends: the window as it was read, not as it is after (a reading
+            // can take a while), so that what changes meanwhile (e.g. the next line appearing as the old one's gone) is
+            // still read.
+            var readFrame = before
+            if readFrame == nil { readFrame = await capture(scale: Self.comparisonScale)?.1 }
             let started = Date()
-            guard let image = await captureForReading() else { return }
+            guard let image = await captureForReading() else {
+                keepCue()
+                return
+            }
+            keptCues = 0
             // Thumbnails of the image itself rather than another capture (they're only compared with each
             // other, so their scale doesn't matter), made while it's read.
             let thumbnailAreas = thumbnailAreas(in: image)
             let thumbnailing = Task.detached { thumbnailAreas.flatMap { Self.thumbnails(of: image, areas: $0) } }
-            guard await readAreas(image, areas: read) else { return }
+            guard await readAreas(image, areas: read) else {
+                // Dropped for a reading again (not after an error, which the page is told about).
+                if roundCue == .now, pendingCue != nil { pendingCue = .now }
+                return
+            }
             lastImage = image
+            lastImageFrame = readFrame
+            lastImageAreas = read
+            if cue == .now {
+                log("read as it is")
+                otherAreasOutdated = false
+                finishReading(image, frame: readFrame, areas: read, started: started, extra: ["now": true])
+                return
+            }
             let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
             if previous?.texts != texts {
                 previous = (texts, started)
@@ -783,13 +927,13 @@ final class OCRController {
                 // the window changing later.
                 learnAnimatedBlocks(from: frames)
                 otherAreasOutdated = false
-                finishReading(image, frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started, extra: waited.merging(["settled": true]) { $1 })
+                finishReading(image, frame: readFrame, areas: read, started: started, extra: waited.merging(["settled": true]) { $1 })
                 return
             }
             if Date().timeIntervalSince(start) > maxWait {
                 log("still changing after \(String(format: "%.2f", maxWait))s")
                 otherAreasOutdated = false
-                finishReading(image, frame: await capture(scale: Self.comparisonScale)?.1, areas: read, started: started, extra: waited)
+                finishReading(image, frame: readFrame, areas: read, started: started, extra: waited)
                 return
             }
             sendResult(frame: nil, areas: read, started: started, extra: waited.merging(["provisional": true]) { $1 })
@@ -836,7 +980,13 @@ final class OCRController {
     }
 
     /// The cloud engine's last reading of the dialogue, with the local engine's text it replaced.
-    private var cloudReading: (engine: CloudOCR, localTexts: [String], lines: [[String: Any]], removed: [[String: Any]])?
+    private var cloudReading: (engine: CloudOCR, localTexts: [String], bounds: CGRect, lines: [[String: Any]], removed: [[String: Any]])?
+    /// The local reading a cloud request is on its way for (see finishReading), shown if the request is given up on as
+    /// the window changes (see dropCloudRequest).
+    private var awaitingCloud: (lines: [[String: Any]], removed: [[String: Any]], areas: [Int], started: Date, extra: [String: Any],
+                                roundStart: Date?, bounds: CGRect, reading: Int)?
+    /// The cloud engine whose requests fail (e.g. offline), since that was shown: it's shown once, not at each reading.
+    private var failingCloudEngine: CloudOCR?
     private var cloudTask: Task<Void, Never>?
     /// Counts the times the dialogue was read until settled: a cloud reading only replaces the one it was asked for.
     private var dialogueReadings = 0
@@ -858,22 +1008,27 @@ final class OCRController {
             return
         }
         let localTexts = local.map { $0["text"] as? String ?? "" }
-        if let cloudReading, cloudReading.engine == engine, cloudReading.localTexts == localTexts {
+        // Its lines are in window points: only while the window is where it was.
+        if let cloudReading, cloudReading.engine == engine, cloudReading.localTexts == localTexts, cloudReading.bounds == bounds {
             areaLines[0] = cloudReading.lines
             areaRemoved[0] = cloudReading.removed
             sendResult(frame: frame, areas: indices, started: started, extra: extra.merging(["cloud": engine.rawValue]) { $1 })
             return
         }
         let localRemoved = areaRemoved[0]
-        // Readings of the other areas meanwhile leave the dialogue out. The window is compared with what was read now
-        // (otherwise the text that's being read would count as a change).
+        // The window is compared with what was read now (otherwise the text that's being read would count as a
+        // change), and the local text watched for (see noteReading).
+        noteReading(frame: frame, areas: indices)
+        // Readings of the other areas meanwhile leave the dialogue out.
         areaLines[0] = []
         areaRemoved[0] = []
-        noteReading(frame: frame, areas: indices)
         let reading = dialogueReadings
         let debugReading = debugReadings
         let language = language
+        // Sent after the round ended (see sendResult).
+        let roundStart = roundStarted
         cloudTask?.cancel()
+        awaitingCloud = (local, localRemoved, indices, started, extra, roundStart, bounds, reading)
         cloudTask = Task { [weak self] in
             let requested = Date()
             let result: Result<[RecognizedLine], Error>
@@ -888,16 +1043,28 @@ final class OCRController {
                 !Task.isCancelled && reading == self.dialogueReadings && self.pendingCue == nil && engine == self.cloudEngine
                     && self.areaLines.count == self.areas.count
             }
-            guard let self else { return }
-            guard isCurrent(self), let (_, now) = await self.capture(scale: Self.comparisonScale),
-                  isCurrent(self), !self.differs(now, frame, only: [0]) else {
+            guard let self, isCurrent(self) else { return }
+            guard let (_, now) = await self.capture(scale: Self.comparisonScale), isCurrent(self), !self.differs(now, frame, only: [0]) else {
                 self.log("\(engine.rawValue): dropped, the dialogue may have changed since")
+                self.awaitingCloud = nil
+                // The dialogue was left out of readings meanwhile: it's read again, rather than when the window is next
+                // watched (e.g. after input), as it is if that's what the page waits for.
+                guard !Task.isCancelled, reading == self.dialogueReadings else { return }
+                if extra["now"] as? Bool == true {
+                    self.pendingCue = .now
+                } else if self.pendingCue == nil {
+                    self.pendingCue = .retry
+                    self.watchUntil = max(self.watchUntil, Date().addingTimeInterval(self.number("ocrMouseWatchTime", 2000) / 1000))
+                }
                 return
             }
             var (lines, removed, extra) = (local, localRemoved, extra)
+            extra["roundAge"] = roundStart.map { Date().timeIntervalSince($0) } ?? 0
+            var failure: Error?
             switch result {
             case let .success(items):
                 self.log("\(engine.rawValue): \(String(format: "%.2f", Date().timeIntervalSince(requested)))s for \(crop.width)x\(crop.height)")
+                if self.failingCloudEngine == engine { self.failingCloudEngine = nil }
                 if debugReading == self.debugReadings { self.saveForDebugging(items, area: 0, engine: "-\(engine.rawValue)") }
                 // Both engines' boxes are where the words are: Google Lens' are the reference the local engines' are
                 // measured against, and Bing's are a cloud version of OneOCR's.
@@ -907,15 +1074,25 @@ final class OCRController {
                     // Marked for the overlay's outlines (with Highlight recognized text boxes on).
                     let cloudLines = cloud.lines.map { line in line.merging(["cloud": true]) { $1 } }
                     (lines, removed) = (Self.adding(local, to: cloudLines), cloud.removed)
-                    self.cloudReading = (engine, localTexts, lines, removed)
+                    self.cloudReading = (engine, localTexts, bounds, lines, removed)
                     extra["cloud"] = engine.rawValue
                 }
             case let .failure(error):
-                self.send(["type": "error", "message": error.localizedDescription])
+                failure = error
             }
+            self.awaitingCloud = nil
             self.areaLines[0] = lines
             self.areaRemoved[0] = removed
             self.sendResult(frame: nil, areas: indices, started: started, extra: extra)
+            // After the local reading, which the page may be waiting for (see readOcrNow in web/src/overlay.js).
+            if let failure {
+                // (Its message starts with the engine's name.)
+                self.log("\(failure)")
+                if self.failingCloudEngine != engine {
+                    self.failingCloudEngine = engine
+                    self.send(["type": "error", "message": failure.localizedDescription])
+                }
+            }
         }
     }
 
@@ -942,7 +1119,16 @@ final class OCRController {
     }
 
     /// The dialogue may change: a cloud reading on its way is dropped.
-    private func dropCloudRequest() {
+    private func dropCloudRequest(showingLocal: Bool = false) {
+        // Only while its boxes are where the text is (and the areas as they were read).
+        if showingLocal, let held = awaitingCloud, held.reading == dialogueReadings, held.bounds == bounds, areaLines.count == areas.count {
+            log("cloud request given up on: the local reading is shown")
+            areaLines[0] = held.lines
+            areaRemoved[0] = held.removed
+            sendResult(frame: nil, areas: held.areas, started: held.started,
+                       extra: held.extra.merging(["roundAge": held.roundStart.map { Date().timeIntervalSince($0) } ?? 0]) { $1 })
+        }
+        awaitingCloud = nil
         cloudTask?.cancel()
         cloudTask = nil
         dialogueReadings += 1
@@ -1152,7 +1338,12 @@ final class OCRController {
     /// The window is compared with `frame` for changes from now on, and the dialogue watched for a while if it was read.
     private func noteReading(frame: Frame?, areas indices: [Int]) {
         updateReference(frame, areas: indices)
-        if indices.contains(0) { watchUntil = Date().addingTimeInterval(number("ocrMouseWatchTime", 2000) / 1000) }
+        // Only when its text changed: a line may still be being drawn then, while an animation behind the same text
+        // (more than is learned as animated spots) would otherwise keep the window watched for good.
+        let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
+        guard indices.contains(0), texts != watchedTexts else { return }
+        watchedTexts = texts
+        watchUntil = Date().addingTimeInterval(number("ocrMouseWatchTime", 2000) / 1000)
     }
 
     /// What reads the text (Settings → OCR Mode → Text recognition engine).
@@ -1210,7 +1401,7 @@ final class OCRController {
         case .meikiocr:
             try await MeikiOCR.shared.recognize(image)
         case .screenAI:
-            try await ScreenAIOCR.shared.recognize(image)
+            try await ScreenAIOCR.shared.recognize(image, language: language)
         case .oneOCR:
             try await OneOCROCR.shared.recognize(image)
         case .ppocrManga:
@@ -1566,6 +1757,22 @@ final class OCRController {
 
     private static let block = 8
 
+    /// How many pixels of two thumbnails of an area are drawn on its background in either: clearly lighter or darker
+    /// than the commonest shade of each.
+    private static func drawnPixels(_ a: [UInt8], _ b: [UInt8]) -> Int {
+        func background(_ pixels: [UInt8]) -> Int {
+            var counts = [Int](repeating: 0, count: 256)
+            for value in pixels { counts[Int(value)] += 1 }
+            return counts.indices.max { counts[$0] < counts[$1] } ?? 0
+        }
+        let (first, second) = (background(a), background(b))
+        var drawn = 0
+        for index in a.indices where abs(Int(a[index]) - first) > 40 || abs(Int(b[index]) - second) > 40 {
+            drawn += 1
+        }
+        return drawn
+    }
+
     /// The blocks of each thumbnail (`block` pixels square) in which `a` and `b` differ in detail (one
     /// character of text drawn changes a few dense blocks). Noise spread thinly is ignored, and so are
     /// faint changes, like the end of a character's fade-in (a game's text can take half a second to
@@ -1641,7 +1848,12 @@ final class OCRController {
                 if !animated.isEmpty, animated.contains((index / width / block) * columns + (index % width) / block) { continue }
                 changed += 1
             }
-            if Double(changed) / Double(x.count) > threshold {
+            // A share of what's drawn rather than of the whole area, so that a short line on an otherwise empty screen
+            // counts as much as a page of text does on a busy one; but of at least a twentieth of the area, so that a
+            // few pixels don't.
+            let drawn = max(Self.drawnPixels(x, y), x.count / 20)
+            if Double(changed) / Double(drawn) > threshold {
+                log("area \(area): \(changed) of \(drawn) drawn pixels changed (\(x.count) in all)")
                 return true
             }
         }

@@ -3,7 +3,7 @@ import AVFoundation
 
 /// Keeps the last few minutes of the game's audio (see AudioTap) in memory as 16-bit samples, about 11 MB a minute for
 /// stereo at 48 kHz. This lets SentenceAudioController take a line's voice after the line was shown, without replaying
-/// it. Times are in system uptime.
+/// it. Times are on GameClock (the system uptime without the time the game was frozen).
 final class AudioHistory: @unchecked Sendable {
     /// About a second of interleaved audio at most, starting at `start`.
     private struct Block {
@@ -58,9 +58,11 @@ final class AudioHistory: @unchecked Sendable {
         processes = nil
     }
 
-    /// Called on `queue` with each new buffer from the tap.
+    /// Called on `queue` with each new buffer from the tap. While the game is frozen (see GamePause), its silence isn't
+    /// kept: times are on GameClock, which stands still meanwhile.
     private func append(_ buffer: AVAudioPCMBuffer) {
-        let now = ProcessInfo.processInfo.systemUptime
+        guard !GameClock.isFrozen else { return }
+        let now = GameClock.now
         if buffer.format != format {
             format = buffer.format
             blocks = []

@@ -60,6 +60,12 @@ struct KeyCombination: Equatable {
         self.modifiers = Self.modifierNames.filter(modifiers.contains)
     }
 
+    /// A shortcut setting ({key, modifiers}, see ShortcutControl in SettingsView.swift); nil when none is set.
+    init?(setting: Any?) {
+        guard let item = setting as? [String: Any], let key = item["key"] as? String, !key.isEmpty else { return nil }
+        self.init(key: key, modifiers: item["modifiers"] as? [String] ?? [])
+    }
+
     /// The shortcut a key press makes, if the key is one Yomitan shortcuts can use.
     init?(event: NSEvent) {
         guard let key = Self.keyNames[Int(event.keyCode)] else { return nil }
@@ -92,7 +98,7 @@ struct KeyCombination: Equatable {
 }
 
 /// Global hotkeys: popup keyboard shortcuts, registered only while a popup shows (see web/src/overlay.js),
-/// and the sentence audio shortcut (SentenceAudio.swift). The overlay never has keyboard focus, so the app
+/// the sentence audio shortcut (SentenceAudio.swift) and the pause and scan shortcut (GamePause.swift). The overlay never has keyboard focus, so the app
 /// being read keeps it; a registered hotkey's key goes to MacPopup instead, and back to that app once it's
 /// unregistered. Global hotkeys need no permission.
 @MainActor

@@ -67,6 +67,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
 cp "$BIN_DIR/MacPopup" "$APP/Contents/MacOS/MacPopup"
 # The Yomitan API's native messaging host, which Settings → Scanning → Install copies next to a browser's manifest.
 cp "$BIN_DIR/yomitan-api" "$APP/Contents/Helpers/yomitan_api"
+# The pause helper (Sources/PauseHelper), a launchd daemon that Settings → Yomitan Popup registers with SMAppService.
+cp "$BIN_DIR/pause-helper" "$APP/Contents/Helpers/pause-helper"
+mkdir -p "$APP/Contents/Library/LaunchDaemons"
+cp Resources/com.aury.macpopup.pause-helper.plist "$APP/Contents/Library/LaunchDaemons/"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # Made by scripts/make-icon.swift.
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
@@ -115,6 +119,7 @@ if [[ -d "$APP/Contents/Frameworks" ]]; then
     "${SIGN[@]}" "$APP"/Contents/Frameworks/*.dylib >/dev/null
 fi
 "${SIGN[@]}" --identifier com.aury.macpopup.yomitan-api "$APP/Contents/Helpers/yomitan_api" >/dev/null
+"${SIGN[@]}" --identifier com.aury.macpopup.pause-helper "$APP/Contents/Helpers/pause-helper" >/dev/null
 if [[ -f "$APP/Contents/Helpers/ffmpeg" ]]; then
     "${SIGN[@]}" --identifier com.aury.macpopup.ffmpeg "$APP/Contents/Helpers/ffmpeg" >/dev/null
 fi

@@ -59,7 +59,7 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
                 RecognizedLine(text: line.text, box: line.box, words: line.words.map { ($0.text, $0.box) })
             }
         case .meikiocr: try await MeikiOCR.shared.recognize(image)
-        case .screenAI: try await ScreenAIOCR.shared.recognize(image)
+        case .screenAI: try await ScreenAIOCR.shared.recognize(image, language: language)
         case .oneOCR: try await OneOCROCR.shared.recognize(image)
         case .ppocrManga: try await PPOCRManga.shared.recognize(image)
         case .googleLens: try await CloudOCR.googleLens.recognize(image, language: language)

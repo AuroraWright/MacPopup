@@ -56,6 +56,9 @@ final class GamepadController: ObservableObject {
     var onChange: ((Set<String>) -> Void)?
     /// Called with a message for the overlay to show (when another app holds a controller).
     var onToast: ((String) -> Void)?
+    /// Called when a control of a controller that's set up is pressed or let go, held or not (e.g. to advance a game's
+    /// text: OCR Mode then checks for changes, see OCRController.inputUsed).
+    var onInput: (() -> Void)?
     /// Whether the overlay is shown: controllers are only held then.
     var overlayVisible = false {
         didSet { scheduleApply() }
@@ -425,6 +428,7 @@ final class GamepadController: ObservableObject {
         }
         guard held != pressed else { return }
         pressed = held
+        onInput?()
         if recordings == 0, learning == nil { onChange?(held) }
     }
 

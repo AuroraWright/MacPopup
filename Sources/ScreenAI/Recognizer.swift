@@ -932,7 +932,10 @@ final class LineRecognizer {
     }
 
     /// Recognizes the layout's lines; returns the layout with each line followed by its words and their symbols.
-    func recognize(_ gray: GrayImage, _ input: PageLayout, pyramid: [PyramidLevel]) throws -> PageLayout {
+    /// - Parameter keys: The recognizers the second pass may use, besides the default one (nil: all of them, as the
+    ///   original). A line whose language selects another one keeps the default one's reading, and that recognizer
+    ///   isn't loaded (each takes seconds the first time, while the GPU code is compiled, and memory from then on).
+    func recognize(_ gray: GrayImage, _ input: PageLayout, pyramid: [PyramidLevel], keys: Set<String>? = nil) throws -> PageLayout {
         defer { recognizers.values.forEach { $0.endReading() } }
         var layout = input
         let lineIdx = layout.entities.indices.filter { layout.entities[$0].type == .line }
@@ -1070,7 +1073,7 @@ final class LineRecognizer {
                 guard let key = selectKey(layout.entities[lineIdx[i]]) else {
                     throw ScreenAIError("Can't select a recognizer")
                 }
-                if key != state[i].key {
+                if key != state[i].key, keys?.contains(key) ?? true {
                     second[key, default: []].append(i)
                 } else {
                     kept.append(i)

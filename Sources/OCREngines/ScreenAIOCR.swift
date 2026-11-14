@@ -22,8 +22,13 @@ public final class ScreenAIOCR: Sendable {
         await models.unload()
     }
 
-    public func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
-        try await models.run { engine in Self.lines(try engine.recognize(image), width: image.width, height: image.height) }
+    /// - Parameter language: OCR mode's language (an ISO code of Yomitan's): only the script recognizers it needs are
+    ///   loaded and used (see OCRLanguage.screenAIRecognizers). Nil for all of them.
+    public func recognize(_ image: CGImage, language: String? = nil) async throws -> [RecognizedLine] {
+        let recognizers = language.flatMap(OCRLanguage.screenAIRecognizers)
+        return try await models.run { engine in
+            Self.lines(try engine.recognize(image, recognizers: recognizers), width: image.width, height: image.height)
+        }
     }
 
     /// Lines with a box per character where the recognizer gives them (its symbols), normalized to the image.

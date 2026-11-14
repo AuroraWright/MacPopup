@@ -50,9 +50,9 @@ extension OCRLayout {
               // 0.3–0.5 of their base line, text beside one mostly from 0.6; on boxes: at most 0.65).
               rubyFar - rubyNear <= (inked == nil ? 0.75 : 0.55) * baseSize,
               // Close to the base line (measured on boxes: furigana 0.12, a speaker's name above the text from 0.35;
-              // on the ink, without the boxes' padding, up to 0.3 in games that space them widely), and mostly
+              // on the ink, without the boxes' padding, up to 0.32 in games that space them widely), and mostly
               // beyond its middle (OCR boxes often overlap).
-              rubyNear - baseFar <= (inked == nil ? 0.25 : 0.3) * baseSize,
+              rubyNear - baseFar <= (inked == nil ? 0.25 : 0.35) * baseSize,
               (rubyNear + rubyFar) / 2 > (baseNear + baseFar) / 2 + 0.25 * baseSize
         else { return false }
         // Over kanji: furigana that reach past their kanji only reach part of a character further.

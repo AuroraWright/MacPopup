@@ -98,9 +98,11 @@ export const defaultSettings = {
 	ocrStripFurigana: true,
 	// How many WebSocket lines before the last are matched too, for games that add a line at a time to a page.
 	ocrEarlierLines: 20,
-	// Percentage of the watched area that has to change before the window is read again.
+	// Percentage of what is drawn in the watched area (not its plain background) that has to change before the window
+	// is read again (see differs in OCRController.swift).
 	ocrChangeThreshold: 0.3,
 	ocrPollInterval: 500,
+	// Only check for changes for a while after mouse, keyboard or controller input (OCRController.swift).
 	ocrMouseWatch: true,
 	ocrMouseWatchTime: 2000,
 	// How long the recognized text has to stay the same before it's taken (text is often drawn gradually).
@@ -164,6 +166,10 @@ export const defaultSettings = {
 
 	// Yomitan API
 	yomitanApiUrl: 'http://127.0.0.1:19633',
+	// Freezes the game while a popup is open or the controller has focus (GamePause.swift).
+	gamePause: false,
+	// Pauses the game until pressed again, to hover over what's on screen (togglePausedScan in overlay.js).
+	gamePauseShortcut: null,
 	// The ISO code of the Yomitan profile's language (general.language; see lib/languages.js). Lookups
 	// use Yomitan's own; this one is for what MacPopup does itself: audio, text display, scan resolution,
 	// and the language OCR mode reads (Live Text's, and which lines are kept; see OCRLanguage.swift).

@@ -106,8 +106,9 @@ final class ImpersonatedSession: @unchecked Sendable {
             case 28: throw URLError(.timedOut)  // CURLE_OPERATION_TIMEDOUT
             case 42: throw CancellationError()  // CURLE_ABORTED_BY_CALLBACK
             default:
+                // E.g. offline. curl's message (which names the server) is only logged.
                 let message = withUnsafeBytes(of: response.error) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
-                throw CloudOCR.Failure(message.isEmpty ? "curl error \(code)" : message)
+                throw CloudOCR.Failure("connection failed", detail: message.isEmpty ? "curl error \(code)" : message)
             }
         }
         return Response(

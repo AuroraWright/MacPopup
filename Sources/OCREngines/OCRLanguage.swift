@@ -42,6 +42,25 @@ public enum OCRLanguage {
         }
     }
 
+    /// The script recognizers Screen AI needs for `language`, besides its general one (which reads Latin): ISO 15924 codes
+    /// of its own (Sources/ScreenAI, LineRecognizer). It picks one by each line's language, and the others would only
+    /// read lines OCR mode leaves out (e.g. a misread picture taken for Arabic), each loaded on first use, which takes
+    /// seconds the first time (its GPU code is compiled) and memory from then on. Nil, for all of them, for "Other" or
+    /// a language whose script isn't known.
+    public static func screenAIRecognizers(for language: String) -> Set<String>? {
+        // Kanji-only lines may be taken for Chinese, and hanzi ones for Japanese: both recognizers read them.
+        if ["ja", "zh", "yue"].contains(language) { return ["Jpan", "Hani"] }
+        guard let scripts = scripts[language] else { return nil }
+        // Latin is the general recognizer's; Screen AI has none of its own for Armenian or Syriac.
+        return Set(scripts.compactMap { screenAIScripts[$0] })
+    }
+
+    /// Screen AI's recognizers by the Unicode scripts in `scripts`.
+    private static let screenAIScripts = [
+        "Arabic": "Arab", "Cyrillic": "Cyrl", "Greek": "Grek", "Hebrew": "Hebr", "Devanagari": "Deva", "Georgian": "Geor",
+        "Kannada": "Knda", "Khmer": "Khmr", "Hangul": "Kore", "Lao": "Laoo", "Thai": "Thai",
+    ]
+
     /// The Unicode scripts each of Yomitan's other languages is written in.
     private static let scripts: [String: [String]] = {
         var scripts: [String: [String]] = [

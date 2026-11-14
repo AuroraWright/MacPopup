@@ -6,7 +6,7 @@ import WebKit
 protocol BridgeHost: AnyObject {
     func setHitRects(_ rects: [CGRect])
     func openSettings()
-    func ocrMessage(_ body: [String: Any])
+    func ocrMessage(_ body: [String: Any]) -> Bool
     func overlayDisplayID() -> CGDirectDisplayID?
     func overlayMenuBarHeight() -> Double
     func setOverlayVisible(_ visible: Bool)
@@ -150,6 +150,10 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
                 body["text"] as? String ?? "", age: (body["age"] as? NSNumber)?.doubleValue ?? 0, settled: body["settled"] as? Bool ?? false
             )
             return nil
+        case "gamePause":
+            // A popup opened or closed (see updateGamePause in overlay.js); replies once the game is frozen.
+            await GamePause.shared.setPaused(body["pause"] as? Bool ?? false)
+            return nil
         case "pressSentenceAudio":
             // From Anki Audio's controller buttons (see overlay.js), or a card added or overwritten with Option (see
             // popup.js).
@@ -174,8 +178,8 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "menuBarHeight":
             return host?.overlayMenuBarHeight() ?? 0
         case "ocr":
-            host?.ocrMessage(body)
-            return nil
+            // Whether it's done (for readNow, whether the window is read).
+            return host?.ocrMessage(body) ?? false
         case "openSettings":
             host?.openSettings()
             return nil
@@ -198,6 +202,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
                 shift: body["shift"] as? Bool ?? false
             )
             return ["ignoresMouseEvents": host.overlayIgnoresMouseEvents]
+        case "debugPauseHelper":
+            guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil else { throw AppError("Unavailable") }
+            return await GamePause.shared.debugHelper(freeze: (body["freeze"] as? [NSNumber])?.map(\.int32Value))
         case "debugSentenceAudio":
             guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
                 throw AppError("Unavailable")
@@ -217,7 +224,8 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             FileHandle.standardError.write("[web] \(body["message"] ?? "")\n".data(using: .utf8)!)
             return nil
         case "ocrDebugLog":
-            if let json = body["json"] as? String { OCRDebugLog.append(json) }
+            // (Not once the setting is off: the log was deleted then.)
+            if let json = body["json"] as? String, OCRDebugLog.isOn { OCRDebugLog.append(json) }
             return nil
         default:
             throw AppError("Unknown command \(cmd)")

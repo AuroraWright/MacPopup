@@ -264,7 +264,7 @@ final class AudioTap {
     /// Whether the process is the app's, or one of its helpers: one macOS holds the app responsible for
     /// (as WebKit's processes), a child of it (as with Wine), or one from inside its .app bundle (as a
     /// browser's helpers, or Parallels' VM).
-    private static func belongs(_ pid: pid_t, to app: pid_t, bundle: String?) -> Bool {
+    static func belongs(_ pid: pid_t, to app: pid_t, bundle: String?) -> Bool {
         if pid == app || responsiblePID(pid) == app { return true }
         var parent = parentPID(pid)
         for _ in 0..<64 where parent > 1 {
@@ -276,12 +276,12 @@ final class AudioTap {
     }
 
     /// The outermost .app bundle the process's executable is in.
-    private static func bundlePath(of pid: pid_t) -> String? {
+    static func bundlePath(of pid: pid_t) -> String? {
         guard let path = executablePath(pid), let range = path.range(of: ".app/") else { return nil }
         return String(path[..<range.lowerBound]) + ".app"
     }
 
-    private static func executablePath(_ pid: pid_t) -> String? {
+    static func executablePath(_ pid: pid_t) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
         return String(cString: buffer)

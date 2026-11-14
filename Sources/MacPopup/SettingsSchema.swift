@@ -334,19 +334,19 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "ocrChangeThreshold", "Minimum screen change (%)", .number(min: 0, step: 0.1),
-                        hint: "The minimum percentage of the window (or selected area) that must visually change to trigger a new scan. Helps ignore blinking cursors or subtle animations."
+                        hint: "How much of what’s drawn in the window (or selected area) must change to trigger a new scan, as a percentage: its text and pictures, not a plain background, so that a short line on an empty screen counts too. Helps ignore blinking cursors or subtle animations."
                     ),
                     SettingsField(
                         "ocrPollInterval", "Check for screen changes every (ms)", .number(min: 50),
                         hint: "How often the window is checked for new text. Shorter intervals detect text faster but use more CPU."
                     ),
                     SettingsField(
-                        "ocrMouseWatch", "Only check for changes after mouse activity", .checkbox,
-                        hint: "Saves CPU by checking for new text only briefly after you move or click the mouse (for example, when clicking to advance dialogue)."
+                        "ocrMouseWatch", "Only check for changes after input activity", .checkbox,
+                        hint: "Saves CPU by checking for new text only briefly after you use the mouse, keyboard or a controller (for example, when clicking or pressing a button to advance dialogue). Controllers count once they’re set up in Settings → Controllers."
                     ),
                     SettingsField(
                         "ocrMouseWatchTime", "Keep checking after activity for (ms)", .number(min: 0),
-                        hint: "How long to keep watching for screen changes after moving or clicking the mouse, or after new dialogue arrives. Increase this if your game has long transitions before dialogue appears. Keep this value well above the check interval above.",
+                        hint: "How long to keep watching for screen changes after using the mouse, keyboard or a controller, or after new dialogue arrives. Increase this if your game has long transitions before dialogue appears. Keep this value well above the check interval above.",
                         showIf: { $0["ocrMouseWatch"] as? Bool ?? true }
                     ),
                     SettingsField(
@@ -359,7 +359,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "ocrShowBoxes", "Highlight recognized text boxes (debug)", .checkbox,
-                        hint: "Draws colored outlines over recognized text for troubleshooting: red for local OCR, orange for cloud OCR, and green for WebSocket-corrected lines. Also logs each scan to ~/Library/Application Support/MacPopup/ocr-debug.jsonl."
+                        hint: "Draws colored outlines over recognized text for troubleshooting: red for local OCR, orange for cloud OCR, and green for WebSocket-corrected lines. Also logs each scan, what triggered it, and what happened around it (the window, game pauses, the controller), with your OCR settings and MacPopup version, to ~/Library/Application Support/MacPopup/ocr-debug.jsonl, which is deleted when this is turned off."
                     ),
                 ]
             ),
@@ -367,6 +367,20 @@ enum SettingsSchema {
                 SettingsField(
                     "yomitanApiUrl", "Yomitan API URL", .text(test: .yomitan),
                     hint: "To activate the Yomitan API, you need to install a native messaging component for your browser (Install), go to Yomitan’s settings and enable Advanced settings, and turn on Enable Yomitan API (no need to follow the other steps Yomitan mentions: Install here takes care of them)."
+                ),
+                SettingsField(
+                    "gamePause", "Pause the game while a popup is open", .checkbox,
+                    hint: "Freezes the game (the captured window’s app, or else the app in front) while you read, so it can’t move on: no auto-advance or timed text, and its voice waits. It goes on when the popup closes. Needs MacPopup’s pause helper, allowed once below; it also resumes the game if MacPopup quits. A Windows game in Parallels pauses all of Windows."
+                ),
+                SettingsField(
+                    "permission.pauseHelper", "Pause helper", .permission(.pauseHelper),
+                    hint: "Allowed in System Settings → General → Login Items. It runs as root so it can pause Parallels, and only pauses the game for MacPopup.",
+                    showIf: { $0["gamePause"] as? Bool == true }
+                ),
+                SettingsField(
+                    "gamePauseShortcut", "Pause and scan shortcut", .shortcut,
+                    hint: "Works from any app. Pauses the game and, in OCR Mode, reads its window right away, even if the text is still appearing, so you can hover over any text on screen to look it up. Press it again to close the popup and let the game go on. The game doesn’t see this shortcut, so pick keys it doesn’t need.",
+                    showIf: { $0["gamePause"] as? Bool == true }
                 ),
                 SettingsField("scanModifier", "Scan modifier key (text box/OCR Mode text)", .select(scanModifierOptions)),
                 SettingsField("scanInputs", "Advanced scanning inputs", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
@@ -839,6 +853,10 @@ enum SettingsSchema {
                     SettingsField(
                         "permission.accessibility", "Accessibility", .permission(.accessibility),
                         hint: "Needed for Anki Audio’s Visual novel backlog capture to bring your game to the front and send it the keys that replay dialogue."
+                    ),
+                    SettingsField(
+                        "permission.pauseHelper", "Pause Helper", .permission(.pauseHelper),
+                        hint: "Needed to pause the game while a popup is open (Settings → Scanning). Allowed in System Settings → General → Login Items; it runs as root so it can pause Parallels."
                     ),
                 ]
             ),

@@ -29,6 +29,8 @@ final class SentenceAudioController {
 
     private let overlay: OverlayController
     private let hotkey = HotkeyController(signature: 0x4D50_5341) // "MPSA"
+    /// The shortcut last found taken (see applySettings).
+    private var reportedShortcut: KeyCombination?
     private var state = State.idle {
         didSet {
             // Cards added from a popup while busy get their voice once the current one is done.
@@ -90,17 +92,15 @@ final class SentenceAudioController {
         settings["sentenceAudioEnabled"] as? Bool == true && settings["ankiEnabled"] as? Bool ?? true
     }
 
-    private static func combination(_ value: Any?) -> KeyCombination? {
-        guard let item = value as? [String: Any], let key = item["key"] as? String, !key.isEmpty else { return nil }
-        return KeyCombination(key: key, modifiers: item["modifiers"] as? [String] ?? [])
-    }
-
     private func applySettings() {
-        let shortcut = Self.isEnabled(settings) ? Self.combination(settings["sentenceAudioShortcut"]) : nil
+        let shortcut = Self.isEnabled(settings) ? KeyCombination(setting: settings["sentenceAudioShortcut"]) : nil
         let registered = hotkey.set(shortcut.map { [$0] } ?? [])
-        if let shortcut, registered.first == false {
-            showToast("The sentence audio shortcut \(shortcut.displayName) is used by another app")
+        // Told once for each shortcut (this runs at every settings change).
+        let failed = registered.first == false ? shortcut : nil
+        if let failed, failed != reportedShortcut {
+            showToast("The sentence audio shortcut \(failed.displayName) is used by another app or shortcut")
         }
+        reportedShortcut = failed
         updateHistory()
     }
 
@@ -137,7 +137,7 @@ final class SentenceAudioController {
         let minutes = historyMinutes
         let text = text.components(separatedBy: .whitespacesAndNewlines).joined()
         guard minutes > 0, !text.isEmpty else { return }
-        let now = ProcessInfo.processInfo.systemUptime
+        let now = GameClock.now
         let shown = now - max(0, age)
         // OCR may notice a change up to one check late and reads it after that, while a WebSocket line arrives as the
         // game shows it.
@@ -194,9 +194,11 @@ final class SentenceAudioController {
         var waiting = false
         /// Whether the voice was still going at the last check.
         var speaking = false
+        // While it waits, the game goes on even with a popup open (see GamePause), or the voice would never end.
+        defer { if waiting { GamePause.shared.letRun(false) } }
         while true {
             guard let index = lines.firstIndex(where: { $0.id == id }) else { return "This card’s line is older than the kept audio" }
-            let now = ProcessInfo.processInfo.systemUptime
+            let now = GameClock.now
             let start = max(lines[index].start, index > 0 ? lines[index - 1].shown : 0)
             let next = index + 1 < lines.count ? lines[index + 1].shown : nil
             let end = min(next ?? now, start + maxLength)
@@ -234,6 +236,7 @@ final class SentenceAudioController {
             speaking = voice != nil
             if !waiting {
                 waiting = true
+                GamePause.shared.letRun(true)
                 showToast("Waiting for the voice to end…")
             }
             try? await Task.sleep(for: .milliseconds(500))
@@ -378,7 +381,7 @@ final class SentenceAudioController {
 
     /// Switches to the game, then presses `keys` ([{key, modifiers}]) in turn.
     private func pressKeys(_ value: Any?) async {
-        let keys = (value as? [Any] ?? []).compactMap(Self.combination)
+        let keys = (value as? [Any] ?? []).compactMap { KeyCombination(setting: $0) }
         let switched = activateApp()
         guard !keys.isEmpty else { return }
         if switched || string("sentenceAudioApp", "captured") == "none" {

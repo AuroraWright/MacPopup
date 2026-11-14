@@ -31,7 +31,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         settingsWindow = SettingsWindowController { [weak self] in self?.ocr.selectWindow() }
         overlay.onMouseButtonEvent = { [weak self] button, isDown in
             self?.settingsWindow.mouseButtonEvent(button: button, isDown: isDown)
-            if isDown { self?.ocr.mouseClicked() }
         }
 
         ocr = OCRController(overlay: overlay)
@@ -44,6 +43,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
             self?.overlay.evaluate("window.__macpopupGamepad?.(\(json))")
         }
         GamepadController.shared.onToast = { [weak self] message in self?.overlay.showToast(message) }
+        GamePause.shared.onToast = { [weak self] message in self?.overlay.showToast(message) }
+        OCRDebugLog.start()
+        GamePause.shared.onResume = { [weak self] in self?.ocr.gameResumed() }
+        GamePause.shared.onShortcut = { [weak self] in self?.overlay.evaluate("window.__macpopupPauseShortcut?.()") }
+        GamePause.shared.onSwitchAway = { [weak self] in self?.overlay.evaluate("window.__macpopupEndPausedScan?.()") }
+        GamepadController.shared.onInput = { [weak self] in self?.ocr.inputUsed() }
         yomitanAPI = YomitanAPIStatus()
         yomitanAPI.onChange = { [weak self] in self?.updateStatusIcon() }
 
@@ -152,10 +157,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         settingsWindow.show(above: overlay.panel.level)
     }
 
-    func ocrMessage(_ body: [String: Any]) {
+    func ocrMessage(_ body: [String: Any]) -> Bool {
         // The page tells OCR when it has (re)loaded.
         if body["action"] as? String == "ready" { overlay.pageReady() }
-        ocr.handle(body)
+        return ocr.handle(body)
     }
 
     func overlayDisplayID() -> CGDirectDisplayID? {

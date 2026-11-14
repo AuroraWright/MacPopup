@@ -1063,7 +1063,32 @@ const ocr = {
 	// reading with the popup's word still where it was waits, so the word's highlight stays with the popup (a
 	// reading without it is shown at once). The text isn't scanned meanwhile.
 	deferred: null,
+	// Called with the next reading "as it is" (its message's `now`), or an error (see readOcrNow).
+	onReading: [],
 };
+
+/**
+ * Has the window read as it is now, without waiting for it to settle (the game is paused: see updateGamePause), and
+ * returns once the reading is shown (or kept for when the popups close), or it can't be read.
+ */
+async function readOcrNow() {
+	const read = new Promise((resolve) => {
+		ocr.onReading.push(() => resolve(true));
+		// E.g. a cloud engine that takes too long.
+		setTimeout(() => resolve(false), 10000);
+	});
+	if (!(await nativeCall('ocr', { action: 'readNow' }).catch(() => false))) {
+		logOcrEvent('reading as it is: not taken (no window to read)');
+		return;
+	}
+	if (!(await read)) logOcrEvent('reading as it is: none within 10 s');
+}
+
+function readingDone() {
+	const callbacks = ocr.onReading;
+	ocr.onReading = [];
+	for (const callback of callbacks) callback();
+}
 
 function setOcrWindow(message) {
 	const layer = $('#ocr-layer');
@@ -1109,6 +1134,7 @@ function applyDeferredOcr() {
 	const deferred = ocr.deferred;
 	if (!deferred) return;
 	ocr.deferred = null;
+	logOcrEvent(deferred.clear ? 'held-back clearing applied' : 'held-back reading shown');
 	if (deferred.clear) clearOcrText();
 	else renderOcrResult(deferred);
 }
@@ -1197,6 +1223,22 @@ function logOcrDebug(record) {
 	nativeCall('ocrDebugLog', { json: JSON.stringify({ time: new Date().toISOString(), ...record }) }).catch(() => {});
 }
 
+/** What happens around the readings (controller focus, the pause and scan shortcut, held-back readings). */
+function logOcrEvent(event, fields = {}) {
+	logOcrDebug({ type: 'event', event, ...fields });
+}
+
+/** Why the shown text may not be offered (see controllerLines). */
+function ocrTextState() {
+	return {
+		ocrMode: !!getSettings().ocrMode,
+		stale: ocr.stale,
+		covered: ocr.covered,
+		hidden: $('#ocr-layer').hidden,
+		lines: $('#ocr-text').querySelectorAll('.ocr-line').length,
+	};
+}
+
 function showOcrResult(message) {
 	const decoded = decodeLines(message.lines);
 	// Only the first area is the dialogue: the WebSocket line is matched against it. A reading of
@@ -1266,6 +1308,8 @@ function showOcrResult(message) {
 		logOcrDebug({ ...debug, shown, outcome: 'unchanged' });
 		return;
 	}
+	// On screen from now on, even if it's shown once the popups close (for Anki Audio and Screenshot).
+	if (readsDialogue) noteSentenceLine(dialogue.map(lineText).join(''), message.roundAge ?? 0, true);
 	const highlighted = highlightedOcrChars();
 	if (highlighted && hasCharsInPlace(lines, size, highlighted)) {
 		ocr.deferred = { lines, size, key };
@@ -1273,7 +1317,6 @@ function showOcrResult(message) {
 		return;
 	}
 	logOcrDebug({ ...debug, shown, outcome: 'shown' });
-	if (readsDialogue) noteSentenceLine(dialogue.map(lineText).join(''), message.roundAge ?? 0, true);
 	ocr.deferred = null;
 	renderOcrResult({ lines, size, key });
 }
@@ -1354,8 +1397,11 @@ window.__macpopupOcr = (message) => {
 			break;
 		case 'result':
 			showOcrResult(message);
+			// The reading "as it is" readOcrNow asked for (not one of a round that was under way, or of other areas).
+			if (message.now) readingDone();
 			break;
 		case 'error':
+			readingDone();
 			log('OCR', message.message);
 			showToast(message.message);
 			break;
@@ -1388,6 +1434,11 @@ function ocrWebsocketLine(rawText) {
 	ocr.line = text;
 	if (!settings.ocrMode || !settings.ocrUseWebsocket) return;
 	ocr.awaitingLine = true;
+	// While the game is paused, its window doesn't change: the text stays, and the window is read again for the line.
+	if (gamepad.pausing) {
+		void readOcrNow();
+		return;
+	}
 	clearOcrText();
 	nativeCall('ocr', { action: 'cue' }).catch(() => {});
 }
@@ -1439,6 +1490,13 @@ const gamepad = {
 	queued: null,
 	// Whether the host was asked to hold the controllers.
 	holding: null,
+	// Whether the host was asked to pause the game, and its answer (updateGamePause).
+	pausing: false,
+	pauseCall: null,
+	// Counts focusPaused's calls: one whose reading comes after another started does nothing.
+	pausedFocus: 0,
+	// Counts the times the controller got or lost focus: a move still looking up from before doesn't go on.
+	focusChanges: 0,
 	// OCR Mode when the text got controller focus: switching drops it.
 	ocrMode: null,
 };
@@ -1457,7 +1515,24 @@ function controllerHotkeys() {
 	return (getSettings().hotkeys ?? []).filter(({ enabled, buttons }) => enabled && Array.isArray(buttons) && buttons.length > 0);
 }
 
+// Settings → Scanning → Pause and scan shortcut: the game is paused until it's pressed again (togglePausedScan).
+const pausedScan = { on: false };
+
+/**
+ * Settings → Scanning → Pause the game: the game is frozen while a popup is open, while the controller has focus, or
+ * after the pause and scan shortcut. Returns once it is.
+ */
+function updateGamePause() {
+	const paused = !!getSettings().gamePause && (gamepad.focus || pausedScan.on || popupManager.visiblePopups().length > 0);
+	if (paused !== gamepad.pausing) {
+		gamepad.pausing = paused;
+		gamepad.pauseCall = nativeCall('gamePause', { pause: paused }).catch(() => {});
+	}
+	return gamepad.pauseCall;
+}
+
 function updateGamepadHold() {
+	updateGamePause();
 	const hold = gamepad.focus || (popupManager.visiblePopups().length > 0 && controllerHotkeys().length > 0);
 	if (hold === gamepad.holding) return;
 	gamepad.holding = hold;
@@ -1502,6 +1577,7 @@ window.__macpopupGamepad = (held) => {
  * is held (see Gamepads.swift): closes the popups and gives the controller back.
  */
 window.__macpopupReleaseForGame = () => {
+	logOcrEvent('popups closed and the controller let go, for the game (another app, or Anki Audio)');
 	if (gamepad.focus) {
 		setControllerFocus(false);
 	} else {
@@ -1513,14 +1589,24 @@ window.__macpopupReleaseForGame = () => {
 
 function setControllerFocus(focus) {
 	if (focus === gamepad.focus) return;
+	logOcrEvent(focus ? 'controller focus' : 'controller focus ended');
+	// A move still under way is left to finish on its own (see moveWord).
+	gamepad.focusChanges++;
+	gamepad.moving = false;
+	gamepad.queued = null;
 	holdDirection(null);
 	clearTimeout(gamepad.lookupTimer);
 	gamepad.word = null;
 	gamepad.history = [];
 	setTextCursor(null);
+	if (focus && getSettings().gamePause && getSettings().ocrMode) {
+		void focusPaused();
+		return;
+	}
 	if (focus) {
 		if (controllerChars().length === 0) {
-			showToast('No text to look up');
+			logOcrEvent('no text to look up', ocrTextState());
+		showToast('No text to look up');
 			return;
 		}
 		gamepad.focus = true;
@@ -1533,6 +1619,65 @@ function setControllerFocus(focus) {
 	}
 	updateGamepadHold();
 }
+
+/**
+ * Controller focus in OCR Mode with Pause the game: the game is paused at once, and its window read as it is then,
+ * even if the text was still changing (e.g. drawn a character at a time), so the controller starts on what's on screen.
+ * Moves meanwhile wait for the reading.
+ */
+async function focusPaused() {
+	const round = ++gamepad.pausedFocus;
+	gamepad.focus = true;
+	gamepad.ocrMode = true;
+	gamepad.moving = true;
+	updateGamepadHold();
+	await updateGamePause();
+	await readOcrNow();
+	if (round !== gamepad.pausedFocus) return;
+	gamepad.moving = false;
+	// A move meanwhile (see holdDirection) is made once the controller starts.
+	const queued = gamepad.queued;
+	gamepad.queued = null;
+	if (!gamepad.focus) return;
+	if (controllerChars().length === 0) {
+		logOcrEvent('no text to look up', ocrTextState());
+		showToast('No text to look up');
+		setControllerFocus(false);
+		return;
+	}
+	const focus = gamepad.focusChanges;
+	await moveController(null);
+	if (queued && gamepad.focus && focus === gamepad.focusChanges && !gamepad.moving) void moveController(queued);
+}
+
+/**
+ * The pause and scan shortcut: pauses the game and, in OCR Mode, has its window read as it is (as focusPaused does),
+ * so that whatever's on screen can be hovered over; pressed again (or once you switch to another app, see
+ * GamePause.onSwitchAway), closes the popups and lets the game go on.
+ */
+async function togglePausedScan() {
+	if (pausedScan.on) {
+		logOcrEvent('pause and scan off');
+		pausedScan.on = false;
+		popupManager.closeAll();
+		clearMainScan();
+		updateGamepadHold();
+		return;
+	}
+	if (!getSettings().gamePause) return;
+	logOcrEvent('pause and scan on');
+	pausedScan.on = true;
+	updateGamepadHold();
+	await updateGamePause();
+	if (pausedScan.on && getSettings().ocrMode) await readOcrNow();
+}
+
+window.__macpopupPauseShortcut = () => void togglePausedScan();
+window.__macpopupEndPausedScan = () => {
+	if (!pausedScan.on) return;
+	logOcrEvent('pause and scan ending: switched to another app');
+	void togglePausedScan();
+};
 
 /** Moves in `direction` now, and again every 150 ms after it's held for 400 ms; null stops. */
 function holdDirection(direction) {
@@ -1560,7 +1705,8 @@ function holdDirection(direction) {
 /** The lines the controller moves through: OCR Mode's text, or the text box's. */
 function controllerLines() {
 	if (getSettings().ocrMode) {
-		if (ocr.covered || ocr.stale || $('#ocr-layer').hidden) return [];
+		// Not ocr.covered: that's about where the pointer is, which the controller doesn't use.
+		if (ocr.stale || $('#ocr-layer').hidden) return [];
 		return [...$('#ocr-text').querySelectorAll('.ocr-line')];
 	}
 	return box.hidden ? [] : [...linesElement.querySelectorAll('p[data-line-id]')];
@@ -1722,9 +1868,10 @@ function moveController(direction) {
  * characters (e.g. past punctuation). Returns whether it found one.
  */
 async function lookUpFrom(chars, index, step) {
+	const focus = gamepad.focusChanges;
 	for (let i = index, tries = 0; i >= 0 && i < chars.length && tries < 20; i += step, tries++) {
 		const found = await lookUpAt(chars[i], popupDelay());
-		if (!gamepad.focus) return false;
+		if (!gamepad.focus || focus !== gamepad.focusChanges) return false;
 		if (found) return true;
 	}
 	return false;
@@ -1737,6 +1884,7 @@ async function lookUpFrom(chars, index, step) {
  * and its popup opens once the controller rests for gamepadPopupDelay (the popup shown closes at the move).
  */
 async function moveWord(direction) {
+	const focus = gamepad.focusChanges;
 	gamepad.moving = true;
 	try {
 		// A reading that waited for the popups to close (see ocr.deferred) is the text to move through.
@@ -1782,6 +1930,8 @@ async function moveWord(direction) {
 			await moveTo(index, 1);
 		}
 	} finally {
+		// Focus was lost meanwhile (see setControllerFocus): the moves from now on aren't this one's.
+		if (focus !== gamepad.focusChanges) return;
 		gamepad.moving = false;
 		const queued = gamepad.queued;
 		gamepad.queued = null;
@@ -1904,6 +2054,11 @@ function applySettings(settings) {
 	reportHitRects();
 	// Without the scan key's buttons, or in the other mode, the text no longer has controller focus.
 	if (gamepad.focus && ((settings.gamepadScanButtons ?? []).length === 0 || !!settings.ocrMode !== gamepad.ocrMode)) setControllerFocus(false);
+	if (pausedScan.on && !settings.gamePause) {
+		logOcrEvent('pause and scan off: Pause the game was turned off');
+		pausedScan.on = false;
+		updateGamepadHold();
+	}
 	updateHotkeys();
 }
 

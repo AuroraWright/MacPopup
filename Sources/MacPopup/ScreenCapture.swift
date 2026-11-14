@@ -114,7 +114,17 @@ final class CaptureStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     }
 
     func start() async throws {
-        try await ScreenCapture.limited { [stream] in try await stream!.startCapture() }
+        do {
+            try await ScreenCapture.limited { [self] in
+                try await stream!.startCapture()
+                // Given up on meanwhile (see below): it's stopped once it started.
+                if hasStopped { try? await stream!.stopCapture() }
+            }
+        } catch {
+            // E.g. it didn't start in time: nothing else would stop it if it starts later.
+            stop()
+            throw error
+        }
     }
 
     func stop() {

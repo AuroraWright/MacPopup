@@ -112,12 +112,14 @@ public final class ScreenAIEngine: @unchecked Sendable {
     }
 
     /// The text lines of the image, in reading order.
-    public func recognize(_ image: CGImage) throws -> [Line] {
+    /// - Parameter recognizers: The script recognizers to use besides the general one (ISO 15924 codes, e.g. "Jpan"), or
+    ///   nil for all of them (see LineRecognizer.recognize).
+    public func recognize(_ image: CGImage, recognizers: Set<String>? = nil) throws -> [Line] {
         let layout = try lock.withLock {
             try autoreleasepool {
                 let gray = try Self.gray(image)
                 let (detected, pyramid) = try detector.detect(gray)
-                return try analyzed(try recognizer.recognize(gray, detected, pyramid: pyramid))
+                return try analyzed(try recognizer.recognize(gray, detected, pyramid: pyramid, keys: recognizers))
             }
         }
         func box(_ b: RotatedBox) -> Box { Box(left: b.left, top: b.top, width: b.width, height: b.height, angle: b.angle) }

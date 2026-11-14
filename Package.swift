@@ -64,9 +64,21 @@ let package = Package(
             dependencies: ["ScreenAI", "OneOCR", "CurlImpersonate"],
             path: "Sources/OCREngines"
         ),
+        // What MacPopup and its pause helper say to each other over XPC.
+        .target(
+            name: "PauseHelperInterface",
+            path: "Sources/PauseHelperInterface"
+        ),
+        // The root helper that freezes the game while a popup is open (Settings → Scanning → Pause the game);
+        // scripts/build.sh puts it in the app, with its launchd property list.
+        .executableTarget(
+            name: "pause-helper",
+            dependencies: ["PauseHelperInterface"],
+            path: "Sources/PauseHelper"
+        ),
         .executableTarget(
             name: "MacPopup",
-            dependencies: ["LiveText", "OCREngines"],
+            dependencies: ["LiveText", "OCREngines", "PauseHelperInterface"],
             path: "Sources/MacPopup"
         ),
     ]

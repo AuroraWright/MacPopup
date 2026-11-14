@@ -134,6 +134,9 @@ body {
 #ocr-layer.show-boxes .ocr-line {
 	outline: 1px solid rgb(255 80 80 / 0.8);
 	color: rgb(255 80 80 / 0.7);
+	/* WebKit doesn't repaint glyphs (their text-shadow, below) reaching past the line when it's removed, e.g. a
+	   misread with characters much bigger than their boxes: they'd stay on screen. */
+	overflow: clip;
 }
 
 #ocr-layer.show-boxes .ocr-line.ocr-matched {

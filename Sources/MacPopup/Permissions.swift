@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 
 /// The macOS privacy permissions MacPopup uses, shown in Settings → Permissions.
 enum Permission {
@@ -6,6 +7,8 @@ enum Permission {
     /// Recording other apps' audio, for Anki Audio. System Settings lists it with Screen Recording.
     case audioCapture
     case accessibility
+    /// MacPopup's pause helper (see GamePause), approved in System Settings → General → Login Items.
+    case pauseHelper
 
     enum Status {
         case granted
@@ -22,6 +25,8 @@ enum Permission {
             TCC.preflight?(TCC.audioCapture, nil) == 0 ? .granted : .notGranted
         case .accessibility:
             AXIsProcessTrusted() ? .granted : .notGranted
+        case .pauseHelper:
+            GamePause.service.status == .enabled ? .granted : .notGranted
         }
     }
 
@@ -37,15 +42,27 @@ enum Permission {
             }
         case .accessibility:
             AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary)
+        case .pauseHelper:
+            // Registering it lists it in System Settings, where it's then allowed.
+            do {
+                try GamePause.service.register()
+            } catch {
+                NSLog("MacPopup: couldn't register the pause helper: \(error.localizedDescription)")
+            }
+            if GamePause.service.status != .enabled { SMAppService.openSystemSettingsLoginItems() }
         }
     }
 
     /// The permission's page in System Settings → Privacy & Security.
     func openSystemSettings() {
+        if self == .pauseHelper {
+            SMAppService.openSystemSettingsLoginItems()
+            return
+        }
         let anchor = switch self {
         case .screenRecording: "Privacy_ScreenCapture"
         case .audioCapture: "Privacy_AudioCapture"
-        case .accessibility: "Privacy_Accessibility"
+        case .accessibility, .pauseHelper: "Privacy_Accessibility"
         }
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") {
             NSWorkspace.shared.open(url)
