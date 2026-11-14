@@ -91,7 +91,7 @@ const directOptions = {
 	},
 };
 
-// Yomitan's popup keyboard shortcut actions that MacPopup has (all but switching profiles and toggling options).
+// The Yomitan popup shortcut actions MacPopup supports (all except switching profiles and toggling options).
 const hotkeyActions = new Set([
 	'close', 'nextEntry', 'previousEntry', 'lastEntry', 'firstEntry', 'nextEntryDifferentDictionary',
 	'previousEntryDifferentDictionary', 'historyBackward', 'historyForward', 'addNote', 'viewNotes', 'playAudio',

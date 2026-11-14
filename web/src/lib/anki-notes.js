@@ -162,7 +162,7 @@ async function resolveLocalMarkers(markers, { dictionaryEntry, content, selectio
 				}
 				case 'screenshot': {
 					const format = settings.screenshotFormat === 'png' ? 'png' : 'jpeg';
-					const data = await takeScreenshot(content.player, format, settings);
+					const data = await takeScreenshot(content.player, format, settings, content.sentence?.text);
 					const filename = `yomitan_screenshot_${timestamp()}.${format === 'png' ? 'png' : 'jpg'}`;
 					media.push({ filename, data });
 					values.set(marker, `<img src="${filename}" />`);
@@ -180,10 +180,12 @@ function hasPlayerTrack(player, track) {
 }
 
 /**
- * For a video player's line (content.player, see iina-plugin/), the frame in the middle of the line, from the video
- * file or stream (unless Settings → IINA Integration turns it off); else the captured window or display.
+ * For a line from a video player (content.player, see iina-plugin/), the frame from the middle of the line, taken
+ * from the video file or stream, unless Settings → IINA Integration turns that off. Otherwise, the screenshot of the
+ * captured window from when `sentence` was shown (Settings → Anki Screenshot), or one of the captured window or
+ * display taken now.
  */
-async function takeScreenshot(player, format, settings) {
+async function takeScreenshot(player, format, settings, sentence) {
 	if (settings.iinaScreenshotEnabled !== false && hasPlayerTrack(player, 'video')) {
 		try {
 			const time = (player.start + player.end) / 2;
@@ -192,7 +194,7 @@ async function takeScreenshot(player, format, settings) {
 			log('The line’s screenshot failed', e);
 		}
 	}
-	return nativeCall('screenshot', { format, quality: settings.screenshotQuality, resolution: settings.screenshotResolution });
+	return nativeCall('screenshot', { format, quality: settings.screenshotQuality, resolution: settings.screenshotResolution, sentence });
 }
 
 /**
@@ -397,6 +399,8 @@ export async function buildNote({ content, entryIndex, cardFormat, selectionText
 			options: createNoteOptions(cardFormat),
 		},
 		media,
+		// Whether the sentence audio is the line's own, from IINA.
+		hasPlayerAudio: !!sentenceAudio,
 	};
 }
 
@@ -425,20 +429,23 @@ function getOverwrittenField(existingValue, newValue, overwriteMode) {
 }
 
 /**
- * The sentence audio field is replaced whatever its overwrite mode when there's new audio for it (from IINA) and
- * Settings → Anki Audio says to replace it.
- * @returns {Promise<Record<string, string>>} The note's fields now.
+ * The sentence audio field ignores the card format's overwrite mode: new audio (from IINA) only replaces existing audio
+ * when Settings → Anki Audio says to, and fills it in when it's empty.
+ * @returns {Promise<Record<string, string>>} The note's fields after the update.
  */
 export async function overwriteNote(noteId, note, cardFormat) {
 	const [info] = await ankiInvoke('notesInfo', { notes: [noteId] });
 	if (!info) throw new Error('Could not find the note to overwrite');
 	const settings = getSettings();
-	const audioField = settings.sentenceAudioOverwrite ? settings.sentenceAudioField?.trim() : null;
+	const audioField = settings.sentenceAudioField?.trim();
 	const fields = {};
 	for (const [name, value] of Object.entries(note.fields)) {
 		const existing = info.fields?.[name]?.value ?? '';
-		const mode = name === audioField && value ? 'overwrite' : cardFormat.fields[name]?.overwriteMode;
-		fields[name] = getOverwrittenField(existing, value, mode);
+		if (name === audioField) {
+			fields[name] = value && (settings.sentenceAudioOverwrite || !existing.trim()) ? value : existing;
+		} else {
+			fields[name] = getOverwrittenField(existing, value, cardFormat.fields[name]?.overwriteMode);
+		}
 	}
 	// A note selected in Anki's card browser is open in its editor, and AnkiConnect doesn't change a note open in an
 	// editor (older versions did, and the editor then saved its old fields over the change). So while it changes, the

@@ -542,12 +542,12 @@ private struct AnkiFieldPicker<Label: View>: View {
     }
 }
 
-/// A {key, modifiers} setting's key combination, or nil without a key.
-/// A shortcut recording button's help: the whole shortcut, which its label can cut short.
+/// The tooltip for a shortcut's record button. It shows the whole shortcut, since the label may be truncated.
 private func recordHelp(_ combination: KeyCombination?) -> String {
-    combination.map { "\($0.displayName). Click, then press another key combination" } ?? "Click, then press a key combination"
+    combination.map { "\($0.displayName). Click to record a different key combination" } ?? "Click, then press a key combination"
 }
 
+/// A {key, modifiers} setting's key combination, or nil if it has no key.
 private func keyCombination(_ item: [String: Any]?) -> KeyCombination? {
     guard let key = item?["key"] as? String, !key.isEmpty else { return nil }
     return KeyCombination(key: key, modifiers: item?["modifiers"] as? [String] ?? [])
@@ -879,8 +879,8 @@ private struct JSONEditor: View {
     }
 }
 
-/// A recording button's label, as wide as `width` (by default as "Record Shortcut", so recording buttons are all as
-/// wide), with what's longer cut short ("…"). Its width doesn't change while recording.
+/// A record button's label. It's always as wide as `width` ("Record Shortcut" by default, so all record buttons
+/// match), even while recording, and longer text is truncated with "…".
 struct RecordingLabel: View {
     let text: String
     var width = "Record Shortcut"
@@ -1552,7 +1552,7 @@ private final class ShortcutRecorder: ObservableObject {
     @Published private(set) var activeID: AnyHashable?
     private var monitor: Any?
     private var completion: ((KeyCombination) -> Void)?
-    /// The recorded key, whose repeats and release are still kept from the window.
+    /// The key just recorded. Its repeats and release are still held back from the window.
     private var releasing: UInt16?
     private var othersStarting: AnyCancellable?
 
@@ -1570,13 +1570,13 @@ private final class ShortcutRecorder: ObservableObject {
         NotificationCenter.default.post(name: .settingsRecordingStarted, object: self)
         activeID = id
         self.completion = completion
-        // The sidebar, which has the keyboard after a section is clicked, would select the section starting with a
-        // key's letter, even with Control held (⌃A opening Anki): no view has the keyboard while recording.
+        // After a section is clicked, the sidebar has keyboard focus and would jump to the section starting with the
+        // pressed letter, even with Control held (⌃A opened Anki). So nothing has focus while recording.
         NSApp.keyWindow?.makeFirstResponder(nil)
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
             guard let self else { return event }
             if let releasing {
-                // After the recording: the recorded key's repeats and its release, until another key is pressed.
+                // Once recorded, the key's repeats and release are swallowed until another key is pressed.
                 if event.type == .flagsChanged || event.keyCode != releasing || (event.type == .keyDown && !event.isARepeat) {
                     cancel()
                     return event
@@ -1630,7 +1630,7 @@ private struct TerminationCharactersControl: View {
                     GridRow {
                         Text("#")
                         Text("Enabled")
-                        // Over the dropdowns' text, which starts inside their edge.
+                        // Lines up with the dropdowns' text, which is inset from their edge.
                         Text("Type").padding(.leading, 11)
                         Text("Character 1")
                         Text("Character 2")
@@ -1654,7 +1654,7 @@ private struct TerminationCharactersControl: View {
                             }
                             .labelsHidden()
                             .fixedSize()
-                            // As much room after it as its text has inside it (see the header).
+                            // Matches the inset of its text (see the header).
                             .padding(.trailing, 11)
                             characterField(index, "character1")
                             if isQuote {
@@ -1676,7 +1676,7 @@ private struct TerminationCharactersControl: View {
                             }
                             .buttonStyle(.borderless)
                             .help("Delete")
-                            // At the right edge, as in the other lists.
+                            // Pinned to the right edge, as in the other lists.
                             .frame(maxWidth: .infinity, alignment: .trailing)
                         }
                     }
@@ -1745,7 +1745,7 @@ private struct HotkeysControl: View {
         SettingsOption("historyBackward", "Navigate backward in history"),
         SettingsOption("historyForward", "Navigate forward in history"),
         SettingsOption("addNote", "Add note"),
-        // MacPopup's own: as Option-clicking the add button (see popup.js).
+        // MacPopup's own action, the same as Option-clicking the add button (see popup.js).
         SettingsOption("addNoteSentenceAudio", "Add note (sentence audio)"),
         SettingsOption("viewNotes", "View notes"),
         SettingsOption("playAudio", "Play audio"),
@@ -1813,8 +1813,8 @@ private struct HotkeysControl: View {
         if Set(model["gamepadScanButtons"] as? [String] ?? []) == buttons {
             return "These controller buttons are already used by the controller scan key, which takes priority."
         }
-        if model["sentenceAudioEnabled"] as? Bool == true, Set(model["sentenceAudioButtons"] as? [String] ?? []) == buttons {
-            return "These controller buttons are already used by Anki Audio, which takes priority."
+        if SentenceAudioController.isEnabled(model.values), Set(model["sentenceAudioButtons"] as? [String] ?? []) == buttons {
+            return "Anki Audio already uses these buttons, so it takes priority."
         }
         let earlier = items[..<index].contains { ($0["enabled"] as? Bool ?? true) && Set($0["buttons"] as? [String] ?? []) == buttons }
         return earlier ? "These controller buttons are already used by an earlier shortcut, which takes priority." : nil
@@ -1841,11 +1841,11 @@ private struct HotkeyRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            // No spacing: the dropdowns' own margins keep them apart, and the action's argument right beside the action.
+            // No spacing: the dropdowns' own margins keep them apart, and the argument sits right next to the action.
             HStack(spacing: 0) {
                 let actions = HotkeysControl.actions.contains { $0.value == action }
                     ? HotkeysControl.actions : HotkeysControl.actions + [SettingsOption(action)]
-                // The action right beside its checkbox.
+                // Keeps the action right next to its checkbox.
                 HStack(spacing: 0) {
                     Toggle("", isOn: Binding(get: { item["enabled"] as? Bool ?? true }, set: { change(.set(["enabled": $0])) }))
                         .toggleStyle(.checkbox)
@@ -1859,11 +1859,11 @@ private struct HotkeyRow: View {
                 .fixedSize()
                 argumentControl
                 Spacer(minLength: 8)
-                // On the right, the keyboard keys above the controller buttons, at their full width: in a crowded row, the action's
-                // dropdown is cut short instead (see shrinking).
+                // The keyboard and controller buttons, stacked on the right at full width. In a crowded row, the
+                // action's dropdown gets truncated instead (see shrinking).
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 2) {
-                        clearButton("Remove the keyboard keys from this shortcut", hidden: combination == nil) {
+                        clearButton("Clear the keyboard shortcut", hidden: combination == nil) {
                             if recorder.activeID == id { recorder.cancel() }
                             change(.set(["key": "", "modifiers": [String]()]))
                         }
@@ -1892,15 +1892,15 @@ private struct HotkeyRow: View {
     private var buttonsControl: some View {
         let buttons = item["buttons"] as? [String] ?? []
         return HStack(spacing: 2) {
-            clearButton("Remove the controller buttons from this shortcut", hidden: buttons.isEmpty) {
+            clearButton("Clear the controller buttons", hidden: buttons.isEmpty) {
                 change(.set(["buttons": [String]()]))
             }
             GamepadComboButton(buttons: buttons) { change(.set(["buttons": $0])) }
         }
     }
 
-    /// A button that removes the keyboard keys or controller buttons beside it. It keeps its room when there's
-    /// nothing to remove, so the rows' controls line up.
+    /// A button that clears the keyboard shortcut or controller buttons next to it. It still takes up space when
+    /// there's nothing to clear, so the controls in every row line up.
     private func clearButton(_ help: String, hidden: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: "xmark.circle.fill") }
             .buttonStyle(.borderless)
@@ -1938,7 +1938,7 @@ private struct HotkeyRow: View {
                     .labelsHidden()
             }
             .fixedSize()
-            // As far from the action as a dropdown's margin.
+            // The same gap from the action as a dropdown's margin.
             .padding(.leading, 6)
         case "addNote", "addNoteSentenceAudio", "viewNotes":
             let index = Int(argument) ?? 0
@@ -1959,14 +1959,14 @@ private struct HotkeyRow: View {
         }
     }
 
-    /// The action's dropdown at its full width when the row has room for it, or narrower with its title cut short
-    /// ("…") when not, so that it doesn't push the rest of the row (the remove button) out of the window.
+    /// Shows the action's dropdown at full width when the row has room, and otherwise narrower with its title
+    /// truncated ("…"), so it doesn't push the rest of the row, like the remove button, out of the window.
     private func shrinking(_ picker: some View) -> some View {
         ViewThatFits(in: .horizontal) {
             picker.fixedSize()
             picker.frame(minWidth: 60, maxWidth: .infinity)
         }
-        // Offered the row's width before the spacer after it.
+        // Gets the row's width before the spacer after it does.
         .layoutPriority(1)
     }
 }

@@ -236,6 +236,10 @@ export const defaultSettings = {
 	screenshotFormat: 'jpeg',
 	screenshotQuality: 92,
 	screenshotResolution: '1x',
+	// How many recent lines keep a screenshot of the captured window, taken this long (ms) after the line appears, for
+	// cards made from them. 0 means the screenshot is taken when the card is made.
+	screenshotHistory: 20,
+	screenshotDelay: 1000,
 	ankiSuspendNewCards: false,
 	ankiForceSync: false,
 	// Tags and flags of existing notes, shown next to their buttons: 'never', 'always', 'non-standard'
@@ -260,12 +264,12 @@ export const defaultSettings = {
 	// OCR mode), 'named' (the app sentenceAudioAppName) or 'none'.
 	sentenceAudioApp: 'captured',
 	sentenceAudioAppName: '',
-	// In minutes: the game's audio kept, to take a line's voice from without replaying it (0: none).
+	// Minutes of the game's audio to keep, so a line's voice can be taken without replaying it (0 keeps none).
 	sentenceAudioHistory: 5,
-	// A card overwritten from a popup gets its sentence audio replaced: by IINA's clip of the line, or by Anki Audio's
-	// recording with an Option-click. Otherwise only an empty sentenceAudioField is filled.
+	// Whether overwriting a card from a popup replaces its sentence audio, with IINA's clip of the line or with Anki
+	// Audio's recording after an Option-click. When off, only an empty sentenceAudioField is filled.
 	sentenceAudioOverwrite: true,
-	// Visual novel backlog capture: a line that isn't in the kept audio is replayed from the game's backlog (with the
+	// Visual novel backlog capture: a line missing from the kept audio is replayed from the game's backlog (using the
 	// keys below) and recorded.
 	sentenceAudioBacklog: true,
 	// Keys pressed to open the game's backlog (replaying the line) and to close it, [{key, modifiers}].
@@ -289,9 +293,9 @@ export const defaultSettings = {
 	sentenceAudioMaxLength: 60,
 	sentenceAudioPlay: true,
 
-	// IINA (lib/anki-notes.js): cards made from the lines of iina-plugin/ get the frame in the middle of the line as
-	// their {screenshot}, and the line's audio, cut out of the video file, in sentenceAudioField, with this much more
-	// before and after it (ms).
+	// IINA (lib/anki-notes.js): cards made from iina-plugin/ lines get the frame from the middle of the line as their
+	// {screenshot}, and the line's audio, cut from the video, in sentenceAudioField, padded by this much (ms) on each
+	// side.
 	iinaScreenshotEnabled: true,
 	iinaSentenceAudioEnabled: true,
 	iinaSentenceAudioPadding: 500,

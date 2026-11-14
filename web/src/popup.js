@@ -1161,8 +1161,9 @@ class Popup {
 	}
 
 	/**
-	 * @param {boolean} [withAudio] Option-click: once the card is saved, Anki Audio's shortcut adds the line's voice to
-	 *   it (to an overwritten card's, see sentenceAudioOverwrite).
+	 * @param {boolean} [withAudio] Option-click: once the card is saved, Anki Audio adds the line's voice to this card
+	 *   only, by its id. An overwritten card that already has sentence audio only gets it with sentenceAudioOverwrite,
+	 *   and a card with the line's audio from IINA keeps that.
 	 */
 	async saveNote(entryIndex, cardFormatIndex, button, withAudio = false) {
 		if (button.disabled) return;
@@ -1178,22 +1179,21 @@ class Popup {
 		}, 2500);
 		this.notifications.error?.close(true);
 		this.setProgress(true);
-		let saved = false;
-		let overwritten = null;
+		// The card that gets the line's voice (withAudio).
+		let audioNote = null;
 		try {
-			const { note, media } = await this.createNote(entryIndex, cardFormatIndex);
+			const { note, media, hasPlayerAudio } = await this.createNote(entryIndex, cardFormatIndex);
+			if (hasPlayerAudio) withAudio = false;
 			await storeMedia(media);
 			if (button.dataset.overwrite) {
 				const fields = await overwriteNote(detail.noteIds[0], note, cardFormat);
-				saved = true;
-				// Its sentence audio is only replaced when Settings → Anki Audio says so.
+				// Existing sentence audio is only replaced if Settings → Anki Audio allows it.
 				const audio = fields[settings.sentenceAudioField?.trim()] ?? '';
-				if (settings.sentenceAudioOverwrite || !audio.trim()) overwritten = detail.noteIds[0];
-				else withAudio = false;
+				if (settings.sentenceAudioOverwrite || !audio.trim()) audioNote = detail.noteIds[0];
 			} else {
 				const noteId = await ankiInvoke('addNote', { note });
 				if (noteId === null) throw new Error('Note could not be added');
-				saved = true;
+				audioNote = noteId;
 				if (settings.ankiSuspendNewCards) {
 					await suspendCardsForNote(noteId).catch((e) => errors.push(e instanceof Error ? e : new Error(`${e}`)));
 				}
@@ -1212,7 +1212,7 @@ class Popup {
 			this.setProgress(false);
 		}
 		if (errors.length > 0) this.showErrorNotification(errors);
-		if (withAudio && saved) nativeCall('pressSentenceAudio', overwritten === null ? {} : { overwriting: overwritten }).catch(() => {});
+		if (withAudio && audioNote !== null) nativeCall('pressSentenceAudio', { note: audioNote }).catch(() => {});
 	}
 
 	/**
@@ -1360,7 +1360,7 @@ class Popup {
 				entry?.querySelector(`.action-button[data-action=save-note][data-card-format-index="${cardFormatIndex}"]`)?.click();
 				break;
 			case 'addNoteSentenceAudio':
-				// As an Option-click: the card, then Anki Audio's recording of its line.
+				// Same as an Option-click: adds the card, then Anki Audio's recording of its line.
 				entry
 					?.querySelector(`.action-button[data-action=save-note][data-card-format-index="${cardFormatIndex}"]`)
 					?.dispatchEvent(new MouseEvent('click', { altKey: true, bubbles: true, cancelable: true }));

@@ -38,8 +38,8 @@ final class AudioTap {
         var aggregateID = AudioObjectID(kAudioObjectUnknown)
         var ioProcID: AudioDeviceIOProcID?
 
-        /// Records `objects` (Core Audio's process objects), or, when `exclusive`, what every process but
-        /// those plays on the default output device, in parts of `bufferFrames` (or the device's own size).
+        /// Records `objects` (Core Audio process objects), or with `exclusive`, everything other processes play on the
+        /// default output device. Buffers are `bufferFrames` long, or the device's own size.
         init(exclusive: Bool, objects: [AudioObjectID], bufferFrames: UInt32?, queue: DispatchQueue,
              onBuffer: @escaping (AVAudioPCMBuffer) -> Void) throws {
             self.exclusive = exclusive
@@ -126,9 +126,9 @@ final class AudioTap {
     /// Seconds given to `onBuffer`.
     private var duration = 0.0
 
-    /// `onBuffer` is called on `queue` with each part of the recording, in a format of its own (Float32,
-    /// one buffer for each channel), of `bufferFrames` frames when given: larger parts wake MacPopup less often,
-    /// for a recording that doesn't need them soon.
+    /// `onBuffer` is called on `queue` with each new buffer, as Float32 with one buffer per channel. `bufferFrames`
+    /// sets the buffer size: larger buffers wake MacPopup less often, for recordings that don't need the audio right
+    /// away.
     init(processes: Processes, bufferFrames: UInt32? = nil, queue: DispatchQueue, onBuffer: @escaping (AVAudioPCMBuffer) -> Void) {
         self.processes = processes
         bundle = switch processes {

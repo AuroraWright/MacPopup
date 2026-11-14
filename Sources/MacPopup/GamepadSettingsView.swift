@@ -198,10 +198,10 @@ struct GamepadComboButton: View {
         .help(
             gamepads.layouts.isEmpty
                 ? "Set up a controller in Settings → Controllers first"
-                : recorder.isRecording ? "Hold the buttons together, then let go. Click to cancel."
-                : buttons.isEmpty ? "Click, then press a button combination on your game controller"
-                // The whole combination, which the label can cut short.
-                : "\(title). Click, then press another button combination on your game controller"
+                : recorder.isRecording ? "Hold the buttons together, then release them. Click to cancel."
+                : buttons.isEmpty ? "Click, then press a button combination on your controller"
+                // Shows the whole combination, since the label may be truncated.
+                : "\(title). Click to record a different button combination"
         )
         .disabled(gamepads.layouts.isEmpty && !recorder.isRecording)
         .onDisappear { recorder.cancel() }

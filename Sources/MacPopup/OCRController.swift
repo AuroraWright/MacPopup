@@ -696,7 +696,7 @@ final class OCRController {
 
     /// The page took a provisional reading (it matched the WebSocket line).
     private var acceptedReading = false
-    /// When the round of readings (settleAndRecognize) began, while one runs: its text began to change about then.
+    /// When the current round of readings (settleAndRecognize) started, which is about when the text began to change.
     private var roundStarted: Date?
 
     /// Reads right away and again until the dialogue's text stays the same, instead of first waiting for
@@ -1136,7 +1136,7 @@ final class OCRController {
             // Whether the dialogue was read (the page checks it against the WebSocket line), or only others.
             "dialogue": indices.contains(0),
             "elapsed": Date().timeIntervalSince(started),
-            // For Anki Audio: how long ago the text began to change.
+            // How long ago the text began to change, for Anki Audio.
             "roundAge": roundStarted.map { Date().timeIntervalSince($0) } ?? 0,
             "width": bounds.width,
             "height": bounds.height,

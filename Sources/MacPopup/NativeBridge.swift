@@ -15,11 +15,14 @@ protocol BridgeHost: AnyObject {
     /// - Parameter fullResolution: At the display's scale, or else at 1x.
     func ocrWindowScreenshot(fullResolution: Bool) async throws -> CGImage?
     func simulateMouse(x: Double, y: Double, shift: Bool)
-    /// As if the sentence audio shortcut was pressed.
-    /// `overwriting`: the note an Option-click overwrote, whose sentence audio is replaced.
-    func pressSentenceAudioShortcut(overwriting: Int64?)
-    /// A line was shown, `age` seconds ago, for Anki Audio.
-    func noteSentenceLine(_ text: String, age: Double)
+    /// Acts as if the sentence audio shortcut was pressed. `note` is the card that an Option-click added or overwrote:
+    /// the recording goes to that card only, replacing its sentence audio.
+    func pressSentenceAudioShortcut(note: Int64?)
+    /// Tells Anki Audio and Anki Screenshot that a line was shown `age` seconds ago. `settled` means OCR read it after
+    /// its text stopped changing.
+    func noteSentenceLine(_ text: String, age: Double, settled: Bool)
+    /// The screenshot taken when a card's sentence was shown, if there is one (see ScreenshotHistory).
+    func bufferedScreenshot(sentence: String, format: String, quality: Double, fullResolution: Bool) -> Data?
     func setOverlayCursor(_ cursor: String?)
     /// The WebSocket URLs that are connected, shown on the menu bar icon.
     func setConnectedWebsockets(_ urls: [String])
@@ -89,6 +92,11 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             let format = body["format"] as? String ?? "jpeg"
             let quality = (body["quality"] as? NSNumber)?.doubleValue ?? 92
             let fullResolution = body["resolution"] as? String == "full"
+            // Prefers the screenshot taken when the card's line was shown (Settings → Anki Screenshot).
+            if let sentence = body["sentence"] as? String,
+               let data = host?.bufferedScreenshot(sentence: sentence, format: format, quality: quality, fullResolution: fullResolution) {
+                return data.base64EncodedString()
+            }
             // In screen OCR mode, only the window being read; otherwise the display the overlay is on.
             if let image = try await host?.ocrWindowScreenshot(fullResolution: fullResolution) {
                 return try ScreenCapture.encode(image, format: format, quality: quality).base64EncodedString()
@@ -138,12 +146,15 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             GamepadController.shared.setHold(body["hold"] as? Bool ?? false)
             return nil
         case "sentenceLine":
-            host?.noteSentenceLine(body["text"] as? String ?? "", age: (body["age"] as? NSNumber)?.doubleValue ?? 0)
+            host?.noteSentenceLine(
+                body["text"] as? String ?? "", age: (body["age"] as? NSNumber)?.doubleValue ?? 0, settled: body["settled"] as? Bool ?? false
+            )
             return nil
         case "pressSentenceAudio":
-            // Anki Audio's controller buttons (see overlay.js), or a card added or overwritten with Option (see popup.js).
-            guard SettingsStore.shared.dictionary["sentenceAudioEnabled"] as? Bool == true else { return nil }
-            host?.pressSentenceAudioShortcut(overwriting: (body["overwriting"] as? NSNumber)?.int64Value)
+            // From Anki Audio's controller buttons (see overlay.js), or a card added or overwritten with Option (see
+            // popup.js).
+            guard SentenceAudioController.isEnabled(SettingsStore.shared.dictionary) else { return nil }
+            host?.pressSentenceAudioShortcut(note: (body["note"] as? NSNumber)?.int64Value)
             return nil
         case "openMedia":
             // A dictionary image clicked in a popup, which Yomitan opens in a new tab: in its default app, from a
@@ -191,7 +202,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
                 throw AppError("Unavailable")
             }
-            host.pressSentenceAudioShortcut(overwriting: (body["overwriting"] as? NSNumber)?.int64Value)
+            host.pressSentenceAudioShortcut(note: (body["note"] as? NSNumber)?.int64Value)
             return nil
         case "websockets":
             host?.setConnectedWebsockets(body["connected"] as? [String] ?? [])

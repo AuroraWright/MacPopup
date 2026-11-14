@@ -90,7 +90,7 @@ final class GamepadController: ObservableObject {
 
     private var manager: IOHIDManager?
     private var pads: [Pad] = []
-    /// Whether the settings use controllers (a scan key, popup shortcuts, or Anki Audio) and one is set up.
+    /// Whether a controller is set up and something uses it (the scan key, popup shortcuts or Anki Audio).
     private var wanted = false
     /// Settings views that read controllers (see retain).
     private var clients = 0
@@ -143,7 +143,7 @@ final class GamepadController: ObservableObject {
         let hotkeyButtons = (settings["hotkeys"] as? [[String: Any]] ?? []).contains {
             $0["enabled"] as? Bool ?? true && !($0["buttons"] as? [String] ?? []).isEmpty
         }
-        let sentenceAudioButtons = settings["sentenceAudioEnabled"] as? Bool == true && !(settings["sentenceAudioButtons"] as? [String] ?? []).isEmpty
+        let sentenceAudioButtons = SentenceAudioController.isEnabled(settings) && !(settings["sentenceAudioButtons"] as? [String] ?? []).isEmpty
         wanted = (!scanButtons.isEmpty || hotkeyButtons || sentenceAudioButtons) && !layouts.isEmpty
         scheduleApply()
     }

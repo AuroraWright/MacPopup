@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var ocr: OCRController!
     private var clipboardMonitor: ClipboardMonitor!
     private var sentenceAudio: SentenceAudioController!
+    private var screenshots: ScreenshotHistory!
     private var connectedWebsockets: [String] = []
     private var yomitanAPI: YomitanAPIStatus!
     private var welcomeWindow: WelcomeWindowController?
@@ -36,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         ocr = OCRController(overlay: overlay)
         clipboardMonitor = ClipboardMonitor(overlay: overlay)
         sentenceAudio = SentenceAudioController(overlay: overlay)
+        screenshots = ScreenshotHistory { [weak self] fullResolution in try await self?.ocr.windowScreenshot(fullResolution: fullResolution) }
         GamepadController.shared.onChange = { [weak self] pressed in
             guard let data = try? JSONSerialization.data(withJSONObject: pressed.sorted()), let json = String(data: data, encoding: .utf8) else { return }
             self?.overlay.evaluate("window.__macpopupGamepad?.(\(json))")
@@ -176,12 +178,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         return png
     }
 
-    func pressSentenceAudioShortcut(overwriting: Int64?) {
-        sentenceAudio.shortcutPressed(overwriting: overwriting)
+    func pressSentenceAudioShortcut(note: Int64?) {
+        sentenceAudio.shortcutPressed(note: note)
     }
 
-    func noteSentenceLine(_ text: String, age: Double) {
+    func noteSentenceLine(_ text: String, age: Double, settled: Bool) {
         sentenceAudio.noteLine(text, age: age)
+        screenshots.noteLine(text, settled: settled)
+    }
+
+    func bufferedScreenshot(sentence: String, format: String, quality: Double, fullResolution: Bool) -> Data? {
+        screenshots.screenshot(for: sentence, format: .init(format: format, quality: quality, fullResolution: fullResolution))
     }
 
     func simulateMouse(x: Double, y: Double, shift: Bool) {

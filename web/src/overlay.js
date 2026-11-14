@@ -121,13 +121,14 @@ function scrollToEnd() {
 }
 
 /**
- * For Anki Audio's audio history (SentenceAudio.swift): a line was shown, `age` seconds ago, to find its
- * voice by.
+ * Tells Anki Audio (SentenceAudio.swift) and Anki Screenshot (ScreenshotHistory.swift) that a line was shown `age`
+ * seconds ago. `settled` means OCR read it after its text stopped changing.
  */
-function noteSentenceLine(text, age = 0) {
+function noteSentenceLine(text, age = 0, settled = false) {
 	const settings = getSettings();
-	if (!settings.sentenceAudioEnabled || !(settings.sentenceAudioHistory > 0) || !text) return;
-	nativeCall('sentenceLine', { text, age }).catch(() => {});
+	const keepsAudio = settings.sentenceAudioEnabled && settings.sentenceAudioHistory > 0;
+	if (!text || !settings.ankiEnabled || !(keepsAudio || settings.screenshotHistory > 0)) return;
+	nativeCall('sentenceLine', { text, age, settled }).catch(() => {});
 }
 
 function addLine(rawText) {
@@ -1272,7 +1273,7 @@ function showOcrResult(message) {
 		return;
 	}
 	logOcrDebug({ ...debug, shown, outcome: 'shown' });
-	if (readsDialogue) noteSentenceLine(dialogue.map(lineText).join(''), message.roundAge ?? 0);
+	if (readsDialogue) noteSentenceLine(dialogue.map(lineText).join(''), message.roundAge ?? 0, true);
 	ocr.deferred = null;
 	renderOcrResult({ lines, size, key });
 }
@@ -1385,7 +1386,6 @@ function ocrWebsocketLine(rawText) {
 	logOcrDebug({ type: 'line', text, received: rawText });
 	if (ocr.line !== null) ocr.earlierLines = [...ocr.earlierLines, ocr.line].slice(-Math.max(1, settings.ocrEarlierLines));
 	ocr.line = text;
-	noteSentenceLine(text);
 	if (!settings.ocrMode || !settings.ocrUseWebsocket) return;
 	ocr.awaitingLine = true;
 	clearOcrText();
@@ -1477,9 +1477,10 @@ window.__macpopupGamepad = (held) => {
 		gamepad.combo = [];
 		const settings = getSettings();
 		const scanButtons = settings.gamepadScanButtons ?? [];
-		// Only with Anki Audio on: otherwise a popup shortcut can have these buttons (see buttonsNote in
-		// SettingsView.swift).
-		const sentenceAudioButtons = settings.sentenceAudioEnabled ? (settings.sentenceAudioButtons ?? []) : [];
+		// Only while Anki Audio is on (which needs Anki integration), since otherwise a popup shortcut may use these
+		// buttons (see buttonsNote in SettingsView.swift).
+		const sentenceAudioOn = settings.sentenceAudioEnabled && settings.ankiEnabled;
+		const sentenceAudioButtons = sentenceAudioOn ? (settings.sentenceAudioButtons ?? []) : [];
 		if (scanButtons.length > 0 && sameButtons(combo, scanButtons)) {
 			setControllerFocus(!gamepad.focus);
 		} else if (sentenceAudioButtons.length > 0 && sameButtons(combo, sentenceAudioButtons)) {
@@ -1496,7 +1497,10 @@ window.__macpopupGamepad = (held) => {
 	else if (!directions.includes(gamepad.direction)) holdDirection(null);
 };
 
-/** Before Anki Audio’s backlog capture (see SentenceAudio.swift): the popups close, and the game gets its controller back. */
+/**
+ * Before Anki Audio’s backlog capture (see SentenceAudio.swift): closes the popups and gives the game its controller
+ * back.
+ */
 window.__macpopupReleaseForGame = () => {
 	if (gamepad.focus) {
 		setControllerFocus(false);
