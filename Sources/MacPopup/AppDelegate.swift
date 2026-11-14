@@ -180,6 +180,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         sentenceAudio.shortcutPressed()
     }
 
+    func noteSentenceLine(_ text: String, age: Double) {
+        sentenceAudio.noteLine(text, age: age)
+    }
+
     func simulateMouse(x: Double, y: Double, shift: Bool) {
         overlay.simulateMouse(x: x, y: y, modifiers: shift ? .shift : [])
     }

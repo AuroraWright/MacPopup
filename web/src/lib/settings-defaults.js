@@ -260,6 +260,11 @@ export const defaultSettings = {
 	// OCR mode), 'named' (the app sentenceAudioAppName) or 'none'.
 	sentenceAudioApp: 'captured',
 	sentenceAudioAppName: '',
+	// In minutes: the game's audio kept, to take a line's voice from without replaying it (0: none).
+	sentenceAudioHistory: 5,
+	// Visual novel backlog capture: a line that isn't in the kept audio is replayed from the game's backlog (with the
+	// keys below) and recorded.
+	sentenceAudioBacklog: true,
 	// Keys pressed to open the game's backlog (replaying the line) and to close it, [{key, modifiers}].
 	sentenceAudioOpenKeys: [],
 	sentenceAudioCloseKeys: [],
@@ -281,8 +286,10 @@ export const defaultSettings = {
 	sentenceAudioMaxLength: 60,
 	sentenceAudioPlay: true,
 
-	// IINA sentence audio (lib/anki-notes.js): cards made from the lines of iina-plugin/ get the line's audio, cut out
-	// of the video file, in sentenceAudioField, with this much more before and after it (ms).
+	// IINA (lib/anki-notes.js): cards made from the lines of iina-plugin/ get the frame in the middle of the line as
+	// their {screenshot}, and the line's audio, cut out of the video file, in sentenceAudioField, with this much more
+	// before and after it (ms).
+	iinaScreenshotEnabled: true,
 	iinaSentenceAudioEnabled: true,
 	iinaSentenceAudioPadding: 500,
 };

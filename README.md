@@ -126,7 +126,7 @@ Controller, Xbox controllers and others), without putting it down.
 - **Control Popups**: Any shortcut in **Settings → Popup Shortcuts** can also have a controller
   button combination (**Record Buttons**). While a popup is open, your game won't react to a
   controller that's set up; when no popup is open, the buttons go to your game as usual.
-- **Record Sentence Audio**: **Settings → Game Sentence Audio** can also have a controller button
+- **Record Sentence Audio**: **Settings → Anki Audio** can also have a controller button
   combination, which works like its keyboard shortcut at any time. Like the scan key, pick buttons
   your game doesn't use.
 
@@ -211,7 +211,7 @@ automatically:
 - `{screenshot}`: A clean capture of your selected **Captured window** (without overlays or covering
   windows), or the current screen if no window is chosen (or it isn't on screen). Taken at 1x, or at
   the display's Retina scale with **Screenshot resolution** set to Full Retina resolution (*Settings
-  → Anki*).
+  → Anki Screenshot*).
 - `{document-title}`: The name of the active foreground app.
 - `{clipboard-text}`, `{clipboard-image}`, `{popup-selection-text}`: Current clipboard contents or
   text highlighted inside the popup.
@@ -224,25 +224,29 @@ automatically:
 
 ### Automatic Sentence Audio Recording
 
-**Settings → Game Sentence Audio** lets you press a single global shortcut after mining a card to
-automatically record the character's voice line from your game's dialogue backlog:
+**Settings → Anki Audio** lets you press a single global shortcut after mining a card to add the
+character's voice line from your game:
 
-1. MacPopup brings your game window to the front, presses your recorded **Keys to open backlog**,
-   and waits for you to replay the voice line.
-2. Records the game's own audio (or that of every app but MacPopup when no window is captured).
-   With **Automatically detect start and end of speech** enabled, macOS's sound
-   classifier ignores background music and sound effects, starts recording when speech begins, and
-   stops automatically after the voice ends. If no voice is heard in time, nothing is saved. With
-   detection off, press the shortcut again to stop recording.
-3. Presses your **Keys to close backlog**.
-4. Saves the audio clip into the **Sentence audio field** (*Settings → Anki*) on the newest
-   card created today, and on any other cards added today with the same sentence, if that field is
-   empty. The recording is then played back (optional).
+1. MacPopup keeps the last minutes of the game's own audio in memory (**Keep the game's audio of the last**, 5
+   minutes by default; or that of every app but MacPopup when no window is captured), with when each line was shown
+   (in the text box, or read in OCR Mode). The shortcut finds the newest card's line and takes its voice from there
+   right away: macOS's sound classifier ignores background music and sound effects. If the line is still being
+   spoken, it waits for the voice to end.
+2. With **Visual novel backlog capture** on, a line that isn't there (older than what's kept, or whose voice was cut
+   short by going on to the next line) is replayed instead: MacPopup brings your game window to the front, presses
+   your recorded **Keys to open backlog**, records the voice as you replay it, and presses your **Keys to close
+   backlog**. With **Automatically detect start and end of speech** enabled, recording stops after the voice ends and
+   nothing is saved if no voice is heard in time; with it off, press the shortcut again to stop recording.
+3. The clip goes into the **Sentence audio field** (*Settings → Anki Audio*) on the newest card created today, and on any
+   other cards added today with the same sentence, if that field is empty. The recording is then played back
+   (optional).
 
-You can also start a recording with a controller button combination (see [Game Controllers](#game-controllers)).
+You can also start a recording with a controller button combination (see [Game Controllers](#game-controllers)), or
+add the card and its voice at once by Option-clicking the popup's add button.
 
-Requires the **Accessibility** permission (*Settings → Permissions*), and permission to record other apps'
-audio, which the first recording asks for (*System Settings → Privacy & Security → Screen & System Audio Recording*).
+Requires permission to record other apps' audio, which is asked for once sentence audio is enabled (*System Settings →
+Privacy & Security → Screen & System Audio Recording*), and the **Accessibility** permission (*Settings → Permissions*)
+for the backlog capture.
 
 ### Videos in IINA
 
@@ -257,8 +261,9 @@ made from them the line's own frame and audio:
    plugin's settings). Each subtitle line arrives like a text hooker's, so you can read them in the text box, or hover
    the subtitles on the video in OCR Mode with **Match and fix OCR with WebSocket text** on.
 3. For a sentence from one of these lines, `{screenshot}` is the frame in the middle of the line, without
-   subtitles, at the video's size, and the **Sentence audio field** (*Settings → Anki*) gets the line's audio, with the
-   padding set in *Settings → IINA Integration* (where it can be turned off). This works for network streams too
+   subtitles, at the video's size, and the **Sentence audio field** (*Settings → Anki Audio*) gets the line's audio, with the
+   padding set in *Settings → IINA Integration* (where **Use clean screenshots for cards** and **Use clean audio for
+   cards** turn each off). This works for network streams too
    (including web videos IINA plays through yt-dlp): MacPopup will access them over the network using IINA's configured
    headers, cookies and proxy, and for live streams it takes the line from IINA's cache, which holds roughly the last
    minute played.

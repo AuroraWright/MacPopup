@@ -186,7 +186,6 @@ struct GamepadComboButton: View {
 
     var body: some View {
         let title = buttons.isEmpty ? "Record Buttons" : gamepadComboName(buttons)
-        let recording = recorder.held.isEmpty ? "Press buttons…" : gamepadComboName(recorder.held.sorted())
         Button {
             if recorder.isRecording {
                 recorder.cancel()
@@ -194,12 +193,15 @@ struct GamepadComboButton: View {
                 recorder.start(completion: commit)
             }
         } label: {
-            SteadyLabel(recorder.isRecording ? recording : title, reserving: [title, "Press buttons…"]).frame(minWidth: 90)
+            RecordingLabel(recorder.isRecording ? "Press buttons…" : title)
         }
         .help(
             gamepads.layouts.isEmpty
                 ? "Set up a controller in Settings → Controllers first"
-                : recorder.isRecording ? "Hold the buttons together, then let go. Click to cancel." : "Click, then press a button combination on your game controller"
+                : recorder.isRecording ? "Hold the buttons together, then let go. Click to cancel."
+                : buttons.isEmpty ? "Click, then press a button combination on your game controller"
+                // The whole combination, which the label can cut short.
+                : "\(title). Click, then press another button combination on your game controller"
         )
         .disabled(gamepads.layouts.isEmpty && !recorder.isRecording)
         .onDisappear { recorder.cancel() }

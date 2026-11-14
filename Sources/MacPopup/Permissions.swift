@@ -3,7 +3,7 @@ import AppKit
 /// The macOS privacy permissions MacPopup uses, shown in Settings → Permissions.
 enum Permission {
     case screenRecording
-    /// Recording other apps' audio (Game Sentence Audio), listed with Screen Recording in System Settings.
+    /// Recording other apps' audio (Anki Audio), listed with Screen Recording in System Settings.
     case audioCapture
     case accessibility
 

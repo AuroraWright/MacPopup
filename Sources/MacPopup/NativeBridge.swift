@@ -17,6 +17,8 @@ protocol BridgeHost: AnyObject {
     func simulateMouse(x: Double, y: Double, shift: Bool)
     /// As if the sentence audio shortcut was pressed.
     func pressSentenceAudioShortcut()
+    /// A line was shown, `age` seconds ago, for Anki Audio.
+    func noteSentenceLine(_ text: String, age: Double)
     func setOverlayCursor(_ cursor: String?)
     /// The WebSocket URLs that are connected, shown on the menu bar icon.
     func setConnectedWebsockets(_ urls: [String])
@@ -134,8 +136,11 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "gamepadHold":
             GamepadController.shared.setHold(body["hold"] as? Bool ?? false)
             return nil
-        case "gamepadSentenceAudio":
-            // Game Sentence Audio's controller buttons (see overlay.js).
+        case "sentenceLine":
+            host?.noteSentenceLine(body["text"] as? String ?? "", age: (body["age"] as? NSNumber)?.doubleValue ?? 0)
+            return nil
+        case "pressSentenceAudio":
+            // Anki Audio's controller buttons (see overlay.js), or a card added with Option (see popup.js).
             guard SettingsStore.shared.dictionary["sentenceAudioEnabled"] as? Bool == true else { return nil }
             host?.pressSentenceAudioShortcut()
             return nil

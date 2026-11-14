@@ -1008,7 +1008,7 @@ class Popup {
 		if (noteIds.length > 0) this.updateSaveButtonForDuplicateBehavior(button, cardFormat, noteIds);
 		button.addEventListener('click', (e) => {
 			e.preventDefault();
-			void this.saveNote(entryIndex, cardFormatIndex, button);
+			void this.saveNote(entryIndex, cardFormatIndex, button, e.altKey);
 		});
 		container.appendChild(group);
 		this.updateViewNoteButton(group, noteIds, detail.noteInfos);
@@ -1160,7 +1160,8 @@ class Popup {
 		return buildNote({ content, entryIndex, cardFormat, selectionText, audioOverride });
 	}
 
-	async saveNote(entryIndex, cardFormatIndex, button) {
+	/** @param {boolean} [withAudio] Option-click: once the card is saved, Anki Audio's shortcut adds the line's voice to it. */
+	async saveNote(entryIndex, cardFormatIndex, button, withAudio = false) {
 		if (button.disabled) return;
 		const content = this.content;
 		const cardFormat = this.cardFormats[cardFormatIndex];
@@ -1174,14 +1175,17 @@ class Popup {
 		}, 2500);
 		this.notifications.error?.close(true);
 		this.setProgress(true);
+		let saved = false;
 		try {
 			const { note, media } = await this.createNote(entryIndex, cardFormatIndex);
 			await storeMedia(media);
 			if (button.dataset.overwrite) {
 				await overwriteNote(detail.noteIds[0], note, cardFormat);
+				saved = true;
 			} else {
 				const noteId = await ankiInvoke('addNote', { note });
 				if (noteId === null) throw new Error('Note could not be added');
+				saved = true;
 				if (settings.ankiSuspendNewCards) {
 					await suspendCardsForNote(noteId).catch((e) => errors.push(e instanceof Error ? e : new Error(`${e}`)));
 				}
@@ -1200,6 +1204,7 @@ class Popup {
 			this.setProgress(false);
 		}
 		if (errors.length > 0) this.showErrorNotification(errors);
+		if (withAudio && saved) nativeCall('pressSentenceAudio').catch(() => {});
 	}
 
 	/**

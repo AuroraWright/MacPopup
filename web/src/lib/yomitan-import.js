@@ -91,30 +91,21 @@ const directOptions = {
 	},
 };
 
-// Yomitan's popup keyboard shortcut actions that MacPopup has (all but switching profiles).
+// Yomitan's popup keyboard shortcut actions that MacPopup has (all but switching profiles and toggling options).
 const hotkeyActions = new Set([
 	'close', 'nextEntry', 'previousEntry', 'lastEntry', 'firstEntry', 'nextEntryDifferentDictionary',
 	'previousEntryDifferentDictionary', 'historyBackward', 'historyForward', 'addNote', 'viewNotes', 'playAudio',
-	'playAudioFromSource', 'copyHostSelection', 'toggleOption',
+	'playAudioFromSource', 'copyHostSelection',
 ]);
-
-/** The MacPopup setting for a Yomitan option path such as "general.compactTags", or null. */
-function settingForOptionPath(path) {
-	const [section, name, ...rest] = path.split('.');
-	return rest.length === 0 ? directOptions[section]?.[name] ?? null : null;
-}
 
 /** Yomitan's keyboard shortcuts for popups, as MacPopup hotkeys (see settings-defaults.js). */
 function convertHotkeys(hotkeys) {
 	return hotkeys
 		.filter(({ action, key, scopes }) => hotkeyActions.has(action) && typeof key === 'string' && Array.isArray(scopes) && scopes.includes('popup'))
 		.map(({ action, argument, key, modifiers, enabled }) => {
-			let value = typeof argument === 'string' ? argument : '';
-			// "Toggle option" names a Yomitan option; the same MacPopup setting is toggled instead.
-			if (action === 'toggleOption') value = settingForOptionPath(value) ?? value;
 			return {
 				action,
-				argument: value,
+				argument: typeof argument === 'string' ? argument : '',
 				key,
 				modifiers: Array.isArray(modifiers) ? modifiers.filter((modifier) => scanModifiers.has(modifier)) : [],
 				enabled: enabled !== false,

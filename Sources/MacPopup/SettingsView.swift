@@ -543,6 +543,11 @@ private struct AnkiFieldPicker<Label: View>: View {
 }
 
 /// A {key, modifiers} setting's key combination, or nil without a key.
+/// A shortcut recording button's help: the whole shortcut, which its label can cut short.
+private func recordHelp(_ combination: KeyCombination?) -> String {
+    combination.map { "\($0.displayName). Click, then press another key combination" } ?? "Click, then press a key combination"
+}
+
 private func keyCombination(_ item: [String: Any]?) -> KeyCombination? {
     guard let key = item?["key"] as? String, !key.isEmpty else { return nil }
     return KeyCombination(key: key, modifiers: item?["modifiers"] as? [String] ?? [])
@@ -564,10 +569,9 @@ private struct ShortcutControl: View {
                     recorder.start(id: 0) { commit(["key": $0.key, "modifiers": $0.modifiers]) }
                 }
             } label: {
-                let title = keyCombination(value)?.displayName ?? "Record Shortcut"
-                SteadyLabel(isActive ? recorder.prompt("Press keys…") : title, reserving: [title, "Press keys…"]).frame(minWidth: 90)
+                RecordingLabel(isActive ? "Press keys…" : keyCombination(value)?.displayName ?? "Record Shortcut")
             }
-            .help(isActive ? "Click to cancel" : "Click, then press a key combination")
+            .help(isActive ? "Click to cancel" : recordHelp(keyCombination(value)))
             // While recording, it stops without changing the shortcut.
             Button("Clear") {
                 if isActive {
@@ -602,7 +606,7 @@ private struct KeySequenceControl<Label: View>: View {
                         recorder.start(id: 0) { commit(items + [["key": $0.key, "modifiers": $0.modifiers]]) }
                     }
                 } label: {
-                    SteadyLabel(isActive ? recorder.prompt("Press a key…") : title, reserving: [title, "Press a key…"])
+                    RecordingLabel(isActive ? "Press keys…" : title)
                 }
                 .help(isActive ? "Click to cancel" : "Click, then press a key (with any modifier keys)")
             } label: {
@@ -875,6 +879,22 @@ private struct JSONEditor: View {
     }
 }
 
+/// A recording button's label, as wide as `width` (by default as "Record Shortcut", so recording buttons are all as
+/// wide), with what's longer cut short ("…"). Its width doesn't change while recording.
+struct RecordingLabel: View {
+    let text: String
+    var width = "Record Shortcut"
+
+    init(_ text: String, width: String = "Record Shortcut") {
+        self.text = text
+        self.width = width
+    }
+
+    var body: some View {
+        Text(width).hidden().overlay { Text(text).lineLimit(1).truncationMode(.tail) }
+    }
+}
+
 /// A button's label that keeps the width of the widest of `labels`, so what's beside the button doesn't move when
 /// the label changes (e.g. to "Press keys…" while recording).
 struct SteadyLabel: View {
@@ -1126,8 +1146,7 @@ private struct RecordButton: View {
             }
         } label: {
             if showsInput {
-                Text(isActive ? (recorder.recorded.isEmpty ? "Hold keys or mouse buttons…" : ScanInput.format(recorder.recorded)) : title)
-                    .frame(minWidth: 60)
+                RecordingLabel(isActive ? (recorder.recorded.isEmpty ? "Hold keys or mouse buttons…" : ScanInput.format(recorder.recorded)) : title, width: title)
             } else {
                 SteadyLabel(isActive ? "Recording…" : title, reserving: [title, "Recording…"]).frame(minWidth: 60)
             }
@@ -1531,10 +1550,10 @@ enum ConnectionTester {
 private final class ShortcutRecorder: ObservableObject {
     /// The row that's recording.
     @Published private(set) var activeID: AnyHashable?
-    /// The modifier keys held while recording, as macOS shows them (e.g. "⌥⇧").
-    @Published private(set) var heldModifiers = ""
     private var monitor: Any?
     private var completion: ((KeyCombination) -> Void)?
+    /// The recorded key, whose repeats and release are still kept from the window.
+    private var releasing: UInt16?
     private var othersStarting: AnyCancellable?
 
     init() {
@@ -1551,32 +1570,44 @@ private final class ShortcutRecorder: ObservableObject {
         NotificationCenter.default.post(name: .settingsRecordingStarted, object: self)
         activeID = id
         self.completion = completion
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
-            guard let self else { return nil }
-            if event.type == .flagsChanged {
-                let symbols: [(NSEvent.ModifierFlags, String)] = [(.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")]
-                heldModifiers = symbols.filter { event.modifierFlags.contains($0.0) }.map(\.1).joined()
+        // The sidebar, which has the keyboard after a section is clicked, would select the section starting with a
+        // key's letter, even with Control held (⌃A opening Anki): no view has the keyboard while recording.
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
+            guard let self else { return event }
+            if let releasing {
+                // After the recording: the recorded key's repeats and its release, until another key is pressed.
+                if event.type == .flagsChanged || event.keyCode != releasing || (event.type == .keyDown && !event.isARepeat) {
+                    cancel()
+                    return event
+                }
+                if event.type == .keyUp { cancel() }
+                return nil
+            }
+            switch event.type {
+            case .flagsChanged:
                 return event
+            case .keyUp:
+                return nil
+            default:
+                break
             }
             guard let combination = KeyCombination(event: event) else { return nil }
             let completion = self.completion
-            cancel()
+            activeID = nil
+            self.completion = nil
+            releasing = event.keyCode
             completion?(combination)
             return nil
         }
-    }
-
-    /// What a recording button says: the modifiers held so far, waiting for the key (a modifier alone isn't one).
-    func prompt(_ waiting: String) -> String {
-        heldModifiers.isEmpty ? waiting : "\(heldModifiers)…"
     }
 
     func cancel() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         activeID = nil
-        heldModifiers = ""
         completion = nil
+        releasing = nil
     }
 }
 
@@ -1599,7 +1630,8 @@ private struct TerminationCharactersControl: View {
                     GridRow {
                         Text("#")
                         Text("Enabled")
-                        Text("Type")
+                        // Over the dropdowns' text, which starts inside their edge.
+                        Text("Type").padding(.leading, 11)
                         Text("Character 1")
                         Text("Character 2")
                         Text("Include character in sentence")
@@ -1622,13 +1654,15 @@ private struct TerminationCharactersControl: View {
                             }
                             .labelsHidden()
                             .fixedSize()
+                            // As much room after it as its text has inside it (see the header).
+                            .padding(.trailing, 11)
                             characterField(index, "character1")
                             if isQuote {
                                 characterField(index, "character2")
                             } else {
                                 Text("—").foregroundStyle(.secondary).frame(width: 40)
                             }
-                            HStack(spacing: 12) {
+                            HStack(spacing: 24) {
                                 Toggle("At start", isOn: binding(index, "includeCharacterAtStart", false)).toggleStyle(.checkbox)
                                 Toggle("At end", isOn: binding(index, "includeCharacterAtEnd", false)).toggleStyle(.checkbox)
                             }
@@ -1642,6 +1676,8 @@ private struct TerminationCharactersControl: View {
                             }
                             .buttonStyle(.borderless)
                             .help("Delete")
+                            // At the right edge, as in the other lists.
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                         }
                     }
                 }
@@ -1713,7 +1749,6 @@ private struct HotkeysControl: View {
         SettingsOption("playAudio", "Play audio"),
         SettingsOption("playAudioFromSource", "Play audio from source"),
         SettingsOption("copyHostSelection", "Copy host window selection"),
-        SettingsOption("toggleOption", "Toggle option"),
     ]
 
     /// An action's argument when it's chosen, as in Yomitan.
@@ -1777,7 +1812,7 @@ private struct HotkeysControl: View {
             return "These controller buttons are already used by the controller scan key, which takes priority."
         }
         if model["sentenceAudioEnabled"] as? Bool == true, Set(model["sentenceAudioButtons"] as? [String] ?? []) == buttons {
-            return "These controller buttons are already used by Game Sentence Audio, which takes priority."
+            return "These controller buttons are already used by Anki Audio, which takes priority."
         }
         let earlier = items[..<index].contains { ($0["enabled"] as? Bool ?? true) && Set($0["buttons"] as? [String] ?? []) == buttons }
         return earlier ? "These controller buttons are already used by an earlier shortcut, which takes priority." : nil
@@ -1797,17 +1832,6 @@ private struct HotkeyRow: View {
     @ObservedObject var recorder: ShortcutRecorder
     let change: (Change) -> Void
 
-    /// MacPopup's on/off settings, for "Toggle option".
-    private static let toggleOptions: [SettingsOption] = SettingsSchema.sections.flatMap { section in
-        section.fields.compactMap { field in
-            switch field.kind {
-            case .checkbox: SettingsOption(field.key, "\(section.title): \(field.label)")
-            case let .toggleChoice(_, on): SettingsOption(field.key, "\(section.title): \(on)")
-            default: nil
-            }
-        }
-    }
-
     private var action: String { item["action"] as? String ?? "" }
     private var argument: String { item["argument"] as? String ?? "" }
 
@@ -1815,25 +1839,41 @@ private struct HotkeyRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 8) {
-                Toggle("", isOn: Binding(get: { item["enabled"] as? Bool ?? true }, set: { change(.set(["enabled": $0])) }))
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
-                    .help("Enabled")
-                recordButton
-                buttonsControl
+            // No spacing: the dropdowns' own margins keep them apart, and the action's argument right beside the action.
+            HStack(spacing: 0) {
                 let actions = HotkeysControl.actions.contains { $0.value == action }
                     ? HotkeysControl.actions : HotkeysControl.actions + [SettingsOption(action)]
-                Picker("", selection: Binding(get: { action }, set: { change(.set(["action": $0, "argument": HotkeysControl.defaultArgument($0)])) })) {
-                    ForEach(actions, id: \.value) { Text($0.label).tag($0.value) }
+                // The action right beside its checkbox.
+                HStack(spacing: 0) {
+                    Toggle("", isOn: Binding(get: { item["enabled"] as? Bool ?? true }, set: { change(.set(["enabled": $0])) }))
+                        .toggleStyle(.checkbox)
+                        .labelsHidden()
+                        .help("Enabled")
+                    Picker("", selection: Binding(get: { action }, set: { change(.set(["action": $0, "argument": HotkeysControl.defaultArgument($0)])) })) {
+                        ForEach(actions, id: \.value) { Text($0.label).tag($0.value) }
+                    }
+                    .labelsHidden()
                 }
-                .labelsHidden()
                 .fixedSize()
                 argumentControl
-                Spacer()
+                Spacer(minLength: 8)
+                // On the right, the keyboard keys above the controller buttons, at their full width: in a crowded row, the action's
+                // dropdown is cut short instead (see shrinking).
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 2) {
+                        clearButton("Remove the keyboard keys from this shortcut", hidden: combination == nil) {
+                            if recorder.activeID == id { recorder.cancel() }
+                            change(.set(["key": "", "modifiers": [String]()]))
+                        }
+                        recordButton
+                    }
+                    buttonsControl
+                }
+                .fixedSize()
                 Button { change(.remove) } label: { Image(systemName: "minus.circle") }
                     .buttonStyle(.borderless)
                     .help("Remove")
+                    .padding(.leading, 8)
             }
             if isDuplicate {
                 Text("These keyboard keys are already used by an earlier shortcut, which takes priority.").font(.caption).foregroundStyle(.red)
@@ -1850,14 +1890,23 @@ private struct HotkeyRow: View {
     private var buttonsControl: some View {
         let buttons = item["buttons"] as? [String] ?? []
         return HStack(spacing: 2) {
-            GamepadComboButton(buttons: buttons) { change(.set(["buttons": $0])) }
-            if !buttons.isEmpty {
-                Button { change(.set(["buttons": [String]()])) } label: { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .help("Remove the controller buttons from this shortcut")
+            clearButton("Remove the controller buttons from this shortcut", hidden: buttons.isEmpty) {
+                change(.set(["buttons": [String]()]))
             }
+            GamepadComboButton(buttons: buttons) { change(.set(["buttons": $0])) }
         }
+    }
+
+    /// A button that removes the keyboard keys or controller buttons beside it. It keeps its room when there's
+    /// nothing to remove, so the rows' controls line up.
+    private func clearButton(_ help: String, hidden: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: "xmark.circle.fill") }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help(help)
+            .opacity(hidden ? 0 : 1)
+            .disabled(hidden)
+            .accessibilityHidden(hidden)
     }
 
     private var recordButton: some View {
@@ -1871,10 +1920,9 @@ private struct HotkeyRow: View {
                 }
             }
         } label: {
-            let title = combination?.displayName ?? "Record Shortcut"
-            SteadyLabel(isActive ? recorder.prompt("Press keys…") : title, reserving: [title, "Press keys…"]).frame(minWidth: 90)
+            RecordingLabel(isActive ? "Press keys…" : combination?.displayName ?? "Record Shortcut")
         }
-        .help(isActive ? "Click to cancel" : "Click, then press a key combination")
+        .help(isActive ? "Click to cancel" : recordHelp(combination))
     }
 
     @ViewBuilder
@@ -1888,33 +1936,35 @@ private struct HotkeyRow: View {
                     .labelsHidden()
             }
             .fixedSize()
+            // As far from the action as a dropdown's margin.
+            .padding(.leading, 6)
         case "addNote", "viewNotes":
             let index = Int(argument) ?? 0
-            Picker("", selection: Binding(get: { index }, set: { change(.set(["argument": String($0)])) })) {
+            shrinking(Picker("", selection: Binding(get: { index }, set: { change(.set(["argument": String($0)])) })) {
                 ForEach(0..<max(6, index + 1), id: \.self) { Text("Card format \($0 + 1)").tag($0) }
             }
-            .labelsHidden()
-            .fixedSize()
+            .labelsHidden())
             .help("Card formats from your active Yomitan profile, in order")
         case "playAudioFromSource":
             let types = AudioSourcesControl.types.contains { $0.value == argument }
                 ? AudioSourcesControl.types : AudioSourcesControl.types + [SettingsOption(argument)]
-            Picker("", selection: Binding(get: { argument }, set: { change(.set(["argument": $0])) })) {
+            shrinking(Picker("", selection: Binding(get: { argument }, set: { change(.set(["argument": $0])) })) {
                 ForEach(types, id: \.value) { Text($0.label).tag($0.value) }
             }
-            .labelsHidden()
-            .fixedSize()
-        case "toggleOption":
-            let options = Self.toggleOptions.contains { $0.value == argument }
-                ? Self.toggleOptions : [SettingsOption(argument, argument.isEmpty ? "Choose a setting" : "\(argument) (not a MacPopup setting)")] + Self.toggleOptions
-            Picker("", selection: Binding(get: { argument }, set: { change(.set(["argument": $0])) })) {
-                ForEach(options, id: \.value) { Text($0.label).tag($0.value) }
-            }
-            .labelsHidden()
-            // Setting labels can be long; a fixed width keeps the row inside the window.
-            .frame(width: 240)
+            .labelsHidden())
         default:
             EmptyView()
         }
+    }
+
+    /// The action's dropdown at its full width when the row has room for it, or narrower with its title cut short
+    /// ("…") when not, so that it doesn't push the rest of the row (the remove button) out of the window.
+    private func shrinking(_ picker: some View) -> some View {
+        ViewThatFits(in: .horizontal) {
+            picker.fixedSize()
+            picker.frame(minWidth: 60, maxWidth: .infinity)
+        }
+        // Offered the row's width before the spacer after it.
+        .layoutPriority(1)
     }
 }

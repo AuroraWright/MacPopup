@@ -120,6 +120,16 @@ function scrollToEnd() {
 	}
 }
 
+/**
+ * For Anki Audio's audio history (SentenceAudio.swift): a line was shown, `age` seconds ago, to find its
+ * voice by.
+ */
+function noteSentenceLine(text, age = 0) {
+	const settings = getSettings();
+	if (!settings.sentenceAudioEnabled || !(settings.sentenceAudioHistory > 0) || !text) return;
+	nativeCall('sentenceLine', { text, age }).catch(() => {});
+}
+
 function addLine(rawText) {
 	if (state.paused || typeof rawText !== 'string') return;
 	const text = transformLine(rawText);
@@ -135,6 +145,7 @@ function addLine(rawText) {
 	const line = { id: `${state.nextId++}`, text, tokens: null, element: null, tokenizing: new AbortController() };
 	state.lines.push(line);
 	countLine(text, 1);
+	noteSentenceLine(text);
 	while (settings.maxLines > 0 && state.lines.length > settings.maxLines) {
 		removeLine(state.lines[0]);
 	}
@@ -743,11 +754,6 @@ window.__macpopupHotkey = (index) => {
 /** Runs a popup shortcut's action (pressed on the keyboard, or on a controller). */
 function runHotkey(hotkey) {
 	const argument = typeof hotkey.argument === 'string' ? hotkey.argument : '';
-	if (hotkey.action === 'toggleOption') {
-		const value = getSettings()[argument];
-		if (typeof value === 'boolean') void saveSettings({ [argument]: !value });
-		return;
-	}
 	// The popup on top gets it, as the focused popup would in Yomitan.
 	popupManager.visiblePopups().at(-1)?.api?.runHotkey(hotkey.action, argument);
 }
@@ -1266,6 +1272,7 @@ function showOcrResult(message) {
 		return;
 	}
 	logOcrDebug({ ...debug, shown, outcome: 'shown' });
+	if (readsDialogue) noteSentenceLine(dialogue.map(lineText).join(''), message.roundAge ?? 0);
 	ocr.deferred = null;
 	renderOcrResult({ lines, size, key });
 }
@@ -1378,6 +1385,7 @@ function ocrWebsocketLine(rawText) {
 	logOcrDebug({ type: 'line', text, received: rawText });
 	if (ocr.line !== null) ocr.earlierLines = [...ocr.earlierLines, ocr.line].slice(-Math.max(1, settings.ocrEarlierLines));
 	ocr.line = text;
+	noteSentenceLine(text);
 	if (!settings.ocrMode || !settings.ocrUseWebsocket) return;
 	ocr.awaitingLine = true;
 	clearOcrText();
@@ -1469,13 +1477,13 @@ window.__macpopupGamepad = (held) => {
 		gamepad.combo = [];
 		const settings = getSettings();
 		const scanButtons = settings.gamepadScanButtons ?? [];
-		// Only with Game Sentence Audio on: otherwise a popup shortcut can have these buttons (see buttonsNote in
+		// Only with Anki Audio on: otherwise a popup shortcut can have these buttons (see buttonsNote in
 		// SettingsView.swift).
 		const sentenceAudioButtons = settings.sentenceAudioEnabled ? (settings.sentenceAudioButtons ?? []) : [];
 		if (scanButtons.length > 0 && sameButtons(combo, scanButtons)) {
 			setControllerFocus(!gamepad.focus);
 		} else if (sentenceAudioButtons.length > 0 && sameButtons(combo, sentenceAudioButtons)) {
-			nativeCall('gamepadSentenceAudio').catch(() => {});
+			nativeCall('pressSentenceAudio').catch(() => {});
 		} else if (popupManager.visiblePopups().length > 0) {
 			const hotkey = controllerHotkeys().find((hotkey) => sameButtons(combo, hotkey.buttons));
 			if (hotkey) runHotkey(hotkey);
@@ -1488,7 +1496,7 @@ window.__macpopupGamepad = (held) => {
 	else if (!directions.includes(gamepad.direction)) holdDirection(null);
 };
 
-/** Before Game Sentence Audio records (see SentenceAudio.swift): the popups close, and the game gets its controller back. */
+/** Before Anki Audio’s backlog capture (see SentenceAudio.swift): the popups close, and the game gets its controller back. */
 window.__macpopupReleaseForGame = () => {
 	if (gamepad.focus) {
 		setControllerFocus(false);

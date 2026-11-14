@@ -90,7 +90,7 @@ final class GamepadController: ObservableObject {
 
     private var manager: IOHIDManager?
     private var pads: [Pad] = []
-    /// Whether the settings use controllers (a scan key, popup shortcuts, or Game Sentence Audio) and one is set up.
+    /// Whether the settings use controllers (a scan key, popup shortcuts, or Anki Audio) and one is set up.
     private var wanted = false
     /// Settings views that read controllers (see retain).
     private var clients = 0

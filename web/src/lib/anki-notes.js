@@ -181,10 +181,10 @@ function hasPlayerTrack(player, track) {
 
 /**
  * For a video player's line (content.player, see iina-plugin/), the frame in the middle of the line, from the video
- * file or stream; else the captured window or display.
+ * file or stream (unless Settings → IINA Integration turns it off); else the captured window or display.
  */
 async function takeScreenshot(player, format, settings) {
-	if (hasPlayerTrack(player, 'video')) {
+	if (settings.iinaScreenshotEnabled !== false && hasPlayerTrack(player, 'video')) {
 		try {
 			const time = (player.start + player.end) / 2;
 			return await nativeCall('mediaFrame', { source: player.video, socket: player.socket, time, format, quality: settings.screenshotQuality });

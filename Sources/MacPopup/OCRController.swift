@@ -696,6 +696,8 @@ final class OCRController {
 
     /// The page took a provisional reading (it matched the WebSocket line).
     private var acceptedReading = false
+    /// When the round of readings (settleAndRecognize) began, while one runs: its text began to change about then.
+    private var roundStarted: Date?
 
     /// Reads right away and again until the dialogue's text stays the same, instead of first waiting for
     /// the picture to be still (which an animated background can keep it from being). Each reading goes
@@ -705,6 +707,8 @@ final class OCRController {
     ///   until then it's the previous line's.
     private func settleAndRecognize(cue: Cue?) async {
         log("reading until settled for \(cue.map { "\($0)" } ?? "change")")
+        roundStarted = Date()
+        defer { roundStarted = nil }
         dropCloudRequest()
         if cue == .newLine || cue == .retry {
             send(["type": "changing"])
@@ -1132,6 +1136,8 @@ final class OCRController {
             // Whether the dialogue was read (the page checks it against the WebSocket line), or only others.
             "dialogue": indices.contains(0),
             "elapsed": Date().timeIntervalSince(started),
+            // For Anki Audio: how long ago the text began to change.
+            "roundAge": roundStarted.map { Date().timeIntervalSince($0) } ?? 0,
             "width": bounds.width,
             "height": bounds.height,
         ]

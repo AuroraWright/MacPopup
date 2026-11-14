@@ -20,7 +20,7 @@ import Darwin
 /// records silence.
 final class AudioTap {
     /// Which processes are recorded, by process ID.
-    enum Processes {
+    enum Processes: Equatable {
         /// The app with this process and its helpers (see `belongs`).
         case app(pid_t)
         /// Every process but this app and its helpers.
@@ -39,8 +39,9 @@ final class AudioTap {
         var ioProcID: AudioDeviceIOProcID?
 
         /// Records `objects` (Core Audio's process objects), or, when `exclusive`, what every process but
-        /// those plays on the default output device.
-        init(exclusive: Bool, objects: [AudioObjectID], queue: DispatchQueue, onBuffer: @escaping (AVAudioPCMBuffer) -> Void) throws {
+        /// those plays on the default output device, in parts of `bufferFrames` (or the device's own size).
+        init(exclusive: Bool, objects: [AudioObjectID], bufferFrames: UInt32?, queue: DispatchQueue,
+             onBuffer: @escaping (AVAudioPCMBuffer) -> Void) throws {
             self.exclusive = exclusive
             self.objects = objects
             outputDevice = AudioTap.defaultOutputDevice()
@@ -77,6 +78,10 @@ final class AudioTap {
                     ]],
                 ]
                 try AudioTap.check(AudioHardwareCreateAggregateDevice(aggregate as CFDictionary, &aggregateID), "create the recording device")
+                if var frames = bufferFrames {
+                    var address = AudioTap.address(kAudioDevicePropertyBufferFrameSize)
+                    AudioObjectSetPropertyData(aggregateID, &address, 0, nil, UInt32(MemoryLayout<UInt32>.size), &frames)
+                }
                 try AudioTap.check(AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, queue) { _, input, _, _, _ in
                     guard let buffer = AVAudioPCMBuffer(pcmFormat: tapFormat, bufferListNoCopy: input, deallocator: nil),
                           let copy = AudioTap.deinterleaved(buffer, as: format) else { return }
@@ -112,6 +117,7 @@ final class AudioTap {
     private let isParallelsApp: Bool
     private let queue: DispatchQueue
     private let onBuffer: (AVAudioPCMBuffer) -> Void
+    private let bufferFrames: UInt32?
     private var recorder: Recorder?
     private var listener: AudioObjectPropertyListenerBlock?
     private var silenceTimer: DispatchSourceTimer?
@@ -121,8 +127,9 @@ final class AudioTap {
     private var duration = 0.0
 
     /// `onBuffer` is called on `queue` with each part of the recording, in a format of its own (Float32,
-    /// one buffer for each channel).
-    init(processes: Processes, queue: DispatchQueue, onBuffer: @escaping (AVAudioPCMBuffer) -> Void) {
+    /// one buffer for each channel), of `bufferFrames` frames when given: larger parts wake MacPopup less often,
+    /// for a recording that doesn't need them soon.
+    init(processes: Processes, bufferFrames: UInt32? = nil, queue: DispatchQueue, onBuffer: @escaping (AVAudioPCMBuffer) -> Void) {
         self.processes = processes
         bundle = switch processes {
         case let .app(pid), let .allBut(pid): Self.bundlePath(of: pid)
@@ -132,6 +139,7 @@ final class AudioTap {
         isParallelsApp = bundle.flatMap { Bundle(path: $0)?.bundleIdentifier }?.hasPrefix("com.parallels.winapp.") ?? false
         self.queue = queue
         self.onBuffer = onBuffer
+        self.bufferFrames = bufferFrames
     }
 
     deinit {
@@ -174,7 +182,7 @@ final class AudioTap {
     }
 
     private func makeRecorder(exclusive: Bool, objects: [AudioObjectID]) throws -> Recorder {
-        try Recorder(exclusive: exclusive, objects: objects, queue: queue) { [weak self] buffer in
+        try Recorder(exclusive: exclusive, objects: objects, bufferFrames: bufferFrames, queue: queue) { [weak self] buffer in
             guard let self else { return }
             lastBufferTime = .now()
             duration += Double(buffer.frameLength) / buffer.format.sampleRate

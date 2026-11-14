@@ -160,6 +160,17 @@ enum SettingsSchema {
         SettingsOption("browser", "Browser (match macOS)"),
     ]
 
+    /// Sentence audio's Visual novel backlog capture is on.
+    private static func capturesBacklog(_ values: [String: Any]) -> Bool {
+        values["sentenceAudioBacklog"] as? Bool ?? true
+    }
+
+    /// Sentence audio looks for the voice: in the kept audio, or in a backlog recording with speech detection.
+    private static func detectsVoice(_ values: [String: Any]) -> Bool {
+        ((values["sentenceAudioHistory"] as? NSNumber)?.doubleValue ?? 5) > 0
+            || (capturesBacklog(values) && values["sentenceAudioDetectVoice"] as? Bool ?? true)
+    }
+
     static let sections: [SettingsSection] = {
         let support = SettingsSupport.shared
         return [
@@ -679,10 +690,12 @@ enum SettingsSchema {
                         "noteGuiMode", "Note viewer window", .select([SettingsOption("browse", "Card browser"), SettingsOption("edit", "Note editor")]),
                         hint: "Clicking the View added note button shows this window. AnkiConnect releases after around 2022-05-29 support a new note editor window. If an error occurs, Anki and/or AnkiConnect may need to be updated."
                     ),
-                    SettingsField(
-                        "sentenceAudioField", "Sentence audio field", .ankiField,
-                        hint: "The Anki field for sentence audio: recorded from a game (Game Sentence Audio) or cut from a video in IINA (IINA Integration). It’s only filled in when it’s empty."
-                    ),
+                ]
+            ),
+            SettingsSection(
+                title: "Anki Screenshot", symbol: "photo",
+                description: "Screenshots for the {screenshot} field of cards: a clean capture of the captured window (Settings → General), without overlays or covering windows, or of the screen when there isn’t one.",
+                fields: [
                     SettingsField(
                         "screenshotFormat", "Screenshot format", .select([SettingsOption("png", "PNG"), SettingsOption("jpeg", "JPEG")]),
                         hint: "Adjust the format and quality of screenshots created for cards."
@@ -696,80 +709,105 @@ enum SettingsSchema {
                 ]
             ),
             SettingsSection(
-                title: "Game Sentence Audio", symbol: "waveform",
-                description: "Press a shortcut to record a voice line from your game and attach it to the Anki card you just created, in the sentence audio field chosen in Settings → Anki. MacPopup can switch to the game, press keys to open its dialogue backlog and wait for you to replay the voice line, record until the character finishes speaking, and close the backlog. It records the audio of the captured window (Settings → General), or of every app. Requires Accessibility permission, and permission to record system audio.",
+                title: "Anki Audio", symbol: "waveform",
+                description: "Press a shortcut after creating an Anki card to add its line’s voice, from your game, to its sentence audio field. MacPopup keeps the last minutes of the game’s audio (the captured window’s app from Settings → General, or every app) and takes the voice of the card’s line from it. With Visual novel backlog capture, a line that isn’t there is replayed from the game’s dialogue backlog and recorded instead. Requires permission to record system audio, and Accessibility permission for the backlog capture.",
                 fields: [
+                    SettingsField(
+                        "sentenceAudioField", "Sentence audio field", .ankiField,
+                        hint: "The Anki field for sentence audio: recorded from a game (below) or cut from a video in IINA (IINA Integration). It’s only filled in when it’s empty."
+                    ),
                     SettingsField("sentenceAudioEnabled", "Enable sentence audio recording", .checkbox),
                     SettingsField(
                         "sentenceAudioShortcut", "Recording shortcut", .shortcut,
-                        hint: "Works globally from any app. Press the shortcut again while recording to stop early and save. The recording is added to the newest card created today, and to any other cards from today with the same {sentence}."
+                        hint: "Works globally from any app. The voice is added to the newest card created today, and to any other cards from today with the same {sentence}. Option-clicking a popup’s add button adds the card and then does the same."
                     ),
                     SettingsField(
                         "sentenceAudioButtons", "Recording controller buttons", .gamepadCombo,
                         hint: "Works like the shortcut, from a game controller set up in Settings → Controllers. Your game also sees this combination, so pick buttons it doesn’t use."
                     ),
-                    SettingsField("sentenceAudioApp", "App to focus before recording", .select([
-                        SettingsOption("captured", "Captured window"),
-                        SettingsOption("named", "Specific app by name"),
-                        SettingsOption("none", "Don’t switch apps"),
-                    ]), hint: "Brings the game to the front so it receives the backlog keystrokes."),
                     SettingsField(
-                        "sentenceAudioAppName", "Application name", .text(), hint: "The app’s exact name as shown in the Dock (e.g. Parallels Desktop).",
-                        showIf: { $0["sentenceAudioApp"] as? String == "named" }
-                    ),
-                    SettingsField(
-                        "sentenceAudioOpenKeys", "Keys to open backlog and replay voice", .keySequence,
-                        hint: "Keystrokes sent in order before recording starts (for example, to open the game’s text log and replay the voice line)."
-                    ),
-                    SettingsField(
-                        "sentenceAudioCloseKeys", "Keys to close backlog", .keySequence,
-                        hint: "Keystrokes sent in order after recording finishes to return to the game."
-                    ),
-                    SettingsField(
-                        "sentenceAudioKeyDelay", "Delay after switching apps (ms)", .number(min: 0),
-                        hint: "Gives the game window a moment to become active before sending keystrokes."
-                    ),
-                    SettingsField("sentenceAudioKeyInterval", "Delay between keystrokes (ms)", .number(min: 0)),
-                    SettingsField("sentenceAudioKeyHold", "Key press duration (ms)", .number(min: 0)),
-                    SettingsField(
-                        "sentenceAudioRecordDelay", "Delay before recording starts (ms)", .number(min: 0),
-                        hint: "Waits after pressing the replay keys before recording (useful for skipping menu sound effects). Ignored when automatic speech detection is enabled."
-                    ),
-                    SettingsField(
-                        "sentenceAudioDetectVoice", "Automatically detect start and end of speech", .checkbox,
-                        hint: "Uses speech detection to ignore background music and sound effects, keeping only the spoken line and stopping automatically when the voice ends. If turned off, press the shortcut a second time to stop recording."
+                        "sentenceAudioHistory", "Keep the game’s audio of the last (minutes)", .number(min: 0),
+                        hint: "Records the game’s audio all the time and keeps it in memory (about 11 MB a minute), so the shortcut takes the voice of the card’s line from it right away. 0 turns this off."
                     ),
                     SettingsField(
                         "sentenceAudioVoiceWait", "Cancel if no speech is heard within (seconds)", .number(min: 1),
-                        hint: "Aborts the recording without saving if no voice is detected within this time.",
-                        showIf: { $0["sentenceAudioDetectVoice"] as? Bool ?? true }
+                        hint: "Gives up without saving if no voice is heard within this time after the line was shown (or after the backlog was opened).",
+                        showIf: Self.detectsVoice
                     ),
                     SettingsField(
                         "sentenceAudioPause", "Stop recording after silence of (ms)", .number(min: 100),
                         hint: "How long the voice must stay silent to count as finished. Increase this if pauses in dialogue cut the recording off early.",
-                        showIf: { $0["sentenceAudioDetectVoice"] as? Bool ?? true }
+                        showIf: Self.detectsVoice
                     ),
                     SettingsField(
                         "sentenceAudioPadding", "Padding around detected speech (ms)", .number(min: 0),
                         hint: "Extra audio kept right before the voice starts and right after it ends so words aren’t clipped.",
-                        showIf: { $0["sentenceAudioDetectVoice"] as? Bool ?? true }
+                        showIf: Self.detectsVoice
                     ),
                     SettingsField("sentenceAudioMaxLength", "Maximum recording length (seconds)", .number(min: 1)),
                     SettingsField("sentenceAudioPlay", "Preview recording after saving to Anki", .checkbox),
+                    SettingsField(
+                        "sentenceAudioBacklog", "Visual novel backlog capture", .checkbox,
+                        hint: "When the card’s line isn’t in the kept audio (it’s older, its voice was cut short by going on to the next line, or no audio is kept), switches to the game, presses keys to open its dialogue backlog, records the voice as you replay it, and closes the backlog. Press the shortcut again while recording to stop early."
+                    ),
+                    SettingsField("sentenceAudioApp", "App to focus before recording", .select([
+                        SettingsOption("captured", "Captured window"),
+                        SettingsOption("named", "Specific app by name"),
+                        SettingsOption("none", "Don’t switch apps"),
+                    ]), hint: "Brings the game to the front so it receives the backlog keystrokes.", showIf: Self.capturesBacklog),
+                    SettingsField(
+                        "sentenceAudioAppName", "Application name", .text(), hint: "The app’s exact name as shown in the Dock (e.g. Parallels Desktop).",
+                        showIf: { Self.capturesBacklog($0) && $0["sentenceAudioApp"] as? String == "named" }
+                    ),
+                    SettingsField(
+                        "sentenceAudioOpenKeys", "Keys to open backlog and replay voice", .keySequence,
+                        hint: "Keystrokes sent in order before recording starts (for example, to open the game’s text log and replay the voice line).",
+                        showIf: Self.capturesBacklog
+                    ),
+                    SettingsField(
+                        "sentenceAudioCloseKeys", "Keys to close backlog", .keySequence,
+                        hint: "Keystrokes sent in order after recording finishes to return to the game.",
+                        showIf: Self.capturesBacklog
+                    ),
+                    SettingsField(
+                        "sentenceAudioKeyDelay", "Delay after switching apps (ms)", .number(min: 0),
+                        hint: "Gives the game window a moment to become active before sending keystrokes.",
+                        showIf: Self.capturesBacklog
+                    ),
+                    SettingsField("sentenceAudioKeyInterval", "Delay between keystrokes (ms)", .number(min: 0), showIf: Self.capturesBacklog),
+                    SettingsField("sentenceAudioKeyHold", "Key press duration (ms)", .number(min: 0), showIf: Self.capturesBacklog),
+                    SettingsField(
+                        "sentenceAudioDetectVoice", "Automatically detect start and end of speech", .checkbox,
+                        hint: "Uses speech detection to ignore background music and sound effects, keeping only the spoken line and stopping automatically when the voice ends. If turned off, press the shortcut a second time to stop recording.",
+                        showIf: Self.capturesBacklog
+                    ),
+                    SettingsField(
+                        "sentenceAudioRecordDelay", "Delay before recording starts (ms)", .number(min: 0),
+                        hint: "Waits after pressing the replay keys before recording (useful for skipping menu sound effects).",
+                        showIf: { Self.capturesBacklog($0) && !($0["sentenceAudioDetectVoice"] as? Bool ?? true) }
+                    ),
                 ]
             ),
             SettingsSection(
                 title: "IINA Integration", symbol: "film",
-                description: "Make cards from videos you watch in IINA. With MacPopup’s plugin installed and connected, cards made from the subtitles get a clean screenshot of the scene, without subtitles, and the audio of the line, in the sentence audio field chosen in Settings → Anki. Also works with network streams, including web videos IINA plays through yt-dlp, and live streams (from IINA’s cache, which holds roughly the last minute played).",
+                description: "Make cards from videos you watch in IINA. With MacPopup’s plugin installed and connected, cards made from the subtitles get a clean screenshot of the scene, without subtitles, and the audio of the line, in the sentence audio field chosen in Settings → Anki Audio. Also works with network streams, including web videos IINA plays through yt-dlp, and live streams (from IINA’s cache, which holds roughly the last minute played).",
                 fields: [
                     SettingsField(
                         "iinaPlugin", "IINA plugin", .iinaPlugin,
                         hint: "Opens MacPopup’s plugin in IINA to install it. Then turn it on in IINA’s Settings → Plugins, restart IINA, and add ws://localhost:6680 in Settings → WebSockets."
                     ),
-                    SettingsField("iinaSentenceAudioEnabled", "Add the line’s audio to cards", .checkbox),
+                    SettingsField(
+                        "iinaScreenshotEnabled", "Use clean screenshots for cards", .checkbox,
+                        hint: "The {screenshot} is the frame in the middle of the line, without subtitles, at the video’s size. When off, it’s taken as for other cards (Settings → Anki Screenshot)."
+                    ),
+                    SettingsField(
+                        "iinaSentenceAudioEnabled", "Use clean audio for cards", .checkbox,
+                        hint: "The sentence audio field gets the line’s audio, cut from the video."
+                    ),
                     SettingsField(
                         "iinaSentenceAudioPadding", "Padding around the line (ms)", .number(min: 0),
-                        hint: "Extra audio kept before the subtitle starts and after it ends, since voices often start a little before their subtitle and end after it."
+                        hint: "Extra audio kept before the subtitle starts and after it ends, since voices often start a little before their subtitle and end after it.",
+                        showIf: { $0["iinaSentenceAudioEnabled"] as? Bool ?? true }
                     ),
                 ]
             ),
@@ -783,11 +821,11 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "permission.audioCapture", "System Audio Recording", .permission(.audioCapture),
-                        hint: "Required for Game Sentence Audio to record your game’s voice lines. Listed under Screen & System Audio Recording in System Settings."
+                        hint: "Required for Anki Audio to record your game’s voice lines. Listed under Screen & System Audio Recording in System Settings."
                     ),
                     SettingsField(
                         "permission.accessibility", "Accessibility", .permission(.accessibility),
-                        hint: "Required for Game Sentence Audio to focus your game window and send keystrokes to replay dialogue."
+                        hint: "Required for Anki Audio’s Visual novel backlog capture to focus your game window and send keystrokes to replay dialogue."
                     ),
                 ]
             ),
