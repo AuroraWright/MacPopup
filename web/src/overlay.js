@@ -1498,8 +1498,8 @@ window.__macpopupGamepad = (held) => {
 };
 
 /**
- * Before Anki Audio’s backlog capture (see SentenceAudio.swift): closes the popups and gives the game its controller
- * back.
+ * Before Anki Audio’s backlog capture (see SentenceAudio.swift), and when you switch to another app while the controller
+ * is held (see Gamepads.swift): closes the popups and gives the controller back.
  */
 window.__macpopupReleaseForGame = () => {
 	if (gamepad.focus) {

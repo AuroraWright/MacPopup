@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         clipboardMonitor = ClipboardMonitor(overlay: overlay)
         sentenceAudio = SentenceAudioController(overlay: overlay)
         screenshots = ScreenshotHistory { [weak self] fullResolution in try await self?.ocr.windowScreenshot(fullResolution: fullResolution) }
+        GamepadController.shared.onSwitchAway = { [weak self] in self?.overlay.evaluate("window.__macpopupReleaseForGame?.()") }
         GamepadController.shared.onChange = { [weak self] pressed in
             guard let data = try? JSONSerialization.data(withJSONObject: pressed.sorted()), let json = String(data: data, encoding: .utf8) else { return }
             self?.overlay.evaluate("window.__macpopupGamepad?.(\(json))")

@@ -60,6 +60,9 @@ final class GamepadController: ObservableObject {
     var overlayVisible = false {
         didSet { scheduleApply() }
     }
+    /// Called when you switch to another app while the controllers are held: the overlay then closes its popups and
+    /// gives them back, as before Anki Audio's backlog capture.
+    var onSwitchAway: (() -> Void)?
 
     private final class Pad {
         let device: IOHIDDevice
@@ -98,6 +101,8 @@ final class GamepadController: ObservableObject {
     private var recordings = 0
     /// Whether the overlay asked for the controllers to be held.
     private var holdRequested = false
+    /// The app that was in front when the controllers started being held, usually the game.
+    private var holdApp: pid_t?
     private var applyScheduled = false
     /// Whether opening the controllers that another app holds is tried again soon (see setMode).
     private var retryScheduled = false
@@ -131,6 +136,10 @@ final class GamepadController: ObservableObject {
         SettingsStore.shared.observe { [weak self] _ in self?.applySettings() }
         NotificationCenter.default.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated { (note.object as? GCController).map { self?.watch($0) } }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+            let pid = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
+            MainActor.assumeIsolated { self?.appActivated(pid) }
         }
     }
 
@@ -216,8 +225,17 @@ final class GamepadController: ObservableObject {
 
     /// Asked by the overlay: held while it has controller focus, or a popup with controller shortcuts is open.
     func setHold(_ hold: Bool) {
+        if hold, !holdRequested { holdApp = NSWorkspace.shared.frontmostApplication?.processIdentifier }
         holdRequested = hold
         scheduleApply()
+    }
+
+    /// Switching to another app (other than MacPopup itself) lets go of the controllers right away, so they work there.
+    private func appActivated(_ pid: pid_t?) {
+        guard holdRequested, let pid, pid != holdApp, pid != ProcessInfo.processInfo.processIdentifier else { return }
+        holdRequested = false
+        scheduleApply()
+        onSwitchAway?()
     }
 
     /// How each controller is opened: held while the overlay asks for it (if the overlay is shown and no controller is
