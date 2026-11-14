@@ -1051,18 +1051,26 @@ const ocr = {
 	// The lines before it that may still be on screen, oldest first (at most "Previous WebSocket lines
 	// to match"): games often add a line at a time to a page of them.
 	earlierLines: [],
-	// A new line arrived and the dialogue wasn't read since.
+	// A new line arrived and the dialogue wasn't read since (readings while it's still changing don't count).
 	awaitingLine: false,
-	// The window is being read again: the text may be outdated, so it isn't scanned until the result.
+	// The window is being read again: the text may be outdated, so it isn't scanned until the next reading.
 	stale: false,
 	// Whether the host was told that WebSocket lines are the cue to read the window.
 	websocketConnected: null,
 	key: null,
 	size: null,
 	// What replaces the text once the popups are closed ({clear: true}, or a reading's {lines, size, key}): a
-	// reading with the popup's word still where it was waits, so the word's highlight stays with the popup (a
-	// reading without it is shown at once). The text isn't scanned meanwhile.
+	// reading with the popup's word still where it was, or of text that's still changing, waits, so the word's
+	// highlight stays with the popup (a settled reading without it is shown at once). The text isn't scanned
+	// meanwhile.
 	deferred: null,
+	// A reading of text that's still changing while the text shown is being hovered (see aimingAtOcrText): it's
+	// shown once that ends, so that a word can be looked up in text that changes faster than a lookup takes (e.g. a
+	// line that scrolls by). The text is still scanned meanwhile.
+	held: null,
+	heldTimer: null,
+	// When the cursor last moved over the text's lines (Date.now()).
+	hoveredAt: 0,
 	// Called with the next reading "as it is" (its message's `now`), or an error (see readOcrNow).
 	onReading: [],
 };
@@ -1118,6 +1126,7 @@ function applyOcrScale() {
 }
 
 function clearOcrText() {
+	ocr.held = null;
 	// The reading that follows decides whether the popup's word is still there.
 	if (highlightedOcrChars()) {
 		ocr.deferred = { clear: true };
@@ -1267,25 +1276,23 @@ function showOcrResult(message) {
 		line: usesLine ? ocr.line : null,
 		earlierLines: [],
 	};
-	// A reading while the text may still change (see settleAndRecognize in OCRController.swift) is only
-	// taken when it matches the WebSocket line completely, new or not (e.g. the dialogue shown again
-	// after a menu closed).
-	if (message.provisional) {
-		if (!readsDialogue || !usesLine) {
-			logOcrDebug({ ...debug, outcome: 'not taken' });
-			return;
-		}
+	// A reading while the text may still change (see settleAndRecognize in OCRController.swift) is taken
+	// as the dialogue's when it matches the WebSocket line completely, new or not (e.g. the dialogue shown
+	// again after a menu closed). Otherwise it's only shown, so that text that changes until it's gone (e.g.
+	// it moves, or the game goes on by itself) can be hovered: the dialogue's reading is still the settled
+	// one (for a new line, and Anki Audio's lines).
+	let unsettled = !!message.provisional;
+	if (unsettled && readsDialogue && usesLine) {
 		const result = correctWithText(dialogue, ocr.line, minQuality);
-		if (result.quality < minQuality || result.missingEnd > 0) {
-			logOcrDebug({ ...debug, match: matchSummary(result), outcome: 'not taken' });
-			return;
-		}
-		nativeCall('ocr', { action: 'accept' }).catch(() => {});
-		// With a cloud engine, its reading of the dialogue is shown instead, once it answers.
-		const cloud = getSettings().ocrCloudEngine;
-		if (cloud && cloud !== 'none') {
-			logOcrDebug({ ...debug, match: matchSummary(result), outcome: 'taken, for the cloud engine' });
-			return;
+		if (result.quality >= minQuality && result.missingEnd === 0) {
+			unsettled = false;
+			nativeCall('ocr', { action: 'accept' }).catch(() => {});
+			// With a cloud engine, its reading of the dialogue is shown instead, once it answers.
+			const cloud = getSettings().ocrCloudEngine;
+			if (cloud && cloud !== 'none') {
+				logOcrDebug({ ...debug, match: matchSummary(result), outcome: 'taken, for the cloud engine' });
+				return;
+			}
 		}
 	}
 	if (usesLine) {
@@ -1294,9 +1301,12 @@ function showOcrResult(message) {
 		dialogue = correctWithEarlierLines(markMatch(result.lines, 0), minQuality, debug.earlierLines);
 	}
 	if (readsDialogue) {
-		ocr.awaitingLine = false;
+		if (!unsettled) ocr.awaitingLine = false;
+		// What's shown is what's on screen now (see ocr.stale).
 		ocr.stale = false;
 	}
+	// Outlined in red with "Highlight recognized text boxes (debug)".
+	if (unsettled) dialogue = dialogue.map((line) => ({ ...line, provisional: true }));
 	const lines = [...dialogue, ...others];
 	const size = { width: message.width, height: message.height };
 	const key = JSON.stringify([lines, size]);
@@ -1305,20 +1315,58 @@ function showOcrResult(message) {
 	const shown = lines.map((line) => ({ text: lineText(line), area: line.area, matched: !!line.matched }));
 	if (key === ocr.key && $('#ocr-text').childElementCount > 0) {
 		ocr.deferred = null;
+		ocr.held = null;
 		logOcrDebug({ ...debug, shown, outcome: 'unchanged' });
 		return;
 	}
 	// On screen from now on, even if it's shown once the popups close (for Anki Audio and Screenshot).
-	if (readsDialogue) noteSentenceLine(dialogue.map(lineText).join(''), message.roundAge ?? 0, true);
+	if (readsDialogue && !unsettled) noteSentenceLine(dialogue.map(lineText).join(''), message.roundAge ?? 0, true);
+	// A popup's word stays highlighted while it's still there, and while the text is still changing (e.g. it
+	// moves): the reading is shown once the popups close.
 	const highlighted = highlightedOcrChars();
-	if (highlighted && hasCharsInPlace(lines, size, highlighted)) {
+	if (highlighted && (unsettled || hasCharsInPlace(lines, size, highlighted))) {
+		ocr.held = null;
 		ocr.deferred = { lines, size, key };
 		logOcrDebug({ ...debug, shown, outcome: 'shown once the popups close' });
 		return;
 	}
-	logOcrDebug({ ...debug, shown, outcome: 'shown' });
 	ocr.deferred = null;
+	if (unsettled && aimingAtOcrText()) {
+		logOcrDebug({ ...debug, shown, outcome: 'shown once the hovering ends' });
+		holdOcrResult({ lines, size, key });
+		return;
+	}
+	logOcrDebug({ ...debug, shown, outcome: unsettled ? 'shown while changing' : 'shown' });
+	ocr.held = null;
 	renderOcrResult({ lines, size, key });
+}
+
+/** Whether the text shown is being hovered: a word is being looked up, or the cursor just moved over a line. */
+function aimingAtOcrText() {
+	return scan.pending || Date.now() - ocr.hoveredAt < (Number(getSettings().scanDelay) || 0) + 100;
+}
+
+/** Shows `reading` once the hovering ends (see ocr.held), or once the popups close if one opened meanwhile. */
+function holdOcrResult(reading) {
+	ocr.held = reading;
+	if (ocr.heldTimer) return;
+	const retry = () => {
+		ocr.heldTimer = null;
+		const held = ocr.held;
+		if (!held) return;
+		if (aimingAtOcrText()) {
+			ocr.heldTimer = setTimeout(retry, 50);
+			return;
+		}
+		ocr.held = null;
+		if (highlightedOcrChars()) {
+			ocr.deferred = held;
+			logOcrEvent('held reading waits for the popups to close');
+			return;
+		}
+		renderOcrResult(held);
+	};
+	ocr.heldTimer = setTimeout(retry, 50);
 }
 
 function renderOcrResult({ lines, size, key }) {
@@ -1327,7 +1375,9 @@ function renderOcrResult({ lines, size, key }) {
 	const scanned = ocrScanPlace();
 	renderLines($('#ocr-text'), lines);
 	applyOcrScale();
-	if (!moveOcrScan(scanned)) clearMainScan();
+	const kept = moveOcrScan(scanned);
+	if (scanned) logOcrEvent(kept ? `hovered word ${kept === 'moved' ? 'found where it moved' : 'kept'}` : 'hovered word gone', { place: scanned });
+	if (!kept) clearMainScan();
 }
 
 /**
@@ -1337,8 +1387,14 @@ function renderOcrResult({ lines, size, key }) {
 function ocrScanPlace() {
 	const range = scan.source?.range;
 	const container = $('#ocr-text');
-	if (!range || !container.contains(range.startContainer) || !container.contains(range.endContainer)) return null;
+	if (!range || !container.contains(range.startContainer)) return null;
 	const lines = [...container.querySelectorAll('.ocr-line')];
+	// A scan of the text's last characters can reach past it (into the layer's whitespace): it ends with the text.
+	const word = document.createRange();
+	word.setStart(range.startContainer, range.startOffset);
+	if (container.contains(range.endContainer)) word.setEnd(range.endContainer, range.endOffset);
+	else if (lines.length > 0) word.setEnd(lines.at(-1), lines.at(-1).childNodes.length);
+	else return null;
 	const point = (node, offset) => {
 		const line = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement).closest('.ocr-line');
 		const before = document.createRange();
@@ -1346,7 +1402,8 @@ function ocrScanPlace() {
 		before.setEnd(node, offset);
 		return { index: lines.indexOf(line), text: line.textContent, offset: before.toString().length };
 	};
-	return { start: point(range.startContainer, range.startOffset), end: point(range.endContainer, range.endOffset) };
+	const rect = word.getBoundingClientRect();
+	return { start: point(word.startContainer, word.startOffset), end: point(word.endContainer, word.endOffset), at: [rect.left, rect.top] };
 }
 
 /**
@@ -1371,15 +1428,58 @@ function moveOcrScan(place) {
 		}
 		return null;
 	};
-	const start = find(place.start, true);
-	const end = find(place.end, false);
+	let start = find(place.start, true);
+	let end = find(place.end, false);
+	const moved = !start || !end;
+	if (moved) [start, end] = findMovedWord(place, lines) ?? [];
 	if (!start || !end) return false;
 	const range = scan.source.range;
 	range.setStart(start.node, start.offset);
 	range.setEnd(end.node, end.offset);
 	// A lookup still going on highlights it when it's done.
 	if (!scan.pending) setHighlight(scan.source);
-	return true;
+	return moved ? 'moved' : true;
+}
+
+/**
+ * The word at `place` in lines whose text changed around it (e.g. it moved, and other characters came into view or
+ * went out of it): the same word with the same character before or after it, nearest to where it was. Null when it
+ * isn't there.
+ */
+function findMovedWord(place, lines) {
+	const { start, end } = place;
+	if (start.index !== end.index || start.text !== end.text) return null;
+	const word = start.text.slice(start.offset, end.offset);
+	const before = start.text[start.offset - 1];
+	const after = start.text[end.offset];
+	if (!word) return null;
+	const pointIn = (line, offset, isStart) => {
+		const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+		let left = offset;
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			if (left < node.length || (left === node.length && !isStart)) return { node, offset: left };
+			left -= node.length;
+		}
+		return null;
+	};
+	let best = null;
+	for (const line of lines) {
+		const text = line.textContent;
+		for (let i = text.indexOf(word); i >= 0; i = text.indexOf(word, i + 1)) {
+			const sameAround = (before === undefined && after === undefined) || (before !== undefined && text[i - 1] === before)
+				|| (after !== undefined && text[i + word.length] === after);
+			if (!sameAround) continue;
+			const found = [pointIn(line, i, true), pointIn(line, i + word.length, false)];
+			if (!found[0] || !found[1]) continue;
+			const range = document.createRange();
+			range.setStart(found[0].node, found[0].offset);
+			range.setEnd(found[1].node, found[1].offset);
+			const rect = range.getBoundingClientRect();
+			const distance = Math.hypot(rect.left - place.at[0], rect.top - place.at[1]);
+			if (!best || distance < best.distance) best = { found, distance };
+		}
+	}
+	return best?.found ?? null;
 }
 
 window.__macpopupOcr = (message) => {
@@ -1450,6 +1550,7 @@ function ocrLineAt(x, y) {
 
 function scanOcr(x, y, mods, lineElement) {
 	const settings = getSettings();
+	ocr.hoveredAt = Date.now();
 	clearTimeout(scan.timer);
 	if (ocr.stale || ocr.deferred) return;
 	const input = matchScanInput(settings.scanModifier, settings.scanInputs, mods);

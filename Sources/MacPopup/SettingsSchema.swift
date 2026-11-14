@@ -359,7 +359,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "ocrShowBoxes", "Highlight recognized text boxes (debug)", .checkbox,
-                        hint: "Draws colored outlines over recognized text for troubleshooting: red for local OCR, orange for cloud OCR, and green for WebSocket-corrected lines. Also logs each scan, what triggered it, and what happened around it (the window, game pauses, the controller), with your OCR settings and MacPopup version, to ~/Library/Application Support/MacPopup/ocr-debug.jsonl, which is deleted when this is turned off."
+                        hint: "Draws colored outlines over recognized text for troubleshooting: red while the text is still changing, orange for local OCR, gold for cloud OCR, and green for WebSocket-corrected lines (darker with cloud OCR boxes). Also logs each scan, what triggered it, and what happened around it (the window, game pauses, the controller), with your OCR settings and MacPopup version, to ~/Library/Application Support/MacPopup/ocr-debug.jsonl, which is deleted when this is turned off."
                     ),
                 ]
             ),

@@ -571,7 +571,9 @@ export function renderLines(container, lines) {
 		for (const line of paragraph) {
 			const box = bounds(line.chars);
 			const element = document.createElement('div');
-			element.className = ['ocr-line', line.matched && 'ocr-matched', line.cloud && 'ocr-cloud'].filter(Boolean).join(' ');
+			element.className = ['ocr-line', line.matched && 'ocr-matched', line.cloud && 'ocr-cloud', line.provisional && 'ocr-provisional']
+				.filter(Boolean)
+				.join(' ');
 			// For where the controller starts (see firstOcrLine in overlay.js).
 			element.dataset.area = line.area;
 			if (line.match !== undefined) element.dataset.match = line.match;

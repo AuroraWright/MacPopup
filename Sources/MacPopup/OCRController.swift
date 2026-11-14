@@ -792,7 +792,8 @@ final class OCRController {
 
     /// Reads right away and again until the dialogue's text stays the same, instead of first waiting for
     /// the picture to be still (which an animated background can keep it from being). Each reading goes
-    /// to the page as provisional, which takes it as soon as it matches the WebSocket line.
+    /// to the page as provisional: shown meanwhile, and taken as the dialogue's as soon as it matches the
+    /// WebSocket line.
     /// - Parameter cue: For a new line, the text only counts as settled once the picture changed, unless
     ///   that doesn't happen within "Max wait for screen update" (the line may already be on screen):
     ///   until then it's the previous line's.
@@ -816,6 +817,8 @@ final class OCRController {
         var previous: (texts: [String], time: Date)?
         // The images read since the text last changed, to learn animated spots from.
         var frames: [Frame] = []
+        // Where the dialogue's text was during the round (see textBlocks): not learned as animated.
+        var roundTextBlocks = Set<Int>()
         acceptedReading = false
         // The picture of the latest reading, which the page may take, and the window as it was then (see readFrame).
         var lastImage: CGImage?
@@ -913,6 +916,9 @@ final class OCRController {
                 finishReading(image, frame: readFrame, areas: read, started: started, extra: ["now": true])
                 return
             }
+            let covered = textBlocks(areaLines.first ?? [])
+            roundTextBlocks.formUnion(covered)
+            unlearnAnimatedBlocks(covered)
             let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
             if previous?.texts != texts {
                 previous = (texts, started)
@@ -925,7 +931,7 @@ final class OCRController {
                 log("settled after \(String(format: "%.2f", Date().timeIntervalSince(start)))s")
                 // What changed while the text stayed the same (e.g. a blinking "next" icon) doesn't count as
                 // the window changing later.
-                learnAnimatedBlocks(from: frames)
+                learnAnimatedBlocks(from: frames, text: roundTextBlocks)
                 otherAreasOutdated = false
                 finishReading(image, frame: readFrame, areas: read, started: started, extra: waited.merging(["settled": true]) { $1 })
                 return
@@ -1309,9 +1315,9 @@ final class OCRController {
     /// Sends what `readAreas` read to the page.
     /// - Parameters:
     ///   - frame: The low resolution frame the reading was taken after, the reference for changes.
-    ///   - extra: More for the page: "provisional" for a reading while the text may still change (only
-    ///     shown if it matches the WebSocket line, see settleAndRecognize), "settled" for one of text that
-    ///     stopped changing.
+    ///   - extra: More for the page: "provisional" for a reading while the text may still change (shown,
+    ///     but only taken as the dialogue's if it matches the WebSocket line, see settleAndRecognize),
+    ///     "settled" for one of text that stopped changing.
     private func sendResult(frame: Frame?, areas indices: [Int], started: Date, extra: [String: Any] = [:]) {
         guard let bounds else { return }
         let lines = areaLines.flatMap { $0 }
@@ -1721,8 +1727,7 @@ final class OCRController {
         var widths: [Int] = []
         for (rect, pointSize) in areas {
             guard let crop = image.cropping(to: rect) else { return nil }
-            let longSide: CGFloat = 320
-            let factor = longSide / max(pointSize.width, pointSize.height, 1)
+            let factor = thumbnailLongSide / max(pointSize.width, pointSize.height, 1)
             let width = max(1, Int(pointSize.width * factor)), height = max(1, Int(pointSize.height * factor))
             var pixels = [UInt8](repeating: 0, count: width * height)
             let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
@@ -1756,6 +1761,8 @@ final class OCRController {
     }
 
     private static let block = 8
+    /// The thumbnails' long side, in pixels (see thumbnails).
+    nonisolated private static let thumbnailLongSide: CGFloat = 320
 
     /// How many pixels of two thumbnails of an area are drawn on its background in either: clearly lighter or darker
     /// than the commonest shade of each.
@@ -1808,8 +1815,9 @@ final class OCRController {
 
     /// Learns the spots that changed while the text stayed the same (e.g. a blinking "next" icon), so that
     /// later they don't count as the window changing. Not when there are many (that's an animated
-    /// background, not an icon).
-    private func learnAnimatedBlocks(from frames: [Frame]) {
+    /// background, not an icon), nor where the dialogue's text was (`text`, see textBlocks): text that moves
+    /// while it's read the same would be learned otherwise, and then text appearing there later missed.
+    private func learnAnimatedBlocks(from frames: [Frame], text: Set<Int>) {
         guard frames.count > 1, let first = frames.first else { return }
         var found = first.thumbnails.map { _ in Set<Int>() }
         for (a, b) in zip(frames, frames.dropFirst()) {
@@ -1817,6 +1825,7 @@ final class OCRController {
             guard let changed = changedBlocks(a, b, only: [0]) else { return }
             for (area, blocks) in changed.enumerated() { found[area].formUnion(blocks) }
         }
+        if !found.isEmpty { found[0].subtract(text) }
         if animatedBlocks.count != found.count { animatedBlocks = found.map { _ in [] } }
         for (area, blocks) in found.enumerated() where !blocks.isSubset(of: animatedBlocks[area]) {
             let width = first.widths[area], height = first.thumbnails[area].count / max(width, 1)
@@ -1826,6 +1835,38 @@ final class OCRController {
             log("learned \(learned.count) animated blocks")
             animatedBlocks[area] = learned
         }
+    }
+
+    /// Text was read on `blocks` (see textBlocks): they aren't animated after all, they change with the text.
+    private func unlearnAnimatedBlocks(_ blocks: Set<Int>) {
+        guard let animated = animatedBlocks.first, !animated.isDisjoint(with: blocks) else { return }
+        animatedBlocks[0] = animated.subtracting(blocks)
+        log("unlearned \(animated.count - animatedBlocks[0].count) animated blocks: text was read there")
+    }
+
+    /// The blocks of the dialogue's thumbnails (see thumbnails and changedBlocks) that `lines` (as sent to the
+    /// page, in window points) are on, and those around them.
+    private func textBlocks(_ lines: [[String: Any]]) -> Set<Int> {
+        guard let bounds, let area = areas.first, !lines.isEmpty else { return [] }
+        let pointSize = CGSize(width: area.width * bounds.width, height: area.height * bounds.height)
+        let factor = Self.thumbnailLongSide / max(pointSize.width, pointSize.height, 1)
+        let width = max(1, Int(pointSize.width * factor)), height = max(1, Int(pointSize.height * factor))
+        let block = Self.block, columns = (width + block - 1) / block, rows = (height + block - 1) / block
+        let origin = CGPoint(x: area.minX * bounds.width, y: area.minY * bounds.height)
+        var blocks = Set<Int>()
+        for line in lines {
+            let value = { (key: String) in line[key] as? CGFloat ?? 0 }
+            let rect = CGRect(x: (value("x") - origin.x) * factor, y: (value("y") - origin.y) * factor,
+                              width: value("width") * factor, height: value("height") * factor)
+                .insetBy(dx: -CGFloat(block) / 2, dy: -CGFloat(block) / 2)
+            let firstColumn = max(0, Int(rect.minX) / block), lastColumn = min(columns - 1, Int(rect.maxX) / block)
+            let firstRow = max(0, Int(rect.minY) / block), lastRow = min(rows - 1, Int(rect.maxY) / block)
+            guard firstColumn <= lastColumn, firstRow <= lastRow else { continue }
+            for row in firstRow...lastRow {
+                for column in firstColumn...lastColumn { blocks.insert(row * columns + column) }
+            }
+        }
+        return blocks
     }
 
     /// Whether two frames differ by more than the threshold: the share of pixels that changed clearly,

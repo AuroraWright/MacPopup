@@ -131,9 +131,10 @@ body {
 	vertical-align: top;
 }
 
+/* A settled reading of the local engine. */
 #ocr-layer.show-boxes .ocr-line {
-	outline: 1px solid rgb(255 80 80 / 0.8);
-	color: rgb(255 80 80 / 0.7);
+	outline: 1px solid rgb(215 95 15 / 0.9);
+	color: rgb(215 95 15 / 0.8);
 	/* WebKit doesn't repaint glyphs (their text-shadow, below) reaching past the line when it's removed, e.g. a
 	   misread with characters much bigger than their boxes: they'd stay on screen. */
 	overflow: clip;
@@ -153,6 +154,12 @@ body {
 #ocr-layer.show-boxes .ocr-line.ocr-matched.ocr-cloud {
 	outline-color: rgb(20 130 60 / 0.95);
 	color: rgb(20 130 60 / 0.9);
+}
+
+/* A reading while the text is still changing (see showOcrResult in overlay.js), matched or not. */
+#ocr-layer.show-boxes .ocr-line.ocr-provisional {
+	outline-color: rgb(255 80 80 / 0.8);
+	color: rgb(255 80 80 / 0.7);
 }
 
 /* The glyph in the middle of its box (see renderLines), without moving the text that's hovered. */
