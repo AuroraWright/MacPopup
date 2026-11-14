@@ -1745,6 +1745,8 @@ private struct HotkeysControl: View {
         SettingsOption("historyBackward", "Navigate backward in history"),
         SettingsOption("historyForward", "Navigate forward in history"),
         SettingsOption("addNote", "Add note"),
+        // MacPopup's own: as Option-clicking the add button (see popup.js).
+        SettingsOption("addNoteSentenceAudio", "Add note (sentence audio)"),
         SettingsOption("viewNotes", "View notes"),
         SettingsOption("playAudio", "Play audio"),
         SettingsOption("playAudioFromSource", "Play audio from source"),
@@ -1755,7 +1757,7 @@ private struct HotkeysControl: View {
     static func defaultArgument(_ action: String) -> String {
         switch action {
         case "nextEntry", "previousEntry": "1"
-        case "addNote", "viewNotes": "0"
+        case "addNote", "addNoteSentenceAudio", "viewNotes": "0"
         case "playAudioFromSource": "jpod101"
         default: ""
         }
@@ -1938,7 +1940,7 @@ private struct HotkeyRow: View {
             .fixedSize()
             // As far from the action as a dropdown's margin.
             .padding(.leading, 6)
-        case "addNote", "viewNotes":
+        case "addNote", "addNoteSentenceAudio", "viewNotes":
             let index = Int(argument) ?? 0
             shrinking(Picker("", selection: Binding(get: { index }, set: { change(.set(["argument": String($0)])) })) {
                 ForEach(0..<max(6, index + 1), id: \.self) { Text("Card format \($0 + 1)").tag($0) }

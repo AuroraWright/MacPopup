@@ -714,7 +714,11 @@ enum SettingsSchema {
                 fields: [
                     SettingsField(
                         "sentenceAudioField", "Sentence audio field", .ankiField,
-                        hint: "The Anki field for sentence audio: recorded from a game (below) or cut from a video in IINA (IINA Integration). It’s only filled in when it’s empty."
+                        hint: "The Anki field for sentence audio: recorded from a game (below) or cut from a video in IINA (IINA Integration). It’s only filled in when it’s empty, unless the card is overwritten (see below)."
+                    ),
+                    SettingsField(
+                        "sentenceAudioOverwrite", "Replace sentence audio of overwritten cards", .checkbox,
+                        hint: "When a popup overwrites a duplicate card, its sentence audio is replaced: by the line’s audio from IINA, or by the recording when Option-clicking the add button. When off, the field is only filled in if it’s empty."
                     ),
                     SettingsField("sentenceAudioEnabled", "Enable sentence audio recording", .checkbox),
                     SettingsField(

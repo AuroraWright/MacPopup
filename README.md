@@ -241,8 +241,12 @@ character's voice line from your game:
    other cards added today with the same sentence, if that field is empty. The recording is then played back
    (optional).
 
-You can also start a recording with a controller button combination (see [Game Controllers](#game-controllers)), or
-add the card and its voice at once by Option-clicking the popup's add button.
+Option-clicking a popup's add button (or a popup shortcut set to **Add note (sentence audio)**) adds the card and then
+does the same. When it overwrites a duplicate card, the
+recording goes to that card, replacing its sentence audio unless **Replace sentence audio of overwritten cards** is off
+(which also applies to the audio from IINA).
+
+You can also start a recording with a controller button combination (see [Game Controllers](#game-controllers)).
 
 Requires permission to record other apps' audio, which is asked for once sentence audio is enabled (*System Settings →
 Privacy & Security → Screen & System Audio Recording*), and the **Accessibility** permission (*Settings → Permissions*)

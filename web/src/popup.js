@@ -1160,7 +1160,10 @@ class Popup {
 		return buildNote({ content, entryIndex, cardFormat, selectionText, audioOverride });
 	}
 
-	/** @param {boolean} [withAudio] Option-click: once the card is saved, Anki Audio's shortcut adds the line's voice to it. */
+	/**
+	 * @param {boolean} [withAudio] Option-click: once the card is saved, Anki Audio's shortcut adds the line's voice to
+	 *   it (to an overwritten card's, see sentenceAudioOverwrite).
+	 */
 	async saveNote(entryIndex, cardFormatIndex, button, withAudio = false) {
 		if (button.disabled) return;
 		const content = this.content;
@@ -1176,12 +1179,17 @@ class Popup {
 		this.notifications.error?.close(true);
 		this.setProgress(true);
 		let saved = false;
+		let overwritten = null;
 		try {
 			const { note, media } = await this.createNote(entryIndex, cardFormatIndex);
 			await storeMedia(media);
 			if (button.dataset.overwrite) {
-				await overwriteNote(detail.noteIds[0], note, cardFormat);
+				const fields = await overwriteNote(detail.noteIds[0], note, cardFormat);
 				saved = true;
+				// Its sentence audio is only replaced when Settings → Anki Audio says so.
+				const audio = fields[settings.sentenceAudioField?.trim()] ?? '';
+				if (settings.sentenceAudioOverwrite || !audio.trim()) overwritten = detail.noteIds[0];
+				else withAudio = false;
 			} else {
 				const noteId = await ankiInvoke('addNote', { note });
 				if (noteId === null) throw new Error('Note could not be added');
@@ -1204,7 +1212,7 @@ class Popup {
 			this.setProgress(false);
 		}
 		if (errors.length > 0) this.showErrorNotification(errors);
-		if (withAudio && saved) nativeCall('pressSentenceAudio').catch(() => {});
+		if (withAudio && saved) nativeCall('pressSentenceAudio', overwritten === null ? {} : { overwriting: overwritten }).catch(() => {});
 	}
 
 	/**
@@ -1350,6 +1358,12 @@ class Popup {
 				break;
 			case 'addNote':
 				entry?.querySelector(`.action-button[data-action=save-note][data-card-format-index="${cardFormatIndex}"]`)?.click();
+				break;
+			case 'addNoteSentenceAudio':
+				// As an Option-click: the card, then Anki Audio's recording of its line.
+				entry
+					?.querySelector(`.action-button[data-action=save-note][data-card-format-index="${cardFormatIndex}"]`)
+					?.dispatchEvent(new MouseEvent('click', { altKey: true, bubbles: true, cancelable: true }));
 				break;
 			case 'viewNotes':
 				entry?.querySelector(`.action-button-container[data-card-format-index="${cardFormatIndex}"] .action-button[data-action=view-note]`)?.click();

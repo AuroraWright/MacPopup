@@ -16,7 +16,8 @@ protocol BridgeHost: AnyObject {
     func ocrWindowScreenshot(fullResolution: Bool) async throws -> CGImage?
     func simulateMouse(x: Double, y: Double, shift: Bool)
     /// As if the sentence audio shortcut was pressed.
-    func pressSentenceAudioShortcut()
+    /// `overwriting`: the note an Option-click overwrote, whose sentence audio is replaced.
+    func pressSentenceAudioShortcut(overwriting: Int64?)
     /// A line was shown, `age` seconds ago, for Anki Audio.
     func noteSentenceLine(_ text: String, age: Double)
     func setOverlayCursor(_ cursor: String?)
@@ -140,9 +141,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             host?.noteSentenceLine(body["text"] as? String ?? "", age: (body["age"] as? NSNumber)?.doubleValue ?? 0)
             return nil
         case "pressSentenceAudio":
-            // Anki Audio's controller buttons (see overlay.js), or a card added with Option (see popup.js).
+            // Anki Audio's controller buttons (see overlay.js), or a card added or overwritten with Option (see popup.js).
             guard SettingsStore.shared.dictionary["sentenceAudioEnabled"] as? Bool == true else { return nil }
-            host?.pressSentenceAudioShortcut()
+            host?.pressSentenceAudioShortcut(overwriting: (body["overwriting"] as? NSNumber)?.int64Value)
             return nil
         case "openMedia":
             // A dictionary image clicked in a popup, which Yomitan opens in a new tab: in its default app, from a
@@ -190,7 +191,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
                 throw AppError("Unavailable")
             }
-            host.pressSentenceAudioShortcut()
+            host.pressSentenceAudioShortcut(overwriting: (body["overwriting"] as? NSNumber)?.int64Value)
             return nil
         case "websockets":
             host?.setConnectedWebsockets(body["connected"] as? [String] ?? [])

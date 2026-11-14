@@ -34,6 +34,9 @@ final class SentenceAudioController {
     private var player: AVAudioPlayer?
     /// The last recording, deleted when the next one starts.
     private var lastFile: URL?
+    /// The note that this recording replaces the sentence audio of (a card overwritten with Option, see popup.js), or nil
+    /// for the newest cards.
+    private var overwriting: Int64?
     /// MACPOPUP_TEST_AUDIO_FILE: a sound file played in place of the game's audio (for test runs).
     private let testFile = ProcessInfo.processInfo.environment["MACPOPUP_TEST_AUDIO_FILE"]
     private let history = AudioHistory()
@@ -218,9 +221,11 @@ final class SentenceAudioController {
     // MARK: Recording
 
     /// Starts a recording, or ends the one in progress (keeping what was recorded).
-    func shortcutPressed() {
+    /// `overwriting`: the note whose sentence audio this replaces, instead of the newest cards' empty one.
+    func shortcutPressed(overwriting: Int64? = nil) {
         switch state {
         case .idle:
+            self.overwriting = overwriting
             state = .starting
             Task { await start() }
         case let .recording(recording):
@@ -428,8 +433,8 @@ final class SentenceAudioController {
         let ids: [Int64]
     }
 
-    /// The newest cards (see Cards). The sentence field of each note type is the one its Yomitan card format fills
-    /// with the sentence.
+    /// The newest cards (see Cards), or the note being overwritten (see `overwriting`), whose sentence audio is
+    /// replaced. The sentence field of each note type is the one its Yomitan card format fills with the sentence.
     private func newestCards() async throws -> Cards {
         let settings = settings
         guard settings["ankiEnabled"] as? Bool ?? true else { throw AppError("Anki integration is off (Settings → Anki)") }
@@ -437,8 +442,13 @@ final class SentenceAudioController {
         guard !audioField.isEmpty else { throw AppError("Choose the sentence audio field in Settings → Anki Audio") }
         let sentenceFields = try await AnkiConnect.sentenceFields(settings: settings)
         guard !sentenceFields.isEmpty else { throw AppError("No Yomitan card format has a field with {sentence}") }
-        let query = "added:1 \(Self.fieldQuery(audioField))"
-        let ids = try await AnkiConnect.invoke("findNotes", ["query": query], settings: settings) as? [NSNumber] ?? []
+        let ids: [NSNumber]
+        if let overwriting {
+            ids = [NSNumber(value: overwriting)]
+        } else {
+            let query = "added:1 \(Self.fieldQuery(audioField))"
+            ids = try await AnkiConnect.invoke("findNotes", ["query": query], settings: settings) as? [NSNumber] ?? []
+        }
         let notes = (try await AnkiConnect.invoke("notesInfo", ["notes": ids], settings: settings) as? [[String: Any]] ?? []).filter {
             ($0["modelName"] as? String).flatMap { sentenceFields[$0] } != nil
         }
@@ -449,6 +459,12 @@ final class SentenceAudioController {
             Self.plainText(field(note, sentenceFields[note["modelName"] as? String ?? ""] ?? ""))
         }
         func noteId(_ note: [String: Any]) -> Int64 { (note["noteId"] as? NSNumber)?.int64Value ?? 0 }
+        if let overwriting {
+            guard let note = notes.first, (note["fields"] as? [String: Any])?[audioField] != nil else {
+                throw AppError("The overwritten card has no field \(audioField) or no sentence from Yomitan")
+            }
+            return Cards(sentence: sentence(note), ids: [overwriting])
+        }
         guard let newest = notes.max(by: { noteId($0) < noteId($1) }) else {
             throw AppError("No card added today has the field \(audioField) and a sentence from Yomitan")
         }

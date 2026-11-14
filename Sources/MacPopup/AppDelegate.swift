@@ -176,8 +176,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         return png
     }
 
-    func pressSentenceAudioShortcut() {
-        sentenceAudio.shortcutPressed()
+    func pressSentenceAudioShortcut(overwriting: Int64?) {
+        sentenceAudio.shortcutPressed(overwriting: overwriting)
     }
 
     func noteSentenceLine(_ text: String, age: Double) {

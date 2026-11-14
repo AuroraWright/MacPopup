@@ -262,6 +262,9 @@ export const defaultSettings = {
 	sentenceAudioAppName: '',
 	// In minutes: the game's audio kept, to take a line's voice from without replaying it (0: none).
 	sentenceAudioHistory: 5,
+	// A card overwritten from a popup gets its sentence audio replaced: by IINA's clip of the line, or by Anki Audio's
+	// recording with an Option-click. Otherwise only an empty sentenceAudioField is filled.
+	sentenceAudioOverwrite: true,
 	// Visual novel backlog capture: a line that isn't in the kept audio is replayed from the game's backlog (with the
 	// keys below) and recorded.
 	sentenceAudioBacklog: true,

@@ -424,13 +424,21 @@ function getOverwrittenField(existingValue, newValue, overwriteMode) {
 	}
 }
 
+/**
+ * The sentence audio field is replaced whatever its overwrite mode when there's new audio for it (from IINA) and
+ * Settings → Anki Audio says to replace it.
+ * @returns {Promise<Record<string, string>>} The note's fields now.
+ */
 export async function overwriteNote(noteId, note, cardFormat) {
 	const [info] = await ankiInvoke('notesInfo', { notes: [noteId] });
 	if (!info) throw new Error('Could not find the note to overwrite');
+	const settings = getSettings();
+	const audioField = settings.sentenceAudioOverwrite ? settings.sentenceAudioField?.trim() : null;
 	const fields = {};
 	for (const [name, value] of Object.entries(note.fields)) {
 		const existing = info.fields?.[name]?.value ?? '';
-		fields[name] = getOverwrittenField(existing, value, cardFormat.fields[name]?.overwriteMode);
+		const mode = name === audioField && value ? 'overwrite' : cardFormat.fields[name]?.overwriteMode;
+		fields[name] = getOverwrittenField(existing, value, mode);
 	}
 	// A note selected in Anki's card browser is open in its editor, and AnkiConnect doesn't change a note open in an
 	// editor (older versions did, and the editor then saved its old fields over the change). So while it changes, the
@@ -444,4 +452,5 @@ export async function overwriteNote(noteId, note, cardFormat) {
 	} finally {
 		if (inBrowser) await ankiInvoke('guiBrowse', { query: `nid:${noteId}` }).catch(() => {});
 	}
+	return { ...Object.fromEntries(Object.entries(info.fields ?? {}).map(([name, { value }]) => [name, value])), ...fields };
 }
