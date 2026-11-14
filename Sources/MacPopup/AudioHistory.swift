@@ -47,12 +47,13 @@ final class AudioHistory: @unchecked Sendable {
         self.processes = processes
     }
 
+    /// Stops on the queue without waiting for it (it may be busy with Core Audio).
     private func stop() {
         guard let tap else { return }
-        queue.sync {
+        queue.async {
             tap.stop()
-            format = nil
-            blocks = []
+            self.format = nil
+            self.blocks = []
         }
         self.tap = nil
         processes = nil

@@ -37,6 +37,11 @@ final class AudioTap {
         var tapID = AudioObjectID(kAudioObjectUnknown)
         var aggregateID = AudioObjectID(kAudioObjectUnknown)
         var ioProcID: AudioDeviceIOProcID?
+        /// Cleared by `destroy`, so buffers still on their way to the queue are dropped. Only used on the queue.
+        private var isLive = true
+        /// Core Audio waits for its IO block, holding a lock that AudioDeviceStop takes, so the block runs here and not
+        /// on the queue, where the recorder is destroyed (stopping it there would wait for itself).
+        private let ioQueue = DispatchQueue(label: "com.aury.macpopup.audio-tap.io")
 
         /// Records `objects` (Core Audio process objects), or with `exclusive`, everything other processes play on the
         /// default output device. Buffers are `bufferFrames` long, or the device's own size.
@@ -82,10 +87,13 @@ final class AudioTap {
                     var address = AudioTap.address(kAudioDevicePropertyBufferFrameSize)
                     AudioObjectSetPropertyData(aggregateID, &address, 0, nil, UInt32(MemoryLayout<UInt32>.size), &frames)
                 }
-                try AudioTap.check(AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, queue) { _, input, _, _, _ in
+                try AudioTap.check(AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, ioQueue) { [weak self] _, input, _, _, _ in
                     guard let buffer = AVAudioPCMBuffer(pcmFormat: tapFormat, bufferListNoCopy: input, deallocator: nil),
                           let copy = AudioTap.deinterleaved(buffer, as: format) else { return }
-                    onBuffer(copy)
+                    queue.async {
+                        guard self?.isLive == true else { return }
+                        onBuffer(copy)
+                    }
                 }, "start recording")
                 try AudioTap.check(AudioDeviceStart(aggregateID, ioProcID), "start recording")
             } catch {
@@ -95,6 +103,7 @@ final class AudioTap {
         }
 
         func destroy() {
+            isLive = false
             if let ioProcID {
                 AudioDeviceStop(aggregateID, ioProcID)
                 AudioDeviceDestroyIOProcID(aggregateID, ioProcID)
@@ -120,6 +129,9 @@ final class AudioTap {
     private let bufferFrames: UInt32?
     private var recorder: Recorder?
     private var listener: AudioObjectPropertyListenerBlock?
+    /// Whether processesChanged is due: changes come in bursts (each sound that starts or ends is one), so they're
+    /// checked at most every quarter second rather than each time.
+    private var checkDue = false
     private var silenceTimer: DispatchSourceTimer?
     private var startTime = DispatchTime.now()
     private var lastBufferTime = DispatchTime.now()
@@ -158,7 +170,7 @@ final class AudioTap {
             timer.resume()
             silenceTimer = timer
             var address = Self.address(kAudioHardwarePropertyProcessObjectList)
-            let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.processesChanged() }
+            let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.checkProcesses() }
             self.listener = listener
             AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, queue, listener)
             address = Self.address(kAudioHardwarePropertyDefaultOutputDevice)
@@ -224,6 +236,15 @@ final class AudioTap {
             return (false, matching.map(\.object), "recording processes \(pids)")
         case .allBut:
             return (true, matching.map(\.object), matching.isEmpty ? "recording every process" : "recording every process but \(pids)")
+        }
+    }
+
+    private func checkProcesses() {
+        guard !checkDue else { return }
+        checkDue = true
+        queue.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.checkDue = false
+            self?.processesChanged()
         }
     }
 
