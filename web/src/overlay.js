@@ -1193,8 +1193,8 @@ function hasCharsInPlace(lines, size, chars) {
 /**
  * Corrects the rest of the dialogue with the earlier lines (see ocr.earlierLines), latest first, each in
  * the text no later line matched. They were drawn completely before the latest line, so only a whole
- * line counts, with nothing missing at its end: a few of its words in other text (e.g. a name it starts
- * with) don't.
+ * line counts, with nothing missing at its end but punctuation (see isWholeMatch): a few of its words in
+ * other text (e.g. a name it starts with) don't.
  *
  * Lines that don't match are kept: a reading can miss one for a moment (e.g. while the game dims the
  * page's earlier lines), and the next one shows it again.
@@ -1205,11 +1205,38 @@ function correctWithEarlierLines(lines, minQuality, debug) {
 	ocr.earlierLines = count > 0 ? ocr.earlierLines.slice(-count) : [];
 	for (const [index, line] of [...ocr.earlierLines].reverse().entries()) {
 		const result = correctWithText(lines, line, minQuality);
-		const used = result.quality >= minQuality && result.missingEnd === 0 && !result.partial;
+		const used = isWholeMatch(result, line, minQuality);
 		if (used) lines = markMatch(result.lines, index + 1);
 		debug?.push({ line, ...matchSummary(result), used });
 	}
 	return lines;
+}
+
+/**
+ * Matches first the earlier lines (see ocr.earlierLines) that match `lines` better than the latest WebSocket line
+ * does, as whole lines: an earlier line still on screen that the latest one only resembles (e.g. both start the same
+ * way, and the latest is still being drawn) keeps its text. Returns the lines, and the latest line's match when no
+ * earlier one went first (it's still to be matched otherwise).
+ */
+function matchBetterEarlierLines(lines, minQuality) {
+	const latest = correctWithText(lines, ocr.line, minQuality);
+	let matched = lines;
+	for (const [index, line] of [...ocr.earlierLines].reverse().entries()) {
+		const earlier = correctWithText(matched, line, minQuality);
+		if (earlier.quality > latest.quality && isWholeMatch(earlier, line, minQuality)) {
+			matched = markMatch(earlier.lines, index + 1);
+		}
+	}
+	return { lines: matched, latest: matched === lines ? latest : null };
+}
+
+/**
+ * Whether `result` (correctWithText's) matched all of an earlier `line`: nothing missing at its end but punctuation (a
+ * thin dash or dots the engine didn't see), and not only a part.
+ */
+function isWholeMatch(result, line, minQuality) {
+	const punctuation = [...(line.trimEnd().match(/[\p{P}\p{S}]+$/u)?.[0] ?? '')].length;
+	return result.quality >= minQuality && result.missingEnd <= punctuation && !result.partial;
 }
 
 /** Notes on lines just matched with a WebSocket line how recent it is (`match`; see OcrLine). */
@@ -1283,7 +1310,7 @@ function showOcrResult(message) {
 	// one (for a new line, and Anki Audio's lines).
 	let unsettled = !!message.provisional;
 	if (unsettled && readsDialogue && usesLine) {
-		const result = correctWithText(dialogue, ocr.line, minQuality);
+		const result = correctWithText(matchBetterEarlierLines(dialogue, minQuality).lines, ocr.line, minQuality);
 		if (result.quality >= minQuality && result.missingEnd === 0) {
 			unsettled = false;
 			nativeCall('ocr', { action: 'accept' }).catch(() => {});
@@ -1296,7 +1323,9 @@ function showOcrResult(message) {
 		}
 	}
 	if (usesLine) {
-		const result = correctWithText(dialogue, ocr.line, minQuality);
+		const first = matchBetterEarlierLines(dialogue, minQuality);
+		dialogue = first.lines;
+		const result = first.latest ?? correctWithText(dialogue, ocr.line, minQuality);
 		debug.match = matchSummary(result);
 		dialogue = correctWithEarlierLines(markMatch(result.lines, 0), minQuality, debug.earlierLines);
 	}

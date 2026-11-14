@@ -67,6 +67,15 @@ final class OCRController {
     private var animatedBlocks: [Set<Int>] = []
     /// Per area, the lines last read there: an area is read on its own, and sent with the others.
     private var areaLines: [[[String: Any]]] = []
+    /// Where the dialogue's text would go on, in its thumbnail's pixels (see thumbnails): a character's room after the
+    /// end of each line read, and the start of a line after the last one. A reading can be taken before a line is
+    /// complete (its last character still fading in, or a line drawn for longer than "Max wait"), and the rest of a
+    /// line can be too little of a busy picture to count as the window changing (see differs), so these spots are
+    /// watched on their own (see textContinues).
+    private var continuationRects: [CGRect] = []
+    /// Readings started by a change at those spots that read the same text: after a few, the spots are left alone
+    /// until the text changes (something there that isn't text, like a blinking "next" icon, would keep them busy).
+    private var continuationRereads = 0
     /// Per area, the lines last left out there (by the language or as furigana), for the page's debug log.
     private var areaRemoved: [[[String: Any]]] = []
     /// The areas after the first may have changed unseen (e.g. while the window was away): read them
@@ -152,10 +161,9 @@ final class OCRController {
     private var scBounds: CGRect = .null
     /// The scale the window is read at: 1 when it's drawn at 1x (e.g. a VM or game that isn't Retina
     /// aware, enlarged by macOS), since then a higher one adds no detail and only slows Live Text down.
-    /// Nil until a reading has shown which; checked again now and then. Unused when the resolution is
-    /// set in Settings.
+    /// Nil until a reading has shown which, and again when the window is resized, moved (e.g. to another display) or
+    /// picked again: it doesn't change otherwise. Unused when the resolution is set in Settings.
     private var readingScale: CGFloat?
-    private var readingScaleCheckedAt = Date.distantPast
     private var lastCoverCheck = Date.distantPast
     private var isCursorCovered = false
     private var lastRefind = Date.distantPast
@@ -770,7 +778,7 @@ final class OCRController {
                 try? await Task.sleep(for: .milliseconds(50))
             }
             guard pendingCue == nil, isWindowAvailable, websocketConnected || isWatchingDialogue, let (_, frame) = await capture(scale: Self.comparisonScale) else { continue }
-            if watchesDialogue, lastRecognizedFrame.map({ differs(frame, $0, only: [0]) }) ?? true {
+            if watchesDialogue, lastRecognizedFrame.map({ differs(frame, $0, only: [0]) || textContinues(frame, $0) }) ?? true {
                 log("window changed")
                 send(["type": "changing"])
                 await settleAndRecognize(cue: nil)
@@ -814,11 +822,14 @@ final class OCRController {
         let settleTime = number("ocrSettleTime", 400) / 1000
         var start = Date()
         var sawChange = cue != .newLine
-        var previous: (texts: [String], time: Date)?
+        // The text's settle keys (see settleKey) when they were first read, and the most characters a reading of them had.
+        var previous: (keys: [String], time: Date, longest: Int)?
         // The images read since the text last changed, to learn animated spots from.
         var frames: [Frame] = []
-        // Where the dialogue's text was during the round (see textBlocks): not learned as animated.
-        var roundTextBlocks = Set<Int>()
+        // Where the dialogue's text was during the round (see textBlocks): not learned as animated. That includes the
+        // text read before it, which may be going away during the round (fading out, or replaced by text elsewhere):
+        // learned, its place would be left out, and the next line drawn there missed.
+        var roundTextBlocks = textBlocks(areaLines.first ?? [], goingOn: true)
         acceptedReading = false
         // The picture of the latest reading, which the page may take, and the window as it was then (see readFrame).
         var lastImage: CGImage?
@@ -917,17 +928,24 @@ final class OCRController {
                 return
             }
             let covered = textBlocks(areaLines.first ?? [])
-            roundTextBlocks.formUnion(covered)
+            // And where it would go on: the rest of a line still fading in isn't animation either.
+            roundTextBlocks.formUnion(textBlocks(areaLines.first ?? [], goingOn: true))
             unlearnAnimatedBlocks(covered)
             let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
-            if previous?.texts != texts {
-                previous = (texts, started)
+            let keys = texts.map(Self.settleKey), length = texts.joined().count
+            if previous?.keys != keys {
+                previous = (keys, started, length)
                 frames = []
+            } else if let longest = previous?.longest, length > longest {
+                previous?.longest = length
             }
             if let (thumbnails, widths) = await thumbnailing.value {
                 frames.append(Frame(thumbnails: thumbnails, widths: widths))
             }
-            if sawChange, let previous, started.timeIntervalSince(previous.time) >= settleTime {
+            // Preferably on a reading with all the dashes and dots read meanwhile (the next one is taken right away), but
+            // not for long: one of them may have been a misreading.
+            if sawChange, let previous, started.timeIntervalSince(previous.time) >= settleTime,
+               length >= previous.longest || started.timeIntervalSince(previous.time) >= settleTime * 2 {
                 log("settled after \(String(format: "%.2f", Date().timeIntervalSince(start)))s")
                 // What changed while the text stayed the same (e.g. a blinking "next" icon) doesn't count as
                 // the window changing later.
@@ -952,6 +970,26 @@ final class OCRController {
                 waited = await waitForChange(from: before, until: previous.time.addingTimeInterval(settleTime))
             }
         }
+    }
+
+    /// A line's text as compared to tell whether it's still changing: engines read a dash (a thin line) as any of several
+    /// characters, or not at all, from one reading to the next, and dots likewise, so a run of either counts as one,
+    /// and a run at the end of the line as none.
+    nonisolated static func settleKey(_ text: String) -> String {
+        var key = ""
+        var last: Character?
+        for character in text {
+            let mark: Character? = "-‐‑–—―─━ー一－".contains(character) ? "—" : "・･.．…‥·".contains(character) ? "…" : nil
+            if let mark {
+                if last != mark { key.append(mark) }
+                last = mark
+            } else {
+                key.append(character)
+                last = character
+            }
+        }
+        while let end = key.last, end == "—" || end == "…" { key.removeLast() }
+        return key
     }
 
     /// Waits until `deadline`, or until the dialogue looks different from `frame` (checked at the check interval; any
@@ -1156,13 +1194,13 @@ final class OCRController {
         case "1x":
             scale = 1
         default:
-            checkScale = Self.captureScale > 1 && (readingScale == nil || Date().timeIntervalSince(readingScaleCheckedAt) > 120)
+            // Until a reading shows which (e.g. while there's too little text to tell), at full resolution.
+            checkScale = Self.captureScale > 1 && readingScale == nil
             scale = checkScale ? Self.captureScale : readingScale ?? Self.captureScale
         }
         guard let (image, _) = await capture(scale: scale) else { return nil }
         if checkScale, let detail = GrayImage(image)?.hasFineDetail {
             readingScale = detail ? Self.captureScale : 1
-            readingScaleCheckedAt = Date()
             log("drawn at \(detail ? "full" : "1x") resolution: reading at \(readingScale!)x")
         }
         return image
@@ -1344,11 +1382,14 @@ final class OCRController {
     /// The window is compared with `frame` for changes from now on, and the dialogue watched for a while if it was read.
     private func noteReading(frame: Frame?, areas indices: [Int]) {
         updateReference(frame, areas: indices)
+        guard indices.contains(0) else { return }
+        continuationRects = continuationRects(areaLines.first ?? [])
         // Only when its text changed: a line may still be being drawn then, while an animation behind the same text
         // (more than is learned as animated spots) would otherwise keep the window watched for good.
         let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
-        guard indices.contains(0), texts != watchedTexts else { return }
+        guard texts != watchedTexts else { return }
         watchedTexts = texts
+        continuationRereads = 0
         watchUntil = Date().addingTimeInterval(number("ocrMouseWatchTime", 2000) / 1000)
     }
 
@@ -1846,7 +1887,8 @@ final class OCRController {
 
     /// The blocks of the dialogue's thumbnails (see thumbnails and changedBlocks) that `lines` (as sent to the
     /// page, in window points) are on, and those around them.
-    private func textBlocks(_ lines: [[String: Any]]) -> Set<Int> {
+    /// - Parameter goingOn: Also the blocks where they would go on (see continuationRects).
+    private func textBlocks(_ lines: [[String: Any]], goingOn: Bool = false) -> Set<Int> {
         guard let bounds, let area = areas.first, !lines.isEmpty else { return [] }
         let pointSize = CGSize(width: area.width * bounds.width, height: area.height * bounds.height)
         let factor = Self.thumbnailLongSide / max(pointSize.width, pointSize.height, 1)
@@ -1854,11 +1896,12 @@ final class OCRController {
         let block = Self.block, columns = (width + block - 1) / block, rows = (height + block - 1) / block
         let origin = CGPoint(x: area.minX * bounds.width, y: area.minY * bounds.height)
         var blocks = Set<Int>()
-        for line in lines {
+        let rects = lines.map { line in
             let value = { (key: String) in line[key] as? CGFloat ?? 0 }
-            let rect = CGRect(x: (value("x") - origin.x) * factor, y: (value("y") - origin.y) * factor,
-                              width: value("width") * factor, height: value("height") * factor)
-                .insetBy(dx: -CGFloat(block) / 2, dy: -CGFloat(block) / 2)
+            return CGRect(x: (value("x") - origin.x) * factor, y: (value("y") - origin.y) * factor,
+                          width: value("width") * factor, height: value("height") * factor)
+        } + (goingOn ? continuationRects(lines) : [])
+        for rect in rects.map({ $0.insetBy(dx: -CGFloat(block) / 2, dy: -CGFloat(block) / 2) }) {
             let firstColumn = max(0, Int(rect.minX) / block), lastColumn = min(columns - 1, Int(rect.maxX) / block)
             let firstRow = max(0, Int(rect.minY) / block), lastRow = min(rows - 1, Int(rect.maxY) / block)
             guard firstColumn <= lastColumn, firstRow <= lastRow else { continue }
@@ -1867,6 +1910,66 @@ final class OCRController {
             }
         }
         return blocks
+    }
+
+    /// Where `lines` (as sent to the page, in window points) would go on, in the dialogue's thumbnail pixels (see
+    /// continuationRects).
+    private func continuationRects(_ lines: [[String: Any]]) -> [CGRect] {
+        guard let bounds, let area = areas.first, !lines.isEmpty else { return [] }
+        let pointSize = CGSize(width: area.width * bounds.width, height: area.height * bounds.height)
+        let factor = Self.thumbnailLongSide / max(pointSize.width, pointSize.height, 1)
+        let origin = CGPoint(x: area.minX * bounds.width, y: area.minY * bounds.height)
+        let boxes = lines.map { line -> (rect: CGRect, vertical: Bool) in
+            let value = { (key: String) in line[key] as? CGFloat ?? 0 }
+            let rect = CGRect(x: (value("x") - origin.x) * factor, y: (value("y") - origin.y) * factor,
+                              width: value("width") * factor, height: value("height") * factor)
+            return (rect, line["vertical"] as? Bool ?? false)
+        }
+        var rects: [CGRect] = []
+        // A character's room after each line's end (its size is about the line's thickness).
+        for (rect, vertical) in boxes {
+            let size = vertical ? rect.width : rect.height
+            rects.append(vertical ? CGRect(x: rect.minX, y: rect.maxY, width: size, height: size)
+                                  : CGRect(x: rect.maxX, y: rect.minY, width: size, height: size))
+        }
+        // Where a line after the last one would start: below it (to its left for vertical text), one and a half
+        // lines' room.
+        let vertical = boxes.filter(\.vertical).count * 2 > boxes.count
+        if let (last, _) = vertical ? boxes.min(by: { $0.rect.minX < $1.rect.minX }) : boxes.max(by: { $0.rect.maxY < $1.rect.maxY }) {
+            let size = vertical ? last.width : last.height
+            rects.append(vertical ? CGRect(x: last.minX - size * 1.5, y: last.minY, width: size * 1.5, height: size)
+                                  : CGRect(x: last.minX, y: last.maxY, width: size, height: size * 1.5))
+        }
+        return rects
+    }
+
+    /// Whether the dialogue's text seems to go on where it was read (see continuationRects): a few pixels there
+    /// changed clearly since `reference`, outside spots known to be animated.
+    private func textContinues(_ frame: Frame, _ reference: Frame) -> Bool {
+        guard continuationRereads < 3, !continuationRects.isEmpty, let x = frame.thumbnails.first, let y = reference.thumbnails.first,
+              let width = frame.widths.first, x.count == y.count, width > 0, width == reference.widths.first else { return false }
+        let height = x.count / width, block = Self.block, columns = (width + block - 1) / block
+        let animated = animatedBlocks.first ?? []
+        for rect in continuationRects {
+            let firstColumn = max(0, Int(rect.minX.rounded(.down))), lastColumn = min(width - 1, Int(rect.maxX.rounded(.up)))
+            let firstRow = max(0, Int(rect.minY.rounded(.down))), lastRow = min(height - 1, Int(rect.maxY.rounded(.up)))
+            guard firstColumn <= lastColumn, firstRow <= lastRow else { continue }
+            var changed = 0
+            for row in firstRow...lastRow {
+                for column in firstColumn...lastColumn {
+                    let index = row * width + column
+                    guard abs(Int(x[index]) - Int(y[index])) > 40,
+                          !animated.contains((row / block) * columns + column / block) else { continue }
+                    changed += 1
+                }
+            }
+            if changed >= 3 {
+                continuationRereads += 1
+                log("the text may go on: \(changed) pixels changed at \(Int(rect.minX)),\(Int(rect.minY))")
+                return true
+            }
+        }
+        return false
     }
 
     /// Whether two frames differ by more than the threshold: the share of pixels that changed clearly,
