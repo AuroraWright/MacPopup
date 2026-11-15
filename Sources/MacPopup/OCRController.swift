@@ -378,12 +378,35 @@ final class OCRController {
             return
         }
         readsScreen = false
-        let title = saved["title"] as? String ?? ""
-        // Also windows that aren't on screen now, e.g. a game in its own full screen space.
-        let windows = Self.windows(onScreenOnly: false).filter { $0.ownerName == ownerName }
-        guard let match = windows.first(where: { $0.title == title }) ?? windows.first else { return }
+        guard let match = Self.savedWindow(ownerName: ownerName, title: saved["title"] as? String ?? "") else { return }
         target = Target(windowID: match.id, ownerName: match.ownerName, title: match.title)
         regions = Self.decodeRegions(settings["ocrRegions"])
+    }
+
+    /// The saved window: its app's window with its title (or any of its app's), preferably on screen, and the largest.
+    /// An app can have hidden windows too, with the same title (e.g. a Windows app in Parallels' Coherence mode has
+    /// several untitled ones off screen besides its window). Also windows that aren't on screen now, e.g. a game in its
+    /// own full screen space.
+    private static func savedWindow(ownerName: String, title: String) -> WindowInfo? {
+        let windows = windows(onScreenOnly: false).filter { $0.ownerName == ownerName }
+        let titled = windows.filter { $0.title == title }
+        return (titled.isEmpty ? windows : titled).max { a, b in
+            (a.isOnScreen ? 1 : 0, a.bounds.width * a.bounds.height) < (b.isOnScreen ? 1 : 0, b.bounds.width * b.bounds.height)
+        }
+    }
+
+    /// Reads `window` instead of the window being read, as a window found again.
+    private func switchTarget(to window: Target) {
+        target = window
+        bounds = nil
+        isWindowAvailable = false
+        scWindow = nil
+        readingScale = nil
+        animatedBlocks = []
+        areaLines = []
+        areaRemoved = []
+        lastRecognizedFrame = nil
+        pendingCue = .immediate
     }
 
     /// Whether `target` is the window saved in the settings (`saved`, the "ocrWindow" setting).
@@ -660,19 +683,23 @@ final class OCRController {
                 lastRefind = Date()
                 self.target = nil
                 restoreSavedTarget()
-                if self.target != nil {
-                    scWindow = nil
-                    readingScale = nil
-                    animatedBlocks = []
-                    areaLines = []
-                    areaRemoved = []
-                    lastRecognizedFrame = nil
-                    pendingCue = .immediate
+                if let found = self.target {
+                    switchTarget(to: found)
                 } else {
                     self.target = target
                 }
             }
             return
+        }
+        // Not on screen while another window of the saved one's app (and title) is: that's the one, e.g. after MacPopup
+        // found one of the app's hidden windows first.
+        if !info.isOnScreen, Self.isSaved(target, settings["ocrWindow"] as? [String: Any]), Date().timeIntervalSince(lastRefind) > 2 {
+            lastRefind = Date()
+            if let window = Self.savedWindow(ownerName: target.ownerName, title: target.title), window.id != target.windowID, window.isOnScreen {
+                log("the window isn't on screen but another of its app's is: reading that one")
+                switchTarget(to: Target(windowID: window.id, ownerName: window.ownerName, title: window.title))
+                return
+            }
         }
         if let old = bounds, old.size != info.bounds.size, lastResult != nil {
             log("resized \(old.size) -> \(info.bounds.size)")
