@@ -20,6 +20,8 @@ final class ScreenshotHistory {
         var texts: [String]
         var data: Data?
         var format: Format?
+        /// OCR saw the line's text settle, and the screenshot was taken then (see noteLine).
+        var settled = false
         /// Counts the captures started for this line, so an earlier one that finishes late can't replace a newer one.
         var generation = 0
         var pending: Task<Void, Never>?
@@ -49,16 +51,23 @@ final class ScreenshotHistory {
         let text = text.components(separatedBy: .whitespacesAndNewlines).joined()
         guard !text.isEmpty else { return }
         let delay = settled ? 0 : ((settings["screenshotDelay"] as? NSNumber)?.doubleValue ?? 1000) / 1000
-        // The same line again (read by OCR after the WebSocket, or growing as it's drawn): its screenshot is taken
-        // again.
-        if let last = shots.indices.last, shots[last].texts.contains(where: { text.hasPrefix($0) || $0.hasPrefix(text) }) {
+        // The same line again (growing as it's drawn, read by OCR after the WebSocket, or read a little differently).
+        if let last = shots.indices.last,
+           shots[last].texts.contains(where: { text.hasPrefix($0) || $0.hasPrefix(text) || SentenceAudioController.isSameLine(text, $0) }) {
+            let grew = text.count > shots[last].texts.map(\.count).max() ?? 0
             if !shots[last].texts.contains(text) { shots[last].texts.append(text) }
-            schedule(last, after: delay)
+            // Its screenshot is taken again while it may still be being drawn: it grew, or OCR saw it settle for the
+            // first time. Not when it's read again later (e.g. it moved, or the game goes on behind it while a card is
+            // added): the game may have moved on by then.
+            if grew || (settled && !shots[last].settled) {
+                if settled { shots[last].settled = true }
+                schedule(last, after: delay)
+            }
             return
         }
         // If the previous line is still waiting for its screenshot, it's taken now, before much of this line is drawn.
         if let last = shots.indices.last, shots[last].pending != nil { schedule(last, after: 0) }
-        shots.append(Shot(id: nextID, texts: [text]))
+        shots.append(Shot(id: nextID, texts: [text], settled: settled))
         nextID += 1
         if shots.count > count {
             shots.prefix(shots.count - count).forEach { $0.pending?.cancel() }
