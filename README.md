@@ -7,8 +7,9 @@ The creatively-named MacPopup is a native macOS overlay for looking up words wit
 games and apps. It works in two modes:
 
 - **Floating Window**: Inspired by [JL](https://github.com/rampaa/JL). Receives text over WebSockets
-  or from the clipboard (from tools like Textractor, Agent, or LunaTranslator) and displays it in a customizable floating
-  text box (similar to [texthooker-ui](https://github.com/Renji-XD/texthooker-ui)).
+  or from the clipboard (from tools like Textractor, Agent, or LunaTranslator), or reads it from a game's window with
+  OCR, and displays it in a customizable floating text box (similar to
+  [texthooker-ui](https://github.com/Renji-XD/texthooker-ui)).
 - **OCR overlay**: Inspired by [meikipop](https://github.com/rtr46/meikipop) and
   [GameSentenceMiner](https://github.com/bpwhelan/GameSentenceMiner). Hides the text box and
   reads text directly from any app or game window on screen using Apple Live Text, [meikiocr](https://github.com/rtr46/meikiocr),
