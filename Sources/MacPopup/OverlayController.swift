@@ -186,6 +186,9 @@ final class OverlayController: NSObject {
         toasts.forEach(showToast)
     }
 
+    /// Whether a popup is open (in OCR Mode, the hit rects are the popups').
+    var showsPopups: Bool { !hitRects.isEmpty }
+
     func setHitRects(_ rects: [CGRect]) {
         hitRects = rects
         updateMouse(force: true)

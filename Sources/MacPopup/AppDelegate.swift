@@ -48,7 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         GamePause.shared.onResume = { [weak self] in self?.ocr.gameResumed() }
         GamePause.shared.onShortcut = { [weak self] in self?.overlay.evaluate("window.__macpopupPauseShortcut?.()") }
         GamePause.shared.onSwitchAway = { [weak self] in self?.overlay.evaluate("window.__macpopupEndPausedScan?.()") }
-        GamepadController.shared.onInput = { [weak self] in self?.ocr.inputUsed() }
+        GamepadController.shared.onInput = { [weak self] in
+            self?.ocr.inputUsed()
+            if !GamepadController.shared.isHeld { self?.ocr.gameInput() }
+        }
         yomitanAPI = YomitanAPIStatus()
         yomitanAPI.onChange = { [weak self] in self?.updateStatusIcon() }
 

@@ -226,6 +226,9 @@ final class GamepadController: ObservableObject {
 
     // MARK: Holding
 
+    /// Whether the controllers' presses are MacPopup's (see setHold), not the game's.
+    var isHeld: Bool { holdRequested && overlayVisible && learning == nil }
+
     /// Asked by the overlay: held while it has controller focus, or a popup with controller shortcuts is open.
     func setHold(_ hold: Bool) {
         if hold, !holdRequested { holdApp = NSWorkspace.shared.frontmostApplication?.processIdentifier }

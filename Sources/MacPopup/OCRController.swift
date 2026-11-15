@@ -63,8 +63,24 @@ final class OCRController {
     /// Input started: check for changes right away.
     private var checkSoon = false
     private var waitingForInput = false
-    /// Per area, thumbnail blocks that were seen animating while the text stayed the same.
-    private var animatedBlocks: [Set<Int>] = []
+    /// A thumbnail block seen changing while the text stayed the same (e.g. a blinking or spinning "next" icon, or an
+    /// animation beside the text).
+    private struct AnimatedBlock {
+        /// How it looked meanwhile (see blockPixels), and when it last looked so: changing to one of these again
+        /// isn't the window changing, changing to another look is (e.g. text drawn there).
+        var looks: [(pixels: [UInt8], seen: Date)] = []
+        /// It had more looks than are kept (e.g. a continuous animation): any change there is left out until then, or
+        /// until input meant for the game (see gameInput), which could bring up text there.
+        var ignoredUntil: Date?
+    }
+    /// Per area, the thumbnail blocks learned as animated, by index (see changedBlocks).
+    private var animatedBlocks: [[Int: AnimatedBlock]] = []
+    /// The looks kept of an animated block.
+    private static let animatedLooks = 8
+    /// How long changes in an animated block with too many looks are left out without input.
+    private static let animatedIgnoreTime: TimeInterval = 5
+    /// When a click, key press or scroll was last seen (see checkInput).
+    private var lastPress = Date.distantPast
     /// Per area, the lines last read there: an area is read on its own, and sent with the others.
     private var areaLines: [[[String: Any]]] = []
     /// Where the dialogue's text would go on, in its thumbnail's pixels (see thumbnails): a character's room after the
@@ -125,6 +141,30 @@ final class OCRController {
         guard input.timeIntervalSince(lastInput) > 0.02 else { return }
         lastInput = input
         inputUsed()
+        // Not the cursor moving (e.g. to hover the text) nor modifier keys (e.g. the scan modifier).
+        let presses: [CGEventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .scrollWheel]
+        let pressed = Date().addingTimeInterval(-(presses.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? .infinity))
+        guard pressed.timeIntervalSince(lastPress) > 0.02 else { return }
+        lastPress = pressed
+        if !overlay.showsPopups, NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            gameInput()
+        }
+    }
+
+    /// A click, key press, scroll or controller press that may have gone to the game (not to MacPopup or its popups),
+    /// whether or not reading waits for input: it can bring up text anywhere, also where an animation was learned
+    /// that changes too much to be left out by its looks (see AnimatedBlock), so those are watched again. They're
+    /// learned again from the next reading of the same text.
+    func gameInput() {
+        let now = Date()
+        var watched = 0
+        for area in animatedBlocks.indices {
+            for (index, block) in animatedBlocks[area] where block.ignoredUntil.map({ $0 > now }) == true {
+                animatedBlocks[area][index]?.ignoredUntil = nil
+                watched += 1
+            }
+        }
+        if watched > 0 { log("input: \(watched) animated blocks watched again") }
     }
 
     /// The window state last sent to the page, so that it's only sent when it changes.
@@ -824,12 +864,17 @@ final class OCRController {
         var sawChange = cue != .newLine
         // The text's settle keys (see settleKey) when they were first read, and the most characters a reading of them had.
         var previous: (keys: [String], time: Date, longest: Int)?
-        // The images read since the text last changed, to learn animated spots from.
+        // The window as it was read since the text last changed, to learn animated spots from (see
+        // learnAnimatedBlocks). When the text is still what was read before the round (e.g. the round is for a
+        // blinking icon), from before the change too.
         var frames: [Frame] = []
-        // Where the dialogue's text was during the round (see textBlocks): not learned as animated. That includes the
-        // text read before it, which may be going away during the round (fading out, or replaced by text elsewhere):
-        // learned, its place would be left out, and the next line drawn there missed.
-        var roundTextBlocks = textBlocks(areaLines.first ?? [], goingOn: true)
+        let textBefore = (keys: watchedTexts.map { $0.map(Self.settleKey) }, frame: lastRecognizedFrame)
+        // Where the dialogue's text was read during the round (see textBlocks): not learned as animated.
+        var roundTextBlocks = Set<Int>()
+        // Near it: where the text read before it was, which may be going away during the round (fading out, or
+        // replaced by text elsewhere), and where the text would go on (the rest of a line still fading in). Only
+        // learned by their looks, so that the next line drawn there is still noticed.
+        var nearTextBlocks = textBlocks(areaLines.first ?? [], goingOn: true)
         acceptedReading = false
         // The picture of the latest reading, which the page may take, and the window as it was then (see readFrame).
         var lastImage: CGImage?
@@ -909,10 +954,6 @@ final class OCRController {
                 return
             }
             keptCues = 0
-            // Thumbnails of the image itself rather than another capture (they're only compared with each
-            // other, so their scale doesn't matter), made while it's read.
-            let thumbnailAreas = thumbnailAreas(in: image)
-            let thumbnailing = Task.detached { thumbnailAreas.flatMap { Self.thumbnails(of: image, areas: $0) } }
             guard await readAreas(image, areas: read) else {
                 // Dropped for a reading again (not after an error, which the page is told about).
                 if roundCue == .now, pendingCue != nil { pendingCue = .now }
@@ -928,20 +969,19 @@ final class OCRController {
                 return
             }
             let covered = textBlocks(areaLines.first ?? [])
-            // And where it would go on: the rest of a line still fading in isn't animation either.
-            roundTextBlocks.formUnion(textBlocks(areaLines.first ?? [], goingOn: true))
+            roundTextBlocks.formUnion(covered)
+            nearTextBlocks.formUnion(textBlocks(areaLines.first ?? [], goingOn: true))
             unlearnAnimatedBlocks(covered)
             let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
             let keys = texts.map(Self.settleKey), length = texts.joined().count
             if previous?.keys != keys {
                 previous = (keys, started, length)
-                frames = []
+                frames = keys == textBefore.keys ? textBefore.frame.map { [$0] } ?? [] : []
             } else if let longest = previous?.longest, length > longest {
                 previous?.longest = length
             }
-            if let (thumbnails, widths) = await thumbnailing.value {
-                frames.append(Frame(thumbnails: thumbnails, widths: widths))
-            }
+            // As compared with later (see comparisonScale), rather than thumbnails of the image read.
+            if let readFrame { frames.append(readFrame) }
             // Preferably on a reading with all the dashes and dots read meanwhile (the next one is taken right away), but
             // not for long: one of them may have been a misreading.
             if sawChange, let previous, started.timeIntervalSince(previous.time) >= settleTime,
@@ -949,7 +989,7 @@ final class OCRController {
                 log("settled after \(String(format: "%.2f", Date().timeIntervalSince(start)))s")
                 // What changed while the text stayed the same (e.g. a blinking "next" icon) doesn't count as
                 // the window changing later.
-                learnAnimatedBlocks(from: frames, text: roundTextBlocks)
+                learnAnimatedBlocks(from: frames, text: roundTextBlocks, nearText: nearTextBlocks)
                 otherAreasOutdated = false
                 finishReading(image, frame: readFrame, areas: read, started: started, extra: waited.merging(["settled": true]) { $1 })
                 return
@@ -1854,11 +1894,13 @@ final class OCRController {
         return result
     }
 
-    /// Learns the spots that changed while the text stayed the same (e.g. a blinking "next" icon), so that
-    /// later they don't count as the window changing. Not when there are many (that's an animated
-    /// background, not an icon), nor where the dialogue's text was (`text`, see textBlocks): text that moves
-    /// while it's read the same would be learned otherwise, and then text appearing there later missed.
-    private func learnAnimatedBlocks(from frames: [Frame], text: Set<Int>) {
+    /// Learns the spots that changed while the text stayed the same (e.g. a blinking "next" icon) and their looks,
+    /// so that later they don't count as the window changing while they look as they did. Not where the dialogue's
+    /// text was read (`text`, see textBlocks): text that moves while it's read the same would be learned otherwise.
+    /// A spot with more looks than are kept is left out whatever it looks like (see AnimatedBlock), for a while, but
+    /// not near the text (`nearText`: where the previous text was, or where the text would go on), nor when there
+    /// are many (that's an animated background, not an icon).
+    private func learnAnimatedBlocks(from frames: [Frame], text: Set<Int>, nearText: Set<Int>) {
         guard frames.count > 1, let first = frames.first else { return }
         var found = first.thumbnails.map { _ in Set<Int>() }
         for (a, b) in zip(frames, frames.dropFirst()) {
@@ -1867,21 +1909,98 @@ final class OCRController {
             for (area, blocks) in changed.enumerated() { found[area].formUnion(blocks) }
         }
         if !found.isEmpty { found[0].subtract(text) }
-        if animatedBlocks.count != found.count { animatedBlocks = found.map { _ in [] } }
-        for (area, blocks) in found.enumerated() where !blocks.isSubset(of: animatedBlocks[area]) {
+        if animatedBlocks.count != found.count { animatedBlocks = found.map { _ in [:] } }
+        let now = Date()
+        for (area, blocks) in found.enumerated() where !blocks.isEmpty {
             let width = first.widths[area], height = first.thumbnails[area].count / max(width, 1)
             let total = ((width + Self.block - 1) / Self.block) * ((height + Self.block - 1) / Self.block)
-            let learned = animatedBlocks[area].union(blocks)
-            guard Double(learned.count) <= Double(total) * 0.1 else { continue }
-            log("learned \(learned.count) animated blocks")
-            animatedBlocks[area] = learned
+            var ignored = animatedBlocks[area].values.filter { $0.ignoredUntil.map { $0 > now } == true }.count
+            var (added, newlyIgnored) = (0, 0)
+            for index in blocks {
+                var block = animatedBlocks[area][index] ?? AnimatedBlock()
+                if block.looks.isEmpty { added += 1 }
+                // Looks not seen for a while (e.g. another scene's) make room.
+                block.looks.removeAll { now.timeIntervalSince($0.seen) > 30 }
+                var overflowed = false
+                for frame in frames where frame.widths == first.widths {
+                    let pixels = Self.blockPixels(frame.thumbnails[area], width: width, block: index)
+                    if let same = block.looks.firstIndex(where: { Self.looksAlike($0.pixels, pixels) }) {
+                        block.looks[same].seen = now
+                    } else {
+                        block.looks.append((pixels, now))
+                        if block.looks.count > Self.animatedLooks {
+                            block.looks.removeFirst()
+                            overflowed = true
+                        }
+                    }
+                }
+                if overflowed, block.ignoredUntil.map({ $0 > now }) != true, !nearText.contains(index),
+                   Double(ignored + 1) <= Double(total) * 0.1 {
+                    block.ignoredUntil = now.addingTimeInterval(Self.animatedIgnoreTime)
+                    ignored += 1
+                    newlyIgnored += 1
+                }
+                animatedBlocks[area][index] = block
+            }
+            if added > 0 || newlyIgnored > 0 {
+                log("learned \(animatedBlocks[area].count) animated blocks (\(added) new), \(ignored) left out for \(Int(Self.animatedIgnoreTime))s")
+            }
+        }
+    }
+
+    /// The pixels of thumbnail block `block` (see changedBlocks), row by row.
+    private static func blockPixels(_ thumbnail: [UInt8], width: Int, block: Int) -> [UInt8] {
+        let size = Self.block, columns = (width + size - 1) / size, height = thumbnail.count / max(width, 1)
+        let x = (block % columns) * size, y = (block / columns) * size
+        var pixels: [UInt8] = []
+        pixels.reserveCapacity(size * size)
+        for row in y..<min(y + size, height) {
+            pixels.append(contentsOf: thumbnail[(row * width + x)..<(row * width + min(x + size, width))])
+        }
+        return pixels
+    }
+
+    /// Whether two looks of a block are the same: too few pixels differ clearly for the block to count as changed (see
+    /// changedBlocks).
+    private static func looksAlike(_ a: [UInt8], _ b: [UInt8]) -> Bool {
+        guard a.count == b.count else { return false }
+        var different = 0
+        for index in a.indices where abs(Int(a[index]) - Int(b[index])) > 40 {
+            different += 1
+            if different >= 5 { return false }
+        }
+        return true
+    }
+
+    /// For an area of `frame`, whether a change in a block is animation, to be left out (see AnimatedBlock): the block
+    /// is left out whatever it looks like for now, or looks as it was seen before. Each block is looked at once.
+    private func animation(in frame: Frame, area: Int) -> (Int) -> Bool {
+        guard area < animatedBlocks.count, !animatedBlocks[area].isEmpty, area < frame.widths.count else { return { _ in false } }
+        let now = Date(), width = frame.widths[area], thumbnail = frame.thumbnails[area]
+        var decided: [Int: Bool] = [:]
+        return { [self] index in
+            if let known = decided[index] { return known }
+            var result = false
+            if let block = animatedBlocks[area][index] {
+                if block.ignoredUntil.map({ $0 > now }) == true {
+                    result = true
+                } else {
+                    let pixels = Self.blockPixels(thumbnail, width: width, block: index)
+                    if let same = block.looks.firstIndex(where: { Self.looksAlike($0.pixels, pixels) }) {
+                        animatedBlocks[area][index]?.looks[same].seen = now
+                        result = true
+                    }
+                }
+            }
+            decided[index] = result
+            return result
         }
     }
 
     /// Text was read on `blocks` (see textBlocks): they aren't animated after all, they change with the text.
     private func unlearnAnimatedBlocks(_ blocks: Set<Int>) {
-        guard let animated = animatedBlocks.first, !animated.isDisjoint(with: blocks) else { return }
-        animatedBlocks[0] = animated.subtracting(blocks)
+        guard let animated = animatedBlocks.first, !blocks.isDisjoint(with: animated.keys) else { return }
+        animatedBlocks[0] = animated.filter { !blocks.contains($0.key) }
         log("unlearned \(animated.count - animatedBlocks[0].count) animated blocks: text was read there")
     }
 
@@ -1949,7 +2068,7 @@ final class OCRController {
         guard continuationRereads < 3, !continuationRects.isEmpty, let x = frame.thumbnails.first, let y = reference.thumbnails.first,
               let width = frame.widths.first, x.count == y.count, width > 0, width == reference.widths.first else { return false }
         let height = x.count / width, block = Self.block, columns = (width + block - 1) / block
-        let animated = animatedBlocks.first ?? []
+        let animated = animation(in: frame, area: 0)
         for rect in continuationRects {
             let firstColumn = max(0, Int(rect.minX.rounded(.down))), lastColumn = min(width - 1, Int(rect.maxX.rounded(.up)))
             let firstRow = max(0, Int(rect.minY.rounded(.down))), lastRow = min(height - 1, Int(rect.maxY.rounded(.up)))
@@ -1958,8 +2077,7 @@ final class OCRController {
             for row in firstRow...lastRow {
                 for column in firstColumn...lastColumn {
                     let index = row * width + column
-                    guard abs(Int(x[index]) - Int(y[index])) > 40,
-                          !animated.contains((row / block) * columns + column / block) else { continue }
+                    guard abs(Int(x[index]) - Int(y[index])) > 40, !animated((row / block) * columns + column / block) else { continue }
                     changed += 1
                 }
             }
@@ -1974,7 +2092,7 @@ final class OCRController {
 
     /// Whether two frames differ by more than the threshold: the share of pixels that changed clearly,
     /// in any watched area. Small changes (a blinking cursor, slight animation) stay under it, and
-    /// spots known to be animated are left out.
+    /// spots known to be animated are left out while `a` shows them as they were seen (see AnimatedBlock).
     /// - Parameters:
     ///   - only: The areas to compare, or all.
     ///   - threshold: The share of pixels, instead of the one in Settings.
@@ -1985,11 +2103,11 @@ final class OCRController {
         for (area, ((x, y), width)) in zip(zip(a.thumbnails, b.thumbnails), a.widths).enumerated() {
             if let only, !only.contains(area) { continue }
             guard x.count == y.count, !x.isEmpty, width > 0 else { return true }
-            let animated = area < animatedBlocks.count ? animatedBlocks[area] : []
+            let animated = animation(in: a, area: area)
             let columns = (width + block - 1) / block
             var changed = 0
             for index in x.indices where abs(Int(x[index]) - Int(y[index])) > 40 {
-                if !animated.isEmpty, animated.contains((index / width / block) * columns + (index % width) / block) { continue }
+                if animated((index / width / block) * columns + (index % width) / block) { continue }
                 changed += 1
             }
             // A share of what's drawn rather than of the whole area, so that a short line on an otherwise empty screen
