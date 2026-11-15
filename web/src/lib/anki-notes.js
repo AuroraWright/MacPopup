@@ -91,7 +91,7 @@ function timestamp() {
  * Resolves page-context markers.
  * @returns {Promise<{values: Map<string, string>, media: {filename: string, data: string}[]}>}
  */
-async function resolveLocalMarkers(markers, { dictionaryEntry, content, selectionText, deferred }) {
+async function resolveLocalMarkers(markers, { dictionaryEntry, content, selectionText, deferred, line = null }) {
 	const values = new Map();
 	const media = [];
 	const cloze = getCloze(dictionaryEntry, content.sentence);
@@ -162,7 +162,7 @@ async function resolveLocalMarkers(markers, { dictionaryEntry, content, selectio
 				}
 				case 'screenshot': {
 					const format = settings.screenshotFormat === 'png' ? 'png' : 'jpeg';
-					const data = await takeScreenshot(content.player, format, settings, content.sentence?.text);
+					const data = await takeScreenshot(line, format, settings);
 					const filename = `yomitan_screenshot_${timestamp()}.${format === 'png' ? 'png' : 'jpg'}`;
 					media.push({ filename, data });
 					values.set(marker, `<img src="${filename}" />`);
@@ -180,12 +180,22 @@ function hasPlayerTrack(player, track) {
 }
 
 /**
- * For a line from a video player (content.player, see iina-plugin/), the frame from the middle of the line, taken
- * from the video file or stream, unless Settings → IINA Integration turns that off. Otherwise, the screenshot of the
- * captured window from when `sentence` was shown (Settings → Anki Screenshot), or one of the captured window or
- * display taken now.
+ * The card's screenshot (see CardLine). For a line from a video player (see iina-plugin/), the frame from the middle
+ * of the line, taken from the video file or stream, unless Settings → IINA Integration turns that off. Otherwise, the
+ * screenshot of the captured window from when the line was shown (Settings → Anki Screenshot), or one of the captured
+ * window or display taken now.
+ * @param {?CardLine} line
  */
-async function takeScreenshot(player, format, settings, sentence) {
+async function takeScreenshot(line, format, settings) {
+	const options = { format, quality: settings.screenshotQuality, resolution: settings.screenshotResolution };
+	if (line?.screenshot) {
+		try {
+			return await line.screenshot(options);
+		} catch (e) {
+			log('The popup’s screenshot failed', e);
+		}
+	}
+	const player = line?.player;
 	if (settings.iinaScreenshotEnabled !== false && hasPlayerTrack(player, 'video')) {
 		try {
 			const time = (player.start + player.end) / 2;
@@ -194,11 +204,11 @@ async function takeScreenshot(player, format, settings, sentence) {
 			log('The line’s screenshot failed', e);
 		}
 	}
-	return nativeCall('screenshot', { format, quality: settings.screenshotQuality, resolution: settings.screenshotResolution, sentence });
+	return nativeCall('screenshot', { ...options, line: line?.id ?? null });
 }
 
 /**
- * The sentence audio of a video player's line (content.player, see iina-plugin/): its time range with the padding
+ * The sentence audio of a video player's line (see CardLine and iina-plugin/): its time range with the padding
  * of Settings → IINA Integration, cut out of the video file or stream, for the sentence audio field when it's empty.
  */
 async function playerSentenceAudio(player, cardFormat, fields) {
@@ -345,11 +355,19 @@ function overrideAudio(api, override) {
 }
 
 /**
+ * The line a card is from (see cardLine in popup.js): the host's id for it (see noteLine in AppDelegate.swift) and its
+ * video player's part, for the card's screenshot and sentence audio, or else (`nested`, for a word looked up in a
+ * popup) how its screenshot is taken instead.
+ * @typedef {{id: ?number, player: ?object, nested?: boolean, screenshot?: (options: object) => Promise<string>}} CardLine
+ */
+
+/**
  * Builds the complete note for one entry and card format.
  * @param {?{term: string, reading: string, data: string, contentType: string}} audioOverride Audio chosen
  *   in the play button menu, used instead of the API's.
+ * @param {?CardLine} line
  */
-export async function buildNote({ content, entryIndex, cardFormat, selectionText, audioOverride = null }) {
+export async function buildNote({ content, entryIndex, cardFormat, selectionText, audioOverride = null, line = null }) {
 	const fieldEntries = Object.entries(cardFormat.fields);
 	const markers = unique(fieldEntries.flatMap(([, { value }]) => getFieldMarkers(value)));
 	const apiMarkers = markers.filter((marker) => !localMarkers.has(marker));
@@ -361,7 +379,7 @@ export async function buildNote({ content, entryIndex, cardFormat, selectionText
 			: null,
 		resolveLocalMarkers(
 			markers.filter((marker) => localMarkers.has(marker)),
-			{ dictionaryEntry, content, selectionText, deferred: true },
+			{ dictionaryEntry, content, selectionText, deferred: true, line },
 		),
 	]);
 
@@ -378,7 +396,7 @@ export async function buildNote({ content, entryIndex, cardFormat, selectionText
 		if (replacedAudio) fields[name] = fields[name].replaceAll(replacedAudio.from, replacedAudio.to);
 	}
 
-	const sentenceAudio = await playerSentenceAudio(content.player, cardFormat, fields);
+	const sentenceAudio = await playerSentenceAudio(line?.player, cardFormat, fields);
 	if (sentenceAudio) fields[sentenceAudio.field] = `[sound:${sentenceAudio.filename}]`;
 
 	const allText = Object.values(fields).join('\n');

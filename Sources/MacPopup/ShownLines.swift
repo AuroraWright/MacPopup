@@ -7,9 +7,10 @@ private let sentenceContinuing: Set<Unicode.Scalar> = [
     "\u{FE11}", "\u{FE13}", "\u{FE50}", "\u{FE51}", "\u{FE55}", "\u{FF0C}", "\u{FF1A}", "\u{FF64}",
 ]
 
-/// The lines recently shown in the text box or read by OCR, oldest first. Anki Audio, Anki Screenshot and the
-/// Floating Window's text box all use it, so they agree on what each line is. Each line keeps every version of its
-/// text without whitespace, the text as shown, and the user's own data (`Info`).
+/// The lines recently shown in the text box or read by OCR, oldest first, each with an id. The Floating Window's text
+/// box, Anki Audio and Anki Screenshot all go by these lines (see AppDelegate.noteLine), and a card added from a popup
+/// keeps the id of the line it was scanned in. Each line keeps every version of its text without whitespace, the text
+/// as shown, and the user's own data (`Info`).
 ///
 /// When OCR reads a page that keeps growing (as in visual novels), each new sentence or paragraph becomes a new line
 /// (see note).
@@ -20,22 +21,39 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         /// The latest version of the text as shown, whitespace included.
         var text: String
         var info: Info
+        /// The latest version of its text that came as a line (from a WebSocket or the clipboard) rather than from OCR,
+        /// normalized.
+        var sent: String?
     }
 
+    /// When a line sent after another sent one (see Line.sent) is still that line, as the text box decides it
+    /// (Settings → Text Box): the same text again (`repeats`), or the line with more text (`grows`). Otherwise it's a
+    /// new line, however much it looks like the one before.
+    struct SentLines {
+        var repeats = false
+        var grows = false
+    }
+
+    /// Where a line starts in a page's reading, in characters of its normalized text.
+    typealias Start = (id: Int, start: Int)
+
     /// What `note` did with a text.
-    enum Noted {
-        /// Another version of the last line. `grew`: longer than any seen so far (it's still being drawn).
-        case again(index: Int, grew: Bool)
-        /// A new line, now the last.
-        case new(index: Int)
+    struct Noted {
+        /// The line it went to.
+        let index: Int
+        /// A new line, now the last. Otherwise it's another version of the last line.
+        let isNew: Bool
+        /// Longer than any version of the line seen so far (it's still being drawn).
+        let grew: Bool
+        /// For a page, the lines in this reading of it, in order.
+        let starts: [Start]
     }
 
     private var lines: [Line] = []
     private var nextID = 0
-    /// The last reading of a page (see note), normalized and as shown, and where the last line starts in it (counted
-    /// in characters of `text`).
-    private var page: (text: String, shown: String, lastStart: Int)?
-    /// Text shorter than this could be part of almost any line (see isSameLine).
+    /// The last reading of a page (see note), normalized and as shown, and where its lines start in it.
+    private var page: (text: String, shown: String, starts: [Start])?
+    /// Text shorter than this could be part of almost any line (see isLongAndSame).
     private static var shortLength: Int { 6 }
 
     var startIndex: Int { lines.startIndex }
@@ -56,7 +74,8 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     /// If the text is another version of the last line, it's added to that line's texts. That happens when the line
     /// grows as the game draws it, when OCR reads it again after the WebSocket sent it, or when a long line is read a
     /// little differently. Anything else becomes a new line with `info`. Short text has to match exactly, since it's
-    /// often a separate line (誰？) that happens to appear inside the last one.
+    /// often a separate line (誰？) that happens to appear inside the last one. A line that was sent (not `page`) after
+    /// another sent line is only that line again as `sent` says.
     ///
     /// With `page`, the text is a whole settled reading of OCR's dialogue area. It may be the previous reading with
     /// more text added, as on a visual novel's page or when a line continues after a pause. The added text becomes a
@@ -64,62 +83,109 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     /// paragraph does. `breaks` lists where the reading's rows start a paragraph, in characters of the normalized
     /// text; a row ending in a comma doesn't count, since games also wrap rows after commas. Otherwise the last line
     /// grew. Text that appears all at once stays one line, because the voice of each line would start at the same time.
-    mutating func note(_ shown: String, page isPage: Bool = false, breaks: Set<Int> = [], info: () -> Info) -> Noted? {
+    mutating func note(
+        _ shown: String, page isPage: Bool = false, breaks: Set<Int> = [], sent sentLines: SentLines = .init(), info: () -> Info
+    ) -> Noted? {
         let text = Self.normalized(shown)
         guard !text.isEmpty else { return nil }
-        let previousPage = page
-        if isPage { page = (text, shown, 0) }
-        if isPage, let previousPage, let last = lines.indices.last {
-            let page = previousPage
+        if isPage, let page, let last = lines.indices.last {
             // The same page, or part of it, read again. Dots are ignored because OCR reads a different number of them
             // each time.
             let key = Self.undotted(text), pageKey = Self.undotted(page.text)
             if pageKey.hasPrefix(key) || (text.count <= page.text.count && Self.isLongAndSame(text, page.text)) {
-                self.page = page
-                return .again(index: last, grew: false)
+                return Noted(index: last, isNew: false, grew: false, starts: Self.moved(page.starts, from: page.text, to: text))
             }
             // The page with more text added. The old part may be read a little differently or gain a mark or two
-            // (e.g. a dash before a line), so it's aligned with the new reading, and the last line is taken from that.
+            // (e.g. a dash before a line), so it's aligned with the new reading, and its lines' starts with it.
             let before = String(text.prefix(page.text.count))
             let exact = before == page.text
-            let (end, edits) = exact ? (page.text.count, 0) : Self.end(of: page.text, in: text)
+            let (end, edits) = exact ? (page.text.count, 0) : Self.ends(of: page.text, in: text, at: [page.text.count])[0]
             let inserted = edits == 0 || (edits <= 2 && edits == end - page.text.count)
             if key.count > pageKey.count, exact || inserted || Self.isLongAndSame(before, page.text) {
+                var starts = Self.moved(page.starts, from: page.text, to: text)
                 let paragraphEnds = breaks.contains(end) && !Self.continuesSentence(text, before: end)
                 if end < text.count, paragraphEnds || Self.sentenceEnds(in: shown, after: end) {
-                    self.page?.lastStart = end
-                    return append(Self.shown(shown, after: end), info: info)
+                    let index = append(Self.shown(shown, after: end), info: info)
+                    starts.append((lines[index].id, end))
+                    self.page = (text, shown, starts)
+                    return Noted(index: index, isNew: true, grew: false, starts: starts)
                 }
-                let start = exact ? page.lastStart : Self.end(of: String(page.text.prefix(page.lastStart)), in: text).end
-                self.page?.lastStart = start
-                lines[last].text = Self.shown(shown, after: start)
+                self.page = (text, shown, starts)
+                lines[last].text = Self.shown(shown, after: starts.last?.start ?? 0)
                 let normalized = Self.normalized(lines[last].text)
                 if !lines[last].texts.contains(normalized) { lines[last].texts.append(normalized) }
-                return .again(index: last, grew: true)
+                return Noted(index: last, isNew: false, grew: true, starts: starts)
             }
         }
+        let noted: Noted
         let isAgain = { (seen: String) in text.hasPrefix(seen) || seen.hasPrefix(text) || Self.isLongAndSame(text, seen) }
-        if let last = lines.indices.last, lines[last].texts.contains(where: isAgain) {
+        let last = lines.indices.last
+        let isSame: Bool
+        if !isPage, let last, let sent = lines[last].sent {
+            isSame = (sentLines.repeats && text == sent) || (sentLines.grows && text.hasPrefix(sent))
+        } else {
+            isSame = last.map { lines[$0].texts.contains(where: isAgain) } ?? false
+        }
+        if let last, isSame {
             let grew = text.count > lines[last].texts.map(\.count).max() ?? 0
             if !lines[last].texts.contains(text) { lines[last].texts.append(text) }
             if grew { lines[last].text = shown }
-            return .again(index: last, grew: grew)
+            noted = Noted(index: last, isNew: false, grew: grew, starts: isPage ? [(lines[last].id, 0)] : [])
+        } else {
+            let index = append(shown, info: info)
+            noted = Noted(index: index, isNew: true, grew: false, starts: isPage ? [(lines[index].id, 0)] : [])
         }
-        // A different line (e.g. from a WebSocket) ends the page. The last line coming in again (e.g. from a WebSocket
-        // after OCR read it) doesn't.
-        if !isPage { page = nil }
-        return append(shown, info: info)
+        if !isPage { lines[noted.index].sent = text }
+        // A page read anew is a single line. A different line (e.g. from a WebSocket) ends the page; the last line
+        // coming in again (e.g. from a WebSocket after OCR read it) doesn't.
+        if isPage {
+            page = (text, shown, noted.starts)
+        } else if noted.isNew {
+            page = nil
+        }
+        return noted
     }
 
-    private mutating func append(_ shown: String, info: () -> Info) -> Noted {
+    /// Where a line's text starts in a page's reading, as (row, offset in the row's UTF-16 code units). `rows` are the
+    /// reading's rows of text, and `start` is counted in characters of its normalized text, as in Noted.starts.
+    static func position(of start: Int, in rows: [String]) -> (row: Int, offset: Int)? {
+        var left = start
+        for (row, text) in rows.enumerated() {
+            if let index = index(after: left, in: text) { return (row, text.utf16.distance(from: text.startIndex, to: index)) }
+            left -= normalized(text).count
+        }
+        return nil
+    }
+
+    private mutating func append(_ shown: String, info: () -> Info) -> Int {
         lines.append(Line(id: nextID, texts: [Self.normalized(shown)], text: shown, info: info()))
         nextID += 1
-        return .new(index: lines.count - 1)
+        return lines.count - 1
     }
 
-    /// Whether both texts are long enough to be matched loosely, and match (see isSameLine).
+    /// The starts of lines in a page's reading `old`, moved to where they are in its reading `new`.
+    private static func moved(_ starts: [Start], from old: String, to new: String) -> [Start] {
+        guard !new.hasPrefix(old), !old.hasPrefix(new) else { return starts }
+        let ends = ends(of: old, in: new, at: starts.map(\.start))
+        return zip(starts, ends).map { ($0.id, $1.end) }
+    }
+
+    /// Whether two readings are of the same line: both are long enough to be matched loosely, and one contains the
+    /// other, allowing a few characters to differ, since OCR may misread some.
     private static func isLongAndSame(_ a: String, _ b: String) -> Bool {
-        Swift.min(a.count, b.count) >= shortLength && isSameLine(a, b)
+        let a = Array(a.precomposedStringWithCompatibilityMapping), b = Array(b.precomposedStringWithCompatibilityMapping)
+        guard Swift.min(a.count, b.count) >= shortLength else { return false }
+        // Longest common subsequence.
+        var row = [Int](repeating: 0, count: b.count + 1)
+        for x in a {
+            var diagonal = 0
+            for j in 1...b.count {
+                let above = row[j]
+                row[j] = x == b[j - 1] ? diagonal + 1 : Swift.max(row[j], row[j - 1])
+                diagonal = above
+            }
+        }
+        return Double(row[b.count]) >= 0.85 * Double(Swift.min(a.count, b.count))
     }
 
     /// The index after the first `count` non-whitespace characters of `shown`, skipping any whitespace that follows.
@@ -147,16 +213,23 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         text.filter { !OCRText.isDot($0) }
     }
 
-    /// Where the earlier reading `old` ends within `new`, in characters, allowing for differences in how it was read.
-    /// That's the end of the shortest start of `new` with the fewest edits from `old`, returned with the edit count.
-    /// Dots that were added, dropped or read as other dots cost nothing.
-    private static func end(of old: String, in new: String) -> (end: Int, edits: Int) {
+    /// Where the first `counts` characters of the earlier reading `old` end within `new`, allowing for differences in
+    /// how it was read. For each, that's the end of the shortest start of `new` with the fewest edits from that part of
+    /// `old`, returned with the edit count. Dots that were added, dropped or read as other dots cost nothing.
+    private static func ends(of old: String, in new: String, at counts: [Int]) -> [(end: Int, edits: Int)] {
         let a = Array(old), b = Array(new)
-        guard !a.isEmpty, !b.isEmpty else { return (0, a.count) }
+        guard !b.isEmpty else { return counts.map { (0, $0) } }
         let aDots = a.map(OCRText.isDot), bDots = b.map(OCRText.isDot)
         // Levenshtein distance between `old` and every start of `new`, one character of `old` at a time.
         var row = [0]
         for isDot in bDots { row.append(row[row.count - 1] + (isDot ? 0 : 1)) }
+        let wanted = Set(counts)
+        var ends = [Int: (end: Int, edits: Int)]()
+        let best = { (row: [Int]) in
+            let end = row.indices.min { row[$0] < row[$1] } ?? 0
+            return (end, row[end])
+        }
+        if wanted.contains(0) { ends[0] = (0, 0) }
         for (i, x) in a.enumerated() {
             let cost = aDots[i] ? 0 : 1
             var diagonal = row[0]
@@ -167,9 +240,9 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
                 row[j] = Swift.min(diagonal + substitution, above + cost, row[j - 1] + (bDots[j - 1] ? 0 : 1))
                 diagonal = above
             }
+            if wanted.contains(i + 1) { ends[i + 1] = best(row) }
         }
-        let end = row.indices.min { row[$0] < row[$1] } ?? 0
-        return (end, row[end])
+        return counts.map { ends[$0] ?? best(row) }
     }
 
     /// Whether the normalized `text` has a comma or colon just before character `count` (see sentenceContinuing).
@@ -195,39 +268,7 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         return ends
     }
 
-    /// The newest line a card's sentence comes from.
-    func lastIndex(of sentence: String) -> Int? {
-        let sentence = Self.normalized(sentence)
-        return lines.lastIndex { $0.texts.contains { Self.isSameLine(sentence, $0) } }
-    }
-
-    mutating func removeAll(where shouldBeRemoved: (Line) -> Bool = { _ in true }) {
-        lines.removeAll(where: shouldBeRemoved)
-    }
-
     mutating func removeFirst(_ count: Int) {
         lines.removeFirst(count)
-    }
-
-    /// Whether a card's sentence comes from a line shown with `text`: one must contain the other (a sentence is often
-    /// part of a line; a short one, only that way round), allowing a few characters to differ, since OCR may misread
-    /// some.
-    private static func isSameLine(_ sentence: String, _ text: String) -> Bool {
-        let a = Array(sentence.precomposedStringWithCompatibilityMapping), b = Array(text.precomposedStringWithCompatibilityMapping)
-        guard !a.isEmpty, !b.isEmpty else { return false }
-        // Short text could match almost any line, so it has to match exactly: a short sentence may be part of its line,
-        // but a short line (e.g. a stray character OCR read on its own) isn't the line of every sentence it's part of.
-        if Swift.min(a.count, b.count) < shortLength { return String(b).contains(String(a)) }
-        // Longest common subsequence.
-        var row = [Int](repeating: 0, count: b.count + 1)
-        for x in a {
-            var diagonal = 0
-            for j in 1...b.count {
-                let above = row[j]
-                row[j] = x == b[j - 1] ? diagonal + 1 : Swift.max(row[j], row[j - 1])
-                diagonal = above
-            }
-        }
-        return Double(row[b.count]) >= 0.85 * Double(Swift.min(a.count, b.count))
     }
 }

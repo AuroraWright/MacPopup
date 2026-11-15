@@ -129,7 +129,7 @@ Controller, Xbox controllers and others), without putting it down.
   - With **Scan resolution** set to **Character**, you move one character at a time and choose
     exactly where a word starts. Set to **Word**, you jump from word to word.
   - With the OCR overlay, you start in the dialogue box: on the most recent WebSocket line if it's on screen,
-    or else on the bottom or top sentence (**Controller OCR starting position**, in *Settings → OCR Overlay*).
+    or else on the bottom or top sentence (**Controller starting position**, in *Settings → OCR Overlay*).
 - **Control Popups**: Any shortcut in **Settings → Popup Shortcuts** can also have a controller
   button combination (**Record Buttons**). While a popup is open, your game won't react to a
   controller that's set up; when no popup is open, the buttons go to your game as usual.
@@ -222,7 +222,8 @@ automatically:
   → Anki Screenshot*).
   With a captured window, MacPopup also takes a screenshot shortly after each new line appears and
   keeps the most recent ones (**Screenshots to keep**, 20 by default), so a card shows the scene of
-  its own line even if the game has moved on.
+  the line you looked the word up in, even if the game has moved on. A card added from a popup inside
+  a popup gets a screenshot of the popup you looked the word up in instead.
 - `{document-title}`: The name of the active foreground app.
 - `{clipboard-text}`, `{clipboard-image}`, `{popup-selection-text}`: Current clipboard contents or
   text highlighted inside the popup.
@@ -240,17 +241,17 @@ line from your game:
 
 1. MacPopup keeps the last few minutes of your game's audio in memory (**Keep game audio for the last**, 5 minutes by
    default; without a captured window, it keeps the audio of every app except MacPopup), along with when each line
-   appeared (in the text box or through OCR). When you press the shortcut, it finds the newest card's line and pulls
-   out its voice right away, using macOS's sound classifier to leave out background music and sound effects. If the
-   line is still being spoken, it waits until the voice ends.
+   appeared (in the text box or through OCR). When you press the shortcut, it finds the line of the card you last added
+   from a popup (the line you looked the word up in) and pulls out its voice right away, using macOS's sound classifier
+   to leave out background music and sound effects. If the line is still being spoken, it waits until the voice ends.
 2. If the line isn't there (it's older than what's kept, or you moved on before the voice finished) and **Visual
    novel backlog capture** is on, MacPopup replays it instead: it brings your game to the front, presses your **Keys
    to open backlog**, records the voice while you replay it, then presses your **Keys to close backlog**. With
    **Automatically detect start and end of speech** on, recording stops once the voice ends, and nothing is saved if
    no voice is heard in time; with it off, press the shortcut again to stop.
-3. The clip goes into the **Sentence audio field** (*Settings → Anki Audio*) of the newest card from today, and of any
-   other cards from today with the same sentence, as long as that field is empty. You can have the recording played
-   back afterwards.
+3. The clip goes into the **Sentence audio field** (*Settings → Anki Audio*) of that card, and of any other cards you
+   added from the same line, as long as that field is empty. You can have the recording played back afterwards. Cards
+   added from a popup inside a popup don't get sentence audio.
 
 Option-clicking a popup's add button (or using a popup shortcut set to **Add note (sentence audio)**) adds the card and
 then does the same. If it overwrites an existing card, the recording goes to that card and replaces its sentence audio,

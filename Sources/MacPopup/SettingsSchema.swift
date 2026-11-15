@@ -284,7 +284,7 @@ enum SettingsSchema {
                         showIf: { $0["ocrMouseWatch"] as? Bool ?? true }
                     ),
                     SettingsField(
-                        "gamepadOcrStart", "Controller OCR starting position",
+                        "gamepadOcrStart", "Controller starting position",
                         .select([SettingsOption("bottom", "Bottom"), SettingsOption("top", "Top")]),
                         hint: "Where the controller starts in the OCR overlay: the bottom or top sentence of the dialogue area (in vertical text, the leftmost or rightmost). When the text matches lines received over WebSocket, it starts at the most recent one instead."
                     ),
@@ -756,7 +756,7 @@ enum SettingsSchema {
                     SettingsField("sentenceAudioEnabled", "Enable sentence audio recording", .checkbox),
                     SettingsField(
                         "sentenceAudioShortcut", "Recording shortcut", .shortcut,
-                        hint: "Works from any app. The voice is added to the newest card from today, and to any other cards from today with the same sentence. You can also Option-click a popup’s add button to add a card and its voice in one go."
+                        hint: "Works from any app. The voice is added to the card you last added from a popup, and to any other cards you added from the same line. Cards added from a popup inside a popup don’t get one. You can also Option-click a popup’s add button to add a card and its voice in one go."
                     ),
                     SettingsField(
                         "sentenceAudioButtons", "Recording controller buttons", .gamepadCombo,

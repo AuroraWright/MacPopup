@@ -2,10 +2,10 @@ import AppKit
 import AVFoundation
 import SoundAnalysis
 
-/// Adds a game's voice line to the sentence audio of newly added cards (Settings → Anki Audio). A shortcut takes the
-/// voice of the newest card's line from the last few minutes of the game's audio. With Visual novel backlog capture,
-/// it can instead switch to the game, press the keys that open its backlog to replay the line, record until the voice
-/// ends, and close the backlog again. The recording goes to the newest Anki cards with the same sentence.
+/// Adds a game's voice line to the sentence audio of cards added from a popup (Settings → Anki Audio). A shortcut takes
+/// the voice of the newest card's line from the last few minutes of the game's audio. With Visual novel backlog
+/// capture, it can instead switch to the game, press the keys that open its backlog to replay the line, record until
+/// the voice ends, and close the backlog again. The recording goes to the cards added from the same line.
 ///
 /// The game's audio is the audio of the captured window's app and its helper processes, or of every
 /// app but MacPopup when there's no captured window (see AudioTap).
@@ -15,7 +15,8 @@ import SoundAnalysis
 /// recording.
 ///
 /// The last few minutes of the game's audio are kept (AudioHistory), along with when each line was shown (noteLine).
-/// When the newest card's line is among them and its whole voice was kept, the voice is taken from there.
+/// Each card added from a popup knows the line it was scanned in (cardAdded). When that line is among the kept ones
+/// and its whole voice was kept, the voice is taken from there.
 @MainActor
 final class SentenceAudioController {
     private enum State {
@@ -45,14 +46,19 @@ final class SentenceAudioController {
     /// The card this recording is for, when it was added or overwritten from a popup with Option (see popup.js). Its
     /// sentence audio is replaced. Nil means the newest cards.
     private var note: Int64?
+    /// The cards the recording goes to.
+    private var cards: Cards?
     /// MACPOPUP_TEST_AUDIO_FILE: a sound file played in place of the game's audio (for test runs).
     private let testFile = ProcessInfo.processInfo.environment["MACPOPUP_TEST_AUDIO_FILE"]
     private let history = AudioHistory()
-    /// The lines shown in the last few minutes.
-    private var lines = ShownLines<LineTimes>()
+    /// The lines shown in the last few minutes, oldest first (see ShownLines for their ids).
+    private var lines: [LineTimes] = []
+    /// The cards added from a popup, oldest first.
+    private var addedCards: [AddedCard] = []
 
     /// When a shown line appeared.
     private struct LineTimes {
+        let id: Int
         var shown: Double
         /// The earliest its voice may have started: shortly before it was shown, or before OCR saw the text change.
         var start: Double
@@ -122,8 +128,9 @@ final class SentenceAudioController {
         history.record(processes, minutes: minutes)
     }
 
-    /// A line was shown in the text box or read by OCR, `age` seconds ago. For `page` and `breaks`, see ShownLines.note.
-    func noteLine(_ text: String, age: Double, page: Bool, breaks: Set<Int>) {
+    /// The line with `id` (see ShownLines) was shown in the text box or read by OCR, `age` seconds ago: a new line
+    /// (`isNew`), or the last one again.
+    func noteLine(id: Int, isNew: Bool, text: String, age: Double) {
         let minutes = historyMinutes
         guard minutes > 0 else { return }
         let now = GameClock.now
@@ -131,35 +138,34 @@ final class SentenceAudioController {
         // OCR may notice a change up to one check late and reads it after that, while a WebSocket line arrives as the
         // game shows it.
         let start = shown - (age > 0 ? 0.75 : 0.25)
-        switch lines.note(text, page: page, breaks: breaks, info: { LineTimes(shown: shown, start: start) }) {
-        case nil:
-            break
-        case .again(let index, _):
-            lines[index].info.shown = min(lines[index].info.shown, shown)
-            lines[index].info.start = min(lines[index].info.start, start)
-        case .new(let index):
-            sentenceAudioLog(String(format: "line shown %.2f s ago: %@", now - shown, lines[index].text))
-            lines.removeAll { $0.info.shown < now - minutes * 60 - 60 }
+        if !isNew {
+            guard let index = lines.lastIndex(where: { $0.id == id }) else { return }
+            lines[index].shown = min(lines[index].shown, shown)
+            lines[index].start = min(lines[index].start, start)
+        } else {
+            sentenceAudioLog(String(format: "line shown %.2f s ago: %@", now - shown, text))
+            lines.append(LineTimes(id: id, shown: shown, start: start))
+            lines.removeAll { $0.shown < now - minutes * 60 - 60 }
         }
     }
 
-    /// Takes the voice of the newest card's line from the audio history and adds it to the cards. Returns nil on
-    /// success, or the reason the line or its whole voice wasn't there, so the caller can replay it or say why.
-    private func takeFromHistory() async -> String? {
+    /// A card was added or overwritten from a popup (see popup.js). `line` is the id of the line it was scanned in
+    /// (see ShownLines), if that's known. A card from a popup inside a popup (`nested`) gets no sentence audio. With
+    /// `withAudio` (Option-click), the line's voice goes to this card.
+    func cardAdded(note: Int64, line: Int?, nested: Bool, withAudio: Bool) {
+        addedCards.removeAll { $0.note == note }
+        addedCards.append(AddedCard(note: note, line: line, nested: nested))
+        if addedCards.count > 100 { addedCards.removeFirst(addedCards.count - 100) }
+        if withAudio, !nested, Self.isEnabled(settings) { shortcutPressed(note: note) }
+    }
+
+    /// Takes the voice of the cards' line from the audio history and adds it to them. Returns nil on success, or the
+    /// reason the line or its whole voice wasn't there, so the caller can replay it or say why.
+    private func takeFromHistory(_ cards: Cards) async -> String? {
         guard historyMinutes > 0 else { return "Game audio isn’t being kept. Turn it on in Settings → Anki Audio." }
         guard history.isRecording else { return "Game audio isn’t being kept because the game window isn’t open" }
-        let cards: Cards
-        do {
-            cards = try await newestCards()
-        } catch {
-            showToast(error.localizedDescription)
-            return nil
-        }
-        guard let id = lines.lastIndex(of: cards.sentence).map({ lines[$0].id }) else {
-            sentenceAudioLog("history: \(cards.sentence) isn't one of the last \(lines.count) lines")
-            return "Couldn’t find this card’s sentence among the recent lines"
-        }
-        sentenceAudioLog("history: the line of \(note.map { "card \($0)" } ?? "the newest cards"), \(cards.sentence)")
+        guard let id = cards.line else { return "Couldn’t tell which line this card is from" }
+        sentenceAudioLog("history: line \(id), for card\(cards.ids.count == 1 ? "" : "s") \(cards.ids.map(String.init).joined(separator: ", "))")
         let pause = number("sentenceAudioPause", 3000) / 1000
         let maxLength = number("sentenceAudioMaxLength", 60)
         var waiting = false
@@ -174,8 +180,8 @@ final class SentenceAudioController {
             }
             guard let index = lines.firstIndex(where: { $0.id == id }) else { return "This card’s line is older than the kept audio" }
             let now = GameClock.now
-            let start = max(lines[index].info.start, index > 0 ? lines[index - 1].info.shown : 0)
-            let next = index + 1 < lines.count ? lines[index + 1].info.shown : nil
+            let start = max(lines[index].start, index > 0 ? lines[index - 1].shown : 0)
+            let next = index + 1 < lines.count ? lines[index + 1].shown : nil
             let end = min(next ?? now, start + maxLength)
             // Another line followed it, or it has reached the longest a recording can be.
             let ended = next != nil || end < now
@@ -188,7 +194,7 @@ final class SentenceAudioController {
             guard let (clip, voice) = await history.voice(from: start, to: end) else {
                 return "This card’s line is older than the kept audio"
             }
-            let shownAt = lines[index].info.shown - start
+            let shownAt = lines[index].shown - start
             let span = String(format: "%.2f s from %.2f s before it was shown", clip.duration, shownAt)
             if let voice, ended || clip.duration - voice.1 >= pause {
                 sentenceAudioLog(String(format: "history: voice %.2f–%.2f s of \(span)", voice.0, voice.1))
@@ -241,7 +247,16 @@ final class SentenceAudioController {
             try? FileManager.default.removeItem(at: lastFile)
             self.lastFile = nil
         }
-        guard let reason = await takeFromHistory() else {
+        let cards: Cards
+        do {
+            cards = try await cardsForAudio()
+        } catch {
+            showToast(error.localizedDescription)
+            state = .idle
+            return
+        }
+        self.cards = cards
+        guard let reason = await takeFromHistory(cards) else {
             state = .idle
             return
         }
@@ -305,12 +320,13 @@ final class SentenceAudioController {
                 return
             }
             sentenceAudioLog("\(result.reason)")
-            await addClip(clip)
+            guard let cards else { return }
+            await addClip(clip, cards: cards)
         }
     }
 
-    /// Saves the clip and adds it to `cards`, or to the newest cards if none are given.
-    private func addClip(_ clip: AudioClip, cards: Cards? = nil) async {
+    /// Saves the clip and adds it to `cards`.
+    private func addClip(_ clip: AudioClip, cards: Cards) async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("macpopup-sentence-\(Self.timestamp()).m4a")
         do {
             try clip.write(to: url)
@@ -422,60 +438,51 @@ final class SentenceAudioController {
 
     // MARK: Anki
 
-    /// The newest cards from today with the same sentence (ignoring HTML and whitespace) and no sentence audio yet.
+    /// A card added from a popup (see cardAdded).
+    private struct AddedCard {
+        let note: Int64
+        let line: Int?
+        let nested: Bool
+    }
+
+    /// The cards a recording goes to, and the id of their line (see ShownLines), if it's known.
     private struct Cards {
-        let sentence: String
+        let line: Int?
         let ids: [Int64]
     }
 
-    /// The newest cards (see Cards), or the popup's card (see `note`), whose sentence audio gets replaced. Each note
-    /// type's sentence field is the one its Yomitan card format fills with {sentence}.
-    private func newestCards() async throws -> Cards {
+    /// The popup's card (see `note`), whose sentence audio gets replaced, or else the cards added from the newest
+    /// card's line that have no sentence audio yet.
+    private func cardsForAudio() async throws -> Cards {
         let settings = settings
         guard settings["ankiEnabled"] as? Bool ?? true else { throw AppError("Anki integration is off (Settings → Anki)") }
         let audioField = string("sentenceAudioField", "SentenceAudio")
         guard !audioField.isEmpty else { throw AppError("Choose the sentence audio field in Settings → Anki Audio") }
-        let sentenceFields = try await AnkiConnect.sentenceFields(settings: settings)
-        guard !sentenceFields.isEmpty else { throw AppError("No Yomitan card format has a field with {sentence}") }
-        let ids: [NSNumber]
+        let card: AddedCard
         if let note {
-            ids = [NSNumber(value: note)]
+            card = addedCards.last { $0.note == note } ?? AddedCard(note: note, line: nil, nested: false)
         } else {
-            let query = "added:1 \(Self.fieldQuery(audioField))"
-            ids = try await AnkiConnect.invoke("findNotes", ["query": query], settings: settings) as? [NSNumber] ?? []
+            // Cards from a popup inside a popup don't get it.
+            guard let newest = addedCards.last(where: { !$0.nested }) else { throw AppError("No card was added from a popup yet") }
+            card = newest
         }
-        let notes = (try await AnkiConnect.invoke("notesInfo", ["notes": ids], settings: settings) as? [[String: Any]] ?? []).filter {
-            ($0["modelName"] as? String).flatMap { sentenceFields[$0] } != nil
-        }
-        func field(_ note: [String: Any], _ name: String) -> String {
-            ((note["fields"] as? [String: Any])?[name] as? [String: Any])?["value"] as? String ?? ""
-        }
-        func sentence(_ note: [String: Any]) -> String {
-            Self.plainText(field(note, sentenceFields[note["modelName"] as? String ?? ""] ?? ""))
-        }
-        func noteId(_ note: [String: Any]) -> Int64 { (note["noteId"] as? NSNumber)?.int64Value ?? 0 }
-        if let id = note {
-            guard let note = notes.first, (note["fields"] as? [String: Any])?[audioField] != nil else {
-                throw AppError("The card has no \(audioField) field or no sentence")
-            }
-            return Cards(sentence: sentence(note), ids: [id])
-        }
-        guard let newest = notes.max(by: { noteId($0) < noteId($1) }) else {
-            throw AppError("No card added today has the field \(audioField) and a sentence from Yomitan")
-        }
-        let newestSentence = sentence(newest)
-        let targets = notes.filter {
-            sentence($0) == newestSentence && field($0, audioField).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let ids = note != nil || card.line == nil ? [card.note] : addedCards.filter { $0.line == card.line }.map(\.note)
+        let notes = try await AnkiConnect.invoke("notesInfo", ["notes": ids], settings: settings) as? [[String: Any]] ?? []
+        // (A deleted card's info is empty.)
+        let withField = notes.filter { ($0["fields"] as? [String: Any])?[audioField] != nil }
+        guard !withField.isEmpty else { throw AppError("The card has no \(audioField) field, or was deleted") }
+        let targets = note != nil ? withField : withField.filter {
+            let value = (($0["fields"] as? [String: Any])?[audioField] as? [String: Any])?["value"] as? String ?? ""
+            return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         guard !targets.isEmpty else { throw AppError("The newest card already has sentence audio") }
-        return Cards(sentence: newestSentence, ids: targets.map(noteId))
+        return Cards(line: card.line, ids: targets.compactMap { ($0["noteId"] as? NSNumber)?.int64Value })
     }
 
-    /// Adds the recording to `cards`, or to the newest cards if none are given. Returns how many cards got it.
-    private func addToCards(_ url: URL, cards: Cards? = nil) async throws -> Int {
+    /// Adds the recording to `cards`. Returns how many cards got it.
+    private func addToCards(_ url: URL, cards: Cards) async throws -> Int {
         let settings = settings
         let audioField = string("sentenceAudioField", "SentenceAudio")
-        let cards = if let cards { cards } else { try await newestCards() }
         let data = try Data(contentsOf: url)
         let stored = try await AnkiConnect.invoke(
             "storeMediaFile", ["filename": url.lastPathComponent, "data": data.base64EncodedString()], settings: settings
@@ -504,21 +511,6 @@ final class SentenceAudioController {
         }
         await browse(changed)
         return targetIds.count
-    }
-
-    /// A search for notes that have a field (empty or not).
-    private static func fieldQuery(_ name: String) -> String {
-        "\"" + name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + ":*\""
-    }
-
-    /// A field's text without HTML, furigana or whitespace, so formatting (e.g. the mined word in bold)
-    /// doesn't tell sentences apart.
-    private static func plainText(_ html: String) -> String {
-        var text = html.replacingOccurrences(of: "<rt>.*?</rt>", with: "", options: .regularExpression)
-        text = text.replacingOccurrences(of: "<[^>]*>", with: "", options: .regularExpression)
-        text = text.replacingOccurrences(of: "&nbsp;", with: " ").replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">")
-        return text.components(separatedBy: .whitespacesAndNewlines).joined()
     }
 
     private func showToast(_ message: String) {

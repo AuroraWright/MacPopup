@@ -11,20 +11,22 @@ protocol BridgeHost: AnyObject {
     func overlayMenuBarHeight() -> Double
     func setOverlayVisible(_ visible: Bool)
     func snapshotOverlay() async throws -> Data
+    /// The part of the overlay's page in `rect` (in its coordinates), e.g. a popup.
+    /// - Parameter fullResolution: At the display's scale, or else at 1x.
+    func snapshotOverlay(rect: CGRect, fullResolution: Bool) async throws -> CGImage
     /// The window being read by the OCR overlay, or nil when there isn't one.
     /// - Parameter fullResolution: At the display's scale, or else at 1x.
     func ocrWindowScreenshot(fullResolution: Bool) async throws -> CGImage?
     func simulateMouse(x: Double, y: Double, shift: Bool)
-    /// Acts as if the sentence audio shortcut was pressed. `note` is the card that an Option-click added or overwrote:
-    /// the recording goes to that card only, replacing its sentence audio.
+    /// Acts as if the sentence audio shortcut was pressed. `note` is a card added from a popup: the recording goes to
+    /// that card only, replacing its sentence audio.
     func pressSentenceAudioShortcut(note: Int64?)
-    /// Tells Anki Audio and Anki Screenshot that a line was shown `age` seconds ago. `settled` means OCR read it after
-    /// its text stopped changing; it's then a whole page, and `breaks` are its paragraph starts (see ShownLines.note).
-    func noteSentenceLine(_ text: String, age: Double, settled: Bool, breaks: Set<Int>)
-    /// Tells the Floating Window's text box what to do with a line (see AppDelegate.noteTextBoxLine).
-    func noteTextBoxLine(_ text: String, fromOCR: Bool, breaks: Set<Int>) -> [String: Any]
-    /// The screenshot taken when a card's sentence was shown, if there is one (see ScreenshotHistory).
-    func bufferedScreenshot(sentence: String, format: String, quality: Double, fullResolution: Bool) -> Data?
+    /// A card was added or overwritten from a popup (see SentenceAudioController.cardAdded).
+    func cardAdded(note: Int64, line: Int?, nested: Bool, withAudio: Bool)
+    /// Notes a line that was shown, and replies with its id and what the text box does with it (see AppDelegate.noteLine).
+    func noteLine(_ text: String, age: Double, fromOCR: Bool, rows: [String], breaks: Set<Int>) -> [String: Any]
+    /// The screenshot taken when the line with id `line` was shown, if there is one (see ScreenshotHistory).
+    func bufferedScreenshot(line: Int, format: String, quality: Double, fullResolution: Bool) -> Data?
     func setOverlayCursor(_ cursor: String?)
     /// The WebSocket URLs that are connected, shown on the menu bar icon.
     func setConnectedWebsockets(_ urls: [String])
@@ -94,9 +96,15 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             let format = body["format"] as? String ?? "jpeg"
             let quality = (body["quality"] as? NSNumber)?.doubleValue ?? 92
             let fullResolution = body["resolution"] as? String == "full"
+            // Of a popup (for a card from a popup inside it, see snapshotPopup in overlay.js).
+            if let values = body["rect"] as? [NSNumber], values.count == 4, let host {
+                let rect = CGRect(x: values[0].doubleValue, y: values[1].doubleValue, width: values[2].doubleValue, height: values[3].doubleValue)
+                let image = try await host.snapshotOverlay(rect: rect, fullResolution: fullResolution)
+                return try ScreenCapture.encode(image, format: format, quality: quality).base64EncodedString()
+            }
             // Prefers the screenshot taken when the card's line was shown (Settings → Anki Screenshot).
-            if let sentence = body["sentence"] as? String,
-               let data = host?.bufferedScreenshot(sentence: sentence, format: format, quality: quality, fullResolution: fullResolution) {
+            if let line = (body["line"] as? NSNumber)?.intValue,
+               let data = host?.bufferedScreenshot(line: line, format: format, quality: quality, fullResolution: fullResolution) {
                 return data.base64EncodedString()
             }
             // With the OCR overlay, only the window being read; otherwise the display the overlay is on.
@@ -147,25 +155,26 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "gamepadHold":
             GamepadController.shared.setHold(body["hold"] as? Bool ?? false)
             return nil
-        case "sentenceLine":
-            host?.noteSentenceLine(
-                body["text"] as? String ?? "", age: (body["age"] as? NSNumber)?.doubleValue ?? 0, settled: body["settled"] as? Bool ?? false,
-                breaks: Self.paragraphBreaks(body)
-            )
-            return nil
-        case "textBoxLine":
-            return host?.noteTextBoxLine(
-                body["text"] as? String ?? "", fromOCR: body["ocr"] as? Bool ?? false, breaks: Self.paragraphBreaks(body)
+        case "line":
+            return host?.noteLine(
+                body["text"] as? String ?? "", age: (body["age"] as? NSNumber)?.doubleValue ?? 0, fromOCR: body["ocr"] as? Bool ?? false,
+                rows: body["rows"] as? [String] ?? [], breaks: Self.paragraphBreaks(body)
             ) ?? [:]
         case "gamePause":
             // A popup opened or closed (see updateGamePause in overlay.js); replies once the game is frozen.
             await GamePause.shared.setPaused(body["pause"] as? Bool ?? false)
             return nil
         case "pressSentenceAudio":
-            // From Anki Audio's controller buttons (see overlay.js), or a card added or overwritten with Option (see
-            // popup.js).
+            // From Anki Audio's controller buttons (see overlay.js).
             guard SentenceAudioController.isEnabled(SettingsStore.shared.dictionary) else { return nil }
-            host?.pressSentenceAudioShortcut(note: (body["note"] as? NSNumber)?.int64Value)
+            host?.pressSentenceAudioShortcut(note: nil)
+            return nil
+        case "cardAdded":
+            guard let note = (body["note"] as? NSNumber)?.int64Value else { throw AppError("Missing note") }
+            host?.cardAdded(
+                note: note, line: (body["line"] as? NSNumber)?.intValue, nested: body["nested"] as? Bool ?? false,
+                withAudio: body["withAudio"] as? Bool ?? false
+            )
             return nil
         case "openMedia":
             // A dictionary image clicked in a popup, which Yomitan opens in a new tab: in its default app, from a

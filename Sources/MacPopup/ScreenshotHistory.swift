@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 /// Screenshots of the captured window for the most recent lines (Settings → Anki Screenshot), so a card gets the
-/// screenshot of its own line rather than whatever is on screen when it's added (see anki-notes.js). Each is taken a
+/// screenshot of the line it was scanned in rather than whatever is on screen when it's added (see anki-notes.js). Each is taken a
 /// moment after the line appears, once the game has drawn it, or right away when OCR saw the text settle or the next
 /// line arrives. They're encoded as they're taken, just as a card's screenshot would be.
 @MainActor
@@ -15,6 +15,8 @@ final class ScreenshotHistory {
     }
 
     private struct Shot {
+        /// The line's id (see ShownLines).
+        let id: Int
         var data: Data?
         var format: Format?
         /// OCR saw the line's text settle, and the screenshot was taken then (see noteLine).
@@ -25,8 +27,8 @@ final class ScreenshotHistory {
     }
 
     private let capture: (_ fullResolution: Bool) async throws -> CGImage?
-    /// The lines, each with its screenshot.
-    private var shots = ShownLines<Shot>()
+    /// The lines' screenshots, oldest first.
+    private var shots: [Shot] = []
 
     /// - Parameter capture: Takes a picture of the captured window, or returns nil if there isn't one.
     init(capture: @escaping (_ fullResolution: Bool) async throws -> CGImage?) {
@@ -37,9 +39,9 @@ final class ScreenshotHistory {
 
     private var count: Int { (settings["screenshotHistory"] as? NSNumber)?.intValue ?? 20 }
 
-    /// A line was shown in the text box or read by OCR. `settled` means OCR read it after its text stopped changing;
-    /// it's then a whole page, and `breaks` are its paragraph starts (see ShownLines.note).
-    func noteLine(_ text: String, settled: Bool, breaks: Set<Int>) {
+    /// The line with `id` (see ShownLines) was shown in the text box or read by OCR: a new line (`isNew`), or the last
+    /// one again (`grew`: longer than before). `settled` means OCR read it after its text stopped changing.
+    func noteLine(id: Int, isNew: Bool, grew: Bool, settled: Bool) {
         let count = count
         // Only with Anki integration on: the screenshots are for its cards.
         guard count > 0, settings["ankiEnabled"] as? Bool ?? true, settings["ocrWindow"] is [String: Any] else {
@@ -47,51 +49,49 @@ final class ScreenshotHistory {
             return
         }
         let delay = settled ? 0 : ((settings["screenshotDelay"] as? NSNumber)?.doubleValue ?? 1000) / 1000
-        switch shots.note(text, page: settled, breaks: breaks, info: { Shot(settled: settled) }) {
-        case nil:
-            break
-        case .again(let index, let grew):
+        if !isNew {
+            guard let index = shots.lastIndex(where: { $0.id == id }) else { return }
             // Its screenshot is taken again while it may still be being drawn: it grew, or OCR saw it settle for the
             // first time. Not when it's read again later (e.g. it moved, or the game goes on behind it while a card is
             // added): the game may have moved on by then.
-            if grew || (settled && !shots[index].info.settled) {
-                if settled { shots[index].info.settled = true }
+            if grew || (settled && !shots[index].settled) {
+                if settled { shots[index].settled = true }
                 schedule(index, after: delay)
             }
-        case .new(let index):
+        } else {
             // If the previous line is still waiting for its screenshot, it's taken now, before much of this line is drawn.
-            if index > 0, shots[index - 1].info.pending != nil { schedule(index - 1, after: 0) }
-            schedule(index, after: delay)
+            if let last = shots.indices.last, shots[last].pending != nil { schedule(last, after: 0) }
+            shots.append(Shot(id: id, settled: settled))
+            schedule(shots.count - 1, after: delay)
             if shots.count > count {
-                shots.prefix(shots.count - count).forEach { $0.info.pending?.cancel() }
+                shots.prefix(shots.count - count).forEach { $0.pending?.cancel() }
                 shots.removeFirst(shots.count - count)
             }
         }
     }
 
-    /// The screenshot of the newest line that a card's sentence comes from, if it was taken in `format`.
-    func screenshot(for sentence: String, format: Format) -> Data? {
-        guard count > 0 else { return nil }
-        guard let index = shots.lastIndex(of: sentence), shots[index].info.format == format else { return nil }
-        return shots[index].info.data
+    /// The screenshot of the line with `id`, if it was taken in `format`.
+    func screenshot(forLine id: Int, format: Format) -> Data? {
+        guard count > 0, let shot = shots.last(where: { $0.id == id }), shot.format == format else { return nil }
+        return shot.data
     }
 
     private func clear() {
-        shots.forEach { $0.info.pending?.cancel() }
+        shots.forEach { $0.pending?.cancel() }
         shots.removeAll()
     }
 
     private func schedule(_ index: Int, after delay: Double) {
-        shots[index].info.pending?.cancel()
-        shots[index].info.generation += 1
-        let id = shots[index].id, generation = shots[index].info.generation
+        shots[index].pending?.cancel()
+        shots[index].generation += 1
+        let id = shots[index].id, generation = shots[index].generation
         let settings = settings
         let format = Format(
             format: settings["screenshotFormat"] as? String == "png" ? "png" : "jpeg",
             quality: (settings["screenshotQuality"] as? NSNumber)?.doubleValue ?? 92,
             fullResolution: settings["screenshotResolution"] as? String == "full"
         )
-        shots[index].info.pending = Task { [weak self, capture] in
+        shots[index].pending = Task { [weak self, capture] in
             if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
             guard !Task.isCancelled else { return }
             self?.finished(id, generation)
@@ -102,15 +102,15 @@ final class ScreenshotHistory {
             } catch {
                 return
             }
-            guard let self, let index = shots.firstIndex(where: { $0.id == id }), shots[index].info.generation == generation else { return }
-            shots[index].info.data = data
-            shots[index].info.format = format
+            guard let self, let index = shots.firstIndex(where: { $0.id == id }), shots[index].generation == generation else { return }
+            shots[index].data = data
+            shots[index].format = format
         }
     }
 
     /// Marks a line's capture as no longer waiting, since it's being taken now.
     private func finished(_ id: Int, _ generation: Int) {
-        guard let index = shots.firstIndex(where: { $0.id == id }), shots[index].info.generation == generation else { return }
-        shots[index].info.pending = nil
+        guard let index = shots.firstIndex(where: { $0.id == id }), shots[index].generation == generation else { return }
+        shots[index].pending = nil
     }
 }

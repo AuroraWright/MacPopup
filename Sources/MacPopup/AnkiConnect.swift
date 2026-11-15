@@ -54,25 +54,6 @@ enum AnkiConnect {
         }
     }
 
-    /// For each note type of the term card formats, its field filled with the sentence: `{sentence}`,
-    /// or else the sentence with furigana, or a cloze.
-    static func sentenceFields(settings: [String: Any]) async throws -> [String: String] {
-        let markers = ["{sentence}", "{sentence-furigana}", "{sentence-furigana-plain}", "{cloze-prefix}"]
-        var result: [String: String] = [:]
-        var rank: [String: Int] = [:]
-        for format in try await yomitanCardFormats(settings: settings) where format["type"] as? String == "term" {
-            guard let model = format["model"] as? String, let fields = format["fields"] as? [String: Any] else { continue }
-            for name in fields.keys.sorted() {
-                let field = fields[name]
-                let value = (field as? [String: Any])?["value"] as? String ?? field as? String ?? ""
-                guard let index = markers.firstIndex(where: { value.contains($0) }), index < rank[model] ?? markers.count else { continue }
-                result[model] = name
-                rank[model] = index
-            }
-        }
-        return result
-    }
-
     private static func post(_ urlString: String, body: [String: Any], timeout: TimeInterval) async throws -> Any {
         guard let url = URL(string: urlString), url.scheme != nil else { throw AppError("Invalid URL") }
         var request = URLRequest(url: url, timeoutInterval: timeout)

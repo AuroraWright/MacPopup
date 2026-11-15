@@ -322,7 +322,8 @@ class Popup {
 			...result,
 			sentence: content?.sentence ?? { text: query, offset: 0 },
 			documentTitle: content?.documentTitle ?? '',
-			player: content?.player ?? null,
+			line: content?.line ?? null,
+			scannedIn: content?.scannedIn,
 		}, 'new');
 	}
 
@@ -491,7 +492,8 @@ class Popup {
 				fullQuery: character,
 				sentence: content?.sentence ?? { text: character, offset: 0 },
 				documentTitle: content?.documentTitle ?? '',
-				player: content?.player ?? null,
+				line: content?.line ?? null,
+				scannedIn: content?.scannedIn,
 			}, 'new');
 		} catch (e) {
 			this.showError(e);
@@ -1152,15 +1154,30 @@ class Popup {
 		}
 	}
 
-	async createNote(entryIndex, cardFormatIndex) {
+	/**
+	 * The line the card is from (see CardLine in lib/anki-notes.js): the line scanned for the first popup (see lineOf in
+	 * overlay.js), also for its other lookups (e.g. a kanji clicked in it), with a null id when it isn't known. A word
+	 * looked up in a popup's text (content.scannedIn, the popup's depth), in a popup inside it or by clicking it, has
+	 * none: its card gets the sentence it was found in, a screenshot of that popup, and no sentence audio.
+	 */
+	cardLine() {
+		const { line, scannedIn } = this.content ?? {};
+		if (scannedIn !== undefined) {
+			return { id: null, player: null, nested: true, screenshot: (options) => overlay().snapshotPopup(scannedIn, options) };
+		}
+		return line?.() ?? { id: null, player: null };
+	}
+
+	async createNote(entryIndex, cardFormatIndex, line) {
 		const selectionText = window.getSelection()?.toString() ?? '';
 		const content = this.content;
 		const cardFormat = this.cardFormats[cardFormatIndex];
 		const audioOverride = await this.getCardAudioOverride(entryIndex);
-		return buildNote({ content, entryIndex, cardFormat, selectionText, audioOverride });
+		return buildNote({ content, entryIndex, cardFormat, selectionText, audioOverride, line });
 	}
 
 	/**
+	 * Saves the card, and tells Anki Audio which line it's from (see SentenceAudioController.cardAdded).
 	 * @param {boolean} [withAudio] Option-click: once the card is saved, Anki Audio adds the line's voice to this card
 	 *   only, by its id. An overwritten card that already has sentence audio only gets it with sentenceAudioOverwrite,
 	 *   and a card with the line's audio from IINA keeps that.
@@ -1179,21 +1196,24 @@ class Popup {
 		}, 2500);
 		this.notifications.error?.close(true);
 		this.setProgress(true);
-		// The card that gets the line's voice (withAudio).
-		let audioNote = null;
+		const line = this.cardLine();
+		// The card saved, and whether it may get the line's voice (withAudio).
+		let saved = null;
+		let takesAudio = true;
 		try {
-			const { note, media, hasPlayerAudio } = await this.createNote(entryIndex, cardFormatIndex);
+			const { note, media, hasPlayerAudio } = await this.createNote(entryIndex, cardFormatIndex, line);
 			if (hasPlayerAudio) withAudio = false;
 			await storeMedia(media);
 			if (button.dataset.overwrite) {
 				const fields = await overwriteNote(detail.noteIds[0], note, cardFormat);
+				saved = detail.noteIds[0];
 				// Existing sentence audio is only replaced if Settings → Anki Audio allows it.
 				const audio = fields[settings.sentenceAudioField?.trim()] ?? '';
-				if (settings.sentenceAudioOverwrite || !audio.trim()) audioNote = detail.noteIds[0];
+				takesAudio = settings.sentenceAudioOverwrite || !audio.trim();
 			} else {
 				const noteId = await ankiInvoke('addNote', { note });
 				if (noteId === null) throw new Error('Note could not be added');
-				audioNote = noteId;
+				saved = noteId;
 				if (settings.ankiSuspendNewCards) {
 					await suspendCardsForNote(noteId).catch((e) => errors.push(e instanceof Error ? e : new Error(`${e}`)));
 				}
@@ -1212,7 +1232,10 @@ class Popup {
 			this.setProgress(false);
 		}
 		if (errors.length > 0) this.showErrorNotification(errors);
-		if (withAudio && audioNote !== null) nativeCall('pressSentenceAudio', { note: audioNote }).catch(() => {});
+		if (saved !== null) {
+			const card = { note: saved, line: line.id, nested: !!line.nested, withAudio: withAudio && takesAudio };
+			nativeCall('cardAdded', card).catch(() => {});
+		}
 	}
 
 	/**
@@ -1274,7 +1297,7 @@ class Popup {
 		if (token !== this.scanToken || result === null) return;
 		setHighlight(source);
 		const rects = [...source.getRects()].map(({ left, top, right, bottom }) => ({ left, top, right, bottom }));
-		overlay().showPopup(this.depth + 1, { ...result, documentTitle: this.content?.documentTitle ?? '' }, rects, this.depth);
+		overlay().showPopup(this.depth + 1, { ...result, documentTitle: this.content?.documentTitle ?? '', scannedIn: this.depth }, rects, this.depth);
 	}
 
 	clearScan() {
@@ -1318,7 +1341,7 @@ class Popup {
 			return;
 		}
 		if (result === null) return;
-		await this.setContent({ ...result, documentTitle: this.content?.documentTitle ?? '' }, 'new');
+		await this.setContent({ ...result, documentTitle: this.content?.documentTitle ?? '', scannedIn: this.depth }, 'new');
 	}
 
 	// Keyboard shortcuts (see overlay.js), as Yomitan's Display hotkey actions.

@@ -17,8 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var clipboardMonitor: ClipboardMonitor!
     private var sentenceAudio: SentenceAudioController!
     private var screenshots: ScreenshotHistory!
-    /// The Floating Window's text box lines, for "Read text from OCR". `Info` is whether OCR read the line.
-    private var textBoxLines = ShownLines<Bool>()
+    /// The lines shown in the text box or read by OCR (see noteLine). `Info` is whether OCR read the line.
+    private var lines = ShownLines<Bool>()
     private var connectedWebsockets: [String] = []
     private var yomitanAPI: YomitanAPIStatus!
     private var welcomeWindow: WelcomeWindowController?
@@ -189,39 +189,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         return png
     }
 
+    func snapshotOverlay(rect: CGRect, fullResolution: Bool) async throws -> CGImage {
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = rect
+        let image = try await overlay.webView.takeSnapshot(configuration: configuration)
+        // At the display's scale, or else in points.
+        let size = fullResolution ? nil : NSRect(origin: .zero, size: rect.size)
+        guard let full = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { throw AppError("Snapshot failed") }
+        guard let size, full.width != Int(size.width),
+              let context = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return full }
+        context.interpolationQuality = .high
+        context.draw(full, in: size)
+        return context.makeImage() ?? full
+    }
+
     func pressSentenceAudioShortcut(note: Int64?) {
         sentenceAudio.shortcutPressed(note: note)
     }
 
-    func noteSentenceLine(_ text: String, age: Double, settled: Bool, breaks: Set<Int>) {
-        sentenceAudio.noteLine(text, age: age, page: settled, breaks: breaks)
-        screenshots.noteLine(text, settled: settled, breaks: breaks)
+    func cardAdded(note: Int64, line: Int?, nested: Bool, withAudio: Bool) {
+        sentenceAudio.cardAdded(note: note, line: line, nested: nested, withAudio: withAudio)
     }
 
-    /// For "Read text from OCR": tells the Floating Window's text box what to do with a line, splitting lines the same
-    /// way as Anki Audio and Screenshot (ShownLines).
-    /// - A settled OCR reading of the dialogue (minus anything matched to a WebSocket line) either adds a new line
-    ///   ("add"), updates the last OCR line because it grew ("replace"), or does nothing because it's already there.
+    /// A line was shown `age` seconds ago: a WebSocket or clipboard line, or (`fromOCR`) a settled OCR reading of the
+    /// dialogue with its `rows` of text and paragraph `breaks` (see ShownLines.note). It's noted for Anki Audio and
+    /// Screenshot, and the reply tells the page the line's id ("id") and what to do with it in the Floating Window's
+    /// text box (for "Read text from OCR"):
+    /// - A reading either adds a new line ("add"), updates the last OCR line because it grew ("replace"), or does
+    ///   nothing because it's already there. "segments" are where the reading's lines start, as [id, row, offset in the
+    ///   row's UTF-16 code units].
     /// - A WebSocket or clipboard line with the same text as the last OCR line takes its place ("replacesOCR": the box
     ///   removes its last line before adding the new one).
-    func noteTextBoxLine(_ text: String, fromOCR: Bool, breaks: Set<Int>) -> [String: Any] {
-        if textBoxLines.count >= 100 { textBoxLines.removeFirst(textBoxLines.count - 99) }
-        let noted = textBoxLines.note(text, page: fromOCR, breaks: breaks) { fromOCR }
-        switch noted {
-        case .new(let index):
-            return fromOCR ? ["add": textBoxLines[index].text] : [:]
-        case .again(let index, let grew):
-            guard textBoxLines[index].info else { return [:] }
-            if fromOCR { return grew ? ["replace": textBoxLines[index].text] : [:] }
-            textBoxLines[index].info = false
-            return ["replacesOCR": true]
-        case nil:
-            return [:]
+    func noteLine(_ text: String, age: Double, fromOCR: Bool, rows: [String], breaks: Set<Int>) -> [String: Any] {
+        if lines.count >= 100 { lines.removeFirst(lines.count - 99) }
+        // A sent line is the line before it again as the text box decides it (see transformLine in overlay.js).
+        let settings = SettingsStore.shared.dictionary
+        let sent = ShownLines<Bool>.SentLines(
+            repeats: (settings["preventLastDuplicate"] as? NSNumber)?.intValue ?? 0 > 0 || settings["preventGlobalDuplicate"] as? Bool == true,
+            grows: settings["mergeEqualLineStarts"] as? Bool == true
+        )
+        guard let noted = lines.note(text, page: fromOCR, breaks: breaks, sent: sent, info: { fromOCR }) else { return [:] }
+        let line = lines[noted.index]
+        sentenceAudio.noteLine(id: line.id, isNew: noted.isNew, text: line.text, age: age)
+        screenshots.noteLine(id: line.id, isNew: noted.isNew, grew: noted.grew, settled: fromOCR)
+        var reply: [String: Any] = ["id": line.id]
+        if fromOCR {
+            reply["segments"] = noted.starts.compactMap { start in
+                ShownLines<Bool>.position(of: start.start, in: rows).map { [start.id, $0.row, $0.offset] }
+            }
+            if noted.isNew {
+                reply["add"] = line.text
+            } else if line.info, noted.grew {
+                reply["replace"] = line.text
+            }
+        } else if !noted.isNew, line.info {
+            lines[noted.index].info = false
+            reply["replacesOCR"] = true
         }
+        return reply
     }
 
-    func bufferedScreenshot(sentence: String, format: String, quality: Double, fullResolution: Bool) -> Data? {
-        screenshots.screenshot(for: sentence, format: .init(format: format, quality: quality, fullResolution: fullResolution))
+    func bufferedScreenshot(line: Int, format: String, quality: Double, fullResolution: Bool) -> Data? {
+        screenshots.screenshot(forLine: line, format: .init(format: format, quality: quality, fullResolution: fullResolution))
     }
 
     func simulateMouse(x: Double, y: Double, shift: Bool) {

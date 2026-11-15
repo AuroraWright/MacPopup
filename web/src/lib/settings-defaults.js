@@ -266,14 +266,14 @@ export const defaultSettings = {
 	// For audio downloaded by MacPopup for cards (the audio chosen in the play button menu), in ms; 0 = no limit.
 	ankiDownloadTimeout: 0,
 
-	// Sentence audio (SentenceAudio.swift): a shortcut records the game's voice line for the newest cards.
+	// Sentence audio (SentenceAudio.swift): a shortcut records the game's voice line for the cards last added from a popup.
 	sentenceAudioEnabled: false,
 	// {key, modifiers} as in hotkeys, or null.
 	sentenceAudioShortcut: null,
 	// Controller buttons for the same, at any time, like gamepadScanButtons (see overlay.js).
 	sentenceAudioButtons: [],
-	// The field for sentence audio, recorded (cards added today with the same sentence as the newest one get the
-	// recording; their sentence field is the one their Yomitan card format fills with {sentence}) or from IINA.
+	// The field for sentence audio, recorded (the cards added from the same line as the last one get the recording)
+	// or from IINA.
 	sentenceAudioField: 'SentenceAudio',
 	// What's switched to before pressing keys: 'captured' (the captured window, ocrWindow, whatever the
 	// overlay type), 'named' (the app sentenceAudioAppName) or 'none'.
