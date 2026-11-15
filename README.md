@@ -129,7 +129,8 @@ Controller, Xbox controllers and others), without putting it down.
   - With **Scan resolution** set to **Character**, you move one character at a time and choose
     exactly where a word starts. Set to **Word**, you jump from word to word.
   - With the OCR overlay, you start in the dialogue box: on the most recent WebSocket line if it's on screen,
-    or else on the bottom or top sentence (**Controller starting position**, in *Settings → OCR Overlay*).
+    or else where the text that appeared last begins. While the text is still appearing, you start on the bottom or top
+    sentence (**Controller starting position**, in *Settings → OCR Overlay*).
 - **Control Popups**: Any shortcut in **Settings → Popup Shortcuts** can also have a controller
   button combination (**Record Buttons**). While a popup is open, your game won't react to a
   controller that's set up; when no popup is open, the buttons go to your game as usual.

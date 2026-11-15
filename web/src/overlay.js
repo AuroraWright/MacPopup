@@ -130,9 +130,12 @@ function scrollToEnd() {
  * @typedef {{id: ?number, player: ?object}} ShownLine
  */
 
-/** Whether the host's ids for lines are used: for cards, or for the text box's lines read with OCR. */
+/**
+ * Whether the host's ids for lines are used: for cards, for where the controller starts in the OCR overlay (see
+ * firstOcrIndex), or for the text box's lines read with OCR.
+ */
 function notesLines(settings = getSettings()) {
-	return !!settings.ankiEnabled || !!settings.floatingWindowOCR;
+	return !!settings.ankiEnabled || readsOcr(settings);
 }
 
 /**
@@ -2048,27 +2051,36 @@ const charRect = (char) => charRange(char).getBoundingClientRect();
 
 const isVerticalLine = (line) => (line.classList.contains('ocr-line') ? line.style.writingMode === 'vertical-rl' : !!getSettings().displayVertical);
 
-/** Where the controller starts: the first character of the text box's newest line, or of firstOcrLine in the OCR overlay. */
+/** Where the controller starts: the first character of the text box's newest line, or firstOcrIndex in the OCR overlay. */
 function firstIndex(chars) {
-	if (getSettings().ocrMode) return Math.max(0, chars.findIndex((char) => char.line === firstOcrLine(chars)));
+	if (getSettings().ocrMode) return firstOcrIndex(chars);
 	const newest = chars[getSettings().reverseLineOrder ? 0 : chars.length - 1];
 	return chars.findIndex((char) => char.line === newest.line);
 }
 
 /**
- * The OCR line the controller starts on, in the dialogue area if it has text: the first line matched with the most
- * recent WebSocket line, or else the first line of the bottom or top paragraph (gamepadOcrStart; in vertical text, the
- * leftmost or rightmost).
+ * Where the controller starts in the OCR overlay, in the dialogue area if it has text: where the newest line on screen
+ * starts, which can be within a row (the host's ids only grow; see setLines), preferring lines received over WebSocket,
+ * since a reading's other rows are mostly a name or the game's buttons. Text that has no line yet (e.g. it's still
+ * being drawn) starts on the bottom or top paragraph (gamepadOcrStart; in vertical text, the leftmost or rightmost).
  */
-function firstOcrLine(chars) {
+function firstOcrIndex(chars) {
 	const lines = [...new Set(chars.map((char) => char.line))];
 	const dialogue = lines.filter((line) => line.dataset.area === '0');
 	const candidates = dialogue.length > 0 ? dialogue : lines;
-	const matched = candidates.filter((line) => line.dataset.match !== undefined);
-	if (matched.length > 0) {
-		const latest = Math.min(...matched.map((line) => Number(line.dataset.match)));
-		return matched.find((line) => Number(line.dataset.match) === latest);
-	}
+	const isCandidate = new Set(candidates);
+	let start = -1;
+	let newest = null;
+	chars.forEach((char, index) => {
+		const id = ocrCharOf(char.node.parentElement)?.line?.id;
+		if (!isCandidate.has(char.line) || typeof id !== 'number') return;
+		const rank = [char.line.classList.contains('ocr-matched') ? 1 : 0, id];
+		if (newest === null || rank[0] > newest[0] || (rank[0] === newest[0] && rank[1] > newest[1])) {
+			newest = rank;
+			start = index;
+		}
+	});
+	if (start >= 0) return start;
 	// Paragraphs are separated by "\n" text nodes (see renderLines).
 	const paragraphs = [];
 	let paragraph = [];
@@ -2076,12 +2088,13 @@ function firstOcrLine(chars) {
 		if (node.nodeType === Node.TEXT_NODE) {
 			if (paragraph.length > 0) paragraphs.push(paragraph);
 			paragraph = [];
-		} else if (candidates.includes(node)) {
+		} else if (isCandidate.has(node)) {
 			paragraph.push(node);
 		}
 	}
 	if (paragraph.length > 0) paragraphs.push(paragraph);
-	if (paragraphs.length === 0) return candidates[0];
+	const firstOf = (line) => Math.max(0, chars.findIndex((char) => char.line === line));
+	if (paragraphs.length === 0) return firstOf(candidates[0]);
 	const vertical = isVerticalLine(paragraphs[0][0]);
 	const top = getSettings().gamepadOcrStart === 'top';
 	// How far toward the start position a paragraph reaches: down (or left in vertical text) for Bottom.
@@ -2090,7 +2103,7 @@ function firstOcrLine(chars) {
 		if (vertical) return top ? Math.max(...rects.map((rect) => rect.right)) : -Math.min(...rects.map((rect) => rect.left));
 		return top ? -Math.min(...rects.map((rect) => rect.top)) : Math.max(...rects.map((rect) => rect.bottom));
 	};
-	return paragraphs.reduce((best, paragraph) => (reach(paragraph) > reach(best) ? paragraph : best))[0];
+	return firstOf(paragraphs.reduce((best, paragraph) => (reach(paragraph) > reach(best) ? paragraph : best))[0]);
 }
 
 /**

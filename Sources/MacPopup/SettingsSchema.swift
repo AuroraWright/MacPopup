@@ -286,7 +286,7 @@ enum SettingsSchema {
                     SettingsField(
                         "gamepadOcrStart", "Controller starting position",
                         .select([SettingsOption("bottom", "Bottom"), SettingsOption("top", "Top")]),
-                        hint: "Where the controller starts in the OCR overlay: the bottom or top sentence of the dialogue area (in vertical text, the leftmost or rightmost). When the text matches lines received over WebSocket, it starts at the most recent one instead."
+                        hint: "Where the controller starts in the OCR overlay while new text is still appearing: the bottom or top sentence of the dialogue (in vertical text, the left or right one). Once the text is complete, the controller starts at the newest line instead, such as the latest one received over WebSocket."
                     ),
                 ]
             ),

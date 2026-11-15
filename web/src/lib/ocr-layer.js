@@ -649,9 +649,8 @@ export function renderLines(container, lines) {
 			element.className = ['ocr-line', line.matched && 'ocr-matched', line.cloud && 'ocr-cloud', line.provisional && 'ocr-provisional']
 				.filter(Boolean)
 				.join(' ');
-			// For where the controller starts (see firstOcrLine in overlay.js).
+			// For where the controller starts (see firstOcrIndex in overlay.js).
 			element.dataset.area = line.area;
-			if (line.match !== undefined) element.dataset.match = line.match;
 			const style = element.style;
 			style.left = `${box.x}px`;
 			style.top = `${box.y}px`;
