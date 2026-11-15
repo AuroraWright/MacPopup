@@ -110,6 +110,21 @@ the browser, with your own dictionaries, settings and Anki templates, over any a
   icon** to choose from all available recordings across your sources. The recording you play or mark
   from that menu is also used when you add the word to Anki.
 
+### Pausing the Game While You Read
+
+Turn on **Pause the game while a popup is open** (*Settings → Scanning*) and the game freezes while you look words up,
+so it can't move on without you: no auto-advance, no timed text, and its voice waits. It carries on as soon as the
+popup closes.
+
+- The game is the app of your captured window, or else the app in front. A Windows game in Parallels pauses all of
+  Windows.
+- It needs MacPopup's pause helper, which you allow once in *System Settings → General → Login Items*. The helper runs
+  as root so that it can pause Parallels, only ever pauses the game for MacPopup, and lets the game go on if MacPopup
+  quits.
+- **Pause and scan shortcut**: press it from any app to pause the game and, with the OCR overlay, read its window
+  right away, even while text is still appearing, so you can hover over anything on screen. Press it again (or switch
+  to another app) to close the popup and let the game go on.
+
 ---
 
 ## Game Controllers
@@ -134,6 +149,9 @@ Controller, Xbox controllers and others), without putting it down.
 - **Control Popups**: Any shortcut in **Settings → Popup Shortcuts** can also have a controller
   button combination (**Record Buttons**). While a popup is open, your game won't react to a
   controller that's set up; when no popup is open, the buttons go to your game as usual.
+- **Switching Apps**: Bringing another app to the front closes the popups and gives the controller back, so it works
+  in that app. With **Pause the game while a popup is open** on, the game also stays paused while you look up words
+  with the controller.
 - **Record Sentence Audio**: **Settings → Anki Audio** can also have a controller button
   combination, which works like its keyboard shortcut at any time. Like the scan key, pick buttons
   your game doesn't use.
@@ -166,9 +184,17 @@ window** in *Settings → General*):
 When you select again, the window you're reading is brought to the front first (from another Space
 too), with its areas.
 
-MacPopup remembers the window by its app name and title across launches. It's only read while it's
-on screen in the current Space. The selected window is also used for clean `{screenshot}` captures
-on Anki cards (even when you are using the Floating Window).
+MacPopup remembers the window by its app name and title across launches, including Windows apps in Parallels'
+Coherence mode. It's only read while you can see it: on screen in the current Space, and not covered by other windows
+(a window that's only partly covered is still read). The selected window is also used for clean `{screenshot}`
+captures on Anki cards (even when you are using the Floating Window).
+
+### Reading the Dialogue
+
+In the dialogue area, MacPopup waits for the text to stop changing before it settles on a line (**Text must stay
+unchanged for**, in *Settings → OCR*), so a line that's typed out or fades in is read to its end, even over an animated
+background. You don't have to wait for that to look words up: text that's still changing, or that scrolls or moves
+away, can be hovered too.
 
 ### OCR Engines
 
@@ -254,6 +280,9 @@ line from your game:
    added from the same line, as long as that field is empty. You can have the recording played back afterwards. Cards
    added from a popup inside a popup don't get sentence audio.
 
+If the game is paused (see [Pausing the Game](#pausing-the-game-while-you-read)) while the voice is still playing, the
+audio is added once the game goes on. Windows games in Parallels' Coherence mode are recorded too.
+
 Option-clicking a popup's add button (or using a popup shortcut set to **Add note (sentence audio)**) adds the card and
 then does the same. If it overwrites an existing card, the recording goes to that card and replaces its sentence audio,
 unless **Replace sentence audio when overwriting cards** is off (this also applies to audio from IINA).
@@ -290,6 +319,19 @@ made from them the line's own frame and audio:
 
 `ios/` has an experimental iPhone app that reads pictures and the screen with the same OCR engines and opens the text
 in Safari for a dictionary extension such as Yomitan. It's separate from MacPopup: see [ios/README.md](ios/README.md).
+
+---
+
+## Reporting Problems
+
+If something doesn't work as it should, turn on **Debug** (*Settings → General*) and use MacPopup until it happens
+again. MacPopup then keeps a log of what it does: the lines and OCR readings, popups, shortcuts, cards added, Anki
+Audio and Anki Screenshot, the controller and game pauses, along with your settings (but not your AnkiConnect key) and
+MacPopup's version. **Option-click** the setting to show the log in Finder, and attach `debug.jsonl` to your report.
+The log includes the text you've been reading, and it's deleted when you turn Debug off.
+
+With the OCR overlay, Debug also outlines the text MacPopup recognized: red while it's still changing, orange for
+local OCR, gold for cloud OCR, and green for lines corrected with WebSocket text.
 
 ---
 

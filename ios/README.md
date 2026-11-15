@@ -19,7 +19,13 @@ others on some networks); the build downloads its iOS release into `build/cache`
 Pictures can come from Photos, Files, the clipboard, or the latest screenshots, which the app lists once it's allowed
 full access to Photos. They can also be shared to **MacPopup** from other apps' share sheets, including an image
 long-pressed in Safari. With *Crop before reading* on (Settings), pictures chosen in the app open in a crop view first.
-Swipe a reading left to delete it. To read what's on the screen without opening the app:
+
+To delete readings, swipe one left in the app, or use Safari: **Edit** on the list of readings lets you pick some or
+delete them all, and a reading's own page has **Delete**. Deleting from Safari needs the app, since that's where the
+readings are kept. If you closed it, open it, then go back to Safari within about half a minute (iOS suspends the app
+after that); the page links to the app when it can't reach it.
+
+To read what's on the screen without opening the app:
 
 - **Back Tap** (*Settings → Accessibility → Touch → Back Tap*): make a Shortcut with **Take Screenshot** followed by
   MacPopup's **Read Image**, and choose it for Double or Triple Tap. The screenshot is read with the app in the
