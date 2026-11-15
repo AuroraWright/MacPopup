@@ -191,11 +191,15 @@ private struct FieldRow: View {
         case let .numberSelect(options):
             let current = (value as? NSNumber).map { "\($0)" } ?? ""
             let shown = options.contains { $0.value == current } ? options : options + [SettingsOption(current)]
-            Picker(selection: Binding(get: { current }, set: { new in
-                guard let number = Double(new) else { return }
-                model.set(field.key, storedNumber(number))
-            })) {
-                ForEach(shown, id: \.value) { Text($0.label).tag($0.value) }
+            LabeledContent {
+                SteadyMenu(labels: shown.map(\.label)) {
+                    Picker(field.label, selection: Binding(get: { current }, set: { new in
+                        guard let number = Double(new) else { return }
+                        model.set(field.key, storedNumber(number))
+                    })) {
+                        ForEach(shown, id: \.value) { Text($0.label).tag($0.value) }
+                    }
+                }
             } label: {
                 FieldLabel(field: field)
             }
@@ -241,8 +245,12 @@ private struct FieldRow: View {
             let current = value as? String ?? ""
             // A value the menu doesn't offer (e.g. imported) is shown rather than dropped.
             let shown = options.contains { $0.value == current } ? options : options + [SettingsOption(current)]
-            Picker(selection: Binding(get: { current }, set: { model.set(field.key, $0) })) {
-                ForEach(shown, id: \.value) { Text($0.label).tag($0.value) }
+            LabeledContent {
+                SteadyMenu(labels: shown.map(\.label)) {
+                    Picker(field.label, selection: Binding(get: { current }, set: { model.set(field.key, $0) })) {
+                        ForEach(shown, id: \.value) { Text($0.label).tag($0.value) }
+                    }
+                }
             } label: {
                 FieldLabel(field: field)
             }
@@ -265,17 +273,20 @@ private struct FieldRow: View {
                         .foregroundStyle(.secondary).multilineTextAlignment(isList ? .leading : .trailing).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: isList ? .leading : .trailing)
                         .help(items.isEmpty ? "" : details?(items) ?? "")
-                    if !items.isEmpty {
-                        Button("Clear") { model.set(field.key, [Any]()) }
-                    }
+                    Button("Clear") { model.set(field.key, [Any]()) }.disabled(items.isEmpty)
                 }
+                // The same width whatever's imported, so the label's hint doesn't rewrap when it changes.
+                .frame(width: 280)
             } label: {
                 FieldLabel(field: field)
             }
         case .ocrWindow:
             LabeledContent {
                 HStack {
+                    // The same width whatever the window, so the label's hint doesn't rewrap when another is selected.
                     Text(ocrWindowDescription).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        .frame(width: 200, alignment: .trailing)
+                        .help(ocrWindowDescription)
                     Button("Select…", action: actions.selectOCRWindow)
                     Button("Clear") { model.merge(["ocrWindow": NSNull(), "ocrRegions": [Any]()]) }
                         .disabled(!(value is [String: Any]))
@@ -381,12 +392,18 @@ private struct DisplayPicker<Label: View>: View {
         }
     }
 
+    private var disconnected: String { "Display \(index + 1) (disconnected)" }
+
     var body: some View {
-        Picker(selection: Binding(get: { index }, set: commit)) {
-            ForEach(displays.indices, id: \.self) { Text(displays[$0]).tag($0) }
-            // Kept until another is chosen: the overlay goes back to it when it's connected again.
-            if !displays.indices.contains(index) {
-                Text("Display \(index + 1) (disconnected)").tag(index)
+        LabeledContent {
+            SteadyMenu(labels: displays + [disconnected]) {
+                Picker("Display", selection: Binding(get: { index }, set: commit)) {
+                    ForEach(displays.indices, id: \.self) { Text(displays[$0]).tag($0) }
+                    // Kept until another is chosen: the overlay goes back to it when it's connected again.
+                    if !displays.indices.contains(index) {
+                        Text(disconnected).tag(index)
+                    }
+                }
             }
         } label: {
             label
@@ -503,7 +520,7 @@ private struct AnkiFieldPicker<Label: View>: View {
             if let fields {
                 picker(fields)
             } else if error == nil {
-                // While loading, the chosen field (a menu is as wide as its chosen item, so the text beside it stays put).
+                // While loading, the chosen field.
                 picker(name.isEmpty ? [] : [name]).disabled(true)
             } else {
                 LabeledContent {
@@ -522,11 +539,15 @@ private struct AnkiFieldPicker<Label: View>: View {
     }
 
     private func picker(_ fields: [String]) -> some View {
-        Picker(selection: Binding(get: { name }, set: commit)) {
-            if name.isEmpty { Text("Choose a field").tag("") }
-            ForEach(fields, id: \.self) { Text($0).tag($0) }
-            // Kept until another is chosen.
-            if !name.isEmpty && !fields.contains(name) { Text("\(name) (not found)").tag(name) }
+        LabeledContent {
+            SteadyMenu(labels: fields + ["Choose a field", "\(name) (not found)"]) {
+                Picker("Field", selection: Binding(get: { name }, set: commit)) {
+                    if name.isEmpty { Text("Choose a field").tag("") }
+                    ForEach(fields, id: \.self) { Text($0).tag($0) }
+                    // Kept until another is chosen.
+                    if !name.isEmpty && !fields.contains(name) { Text("\(name) (not found)").tag(name) }
+                }
+            }
         } label: {
             label
         }
@@ -692,14 +713,38 @@ private struct GroupedControl: View {
             let current = value as? String ?? ""
             // A value the menu doesn't offer (e.g. imported) is shown rather than dropped.
             let shown = options.contains { $0.value == current } ? options : options + [SettingsOption(current)]
-            Picker(field.label, selection: Binding(get: { current }, set: { model.set(field.key, $0) })) {
-                ForEach(shown, id: \.value) { Text($0.label).tag($0.value) }
+            SteadyMenu(labels: shown.map(\.label)) {
+                Picker(field.label, selection: Binding(get: { current }, set: { model.set(field.key, $0) })) {
+                    ForEach(shown, id: \.value) { Text($0.label).tag($0.value) }
+                }
             }
-            .labelsHidden()
             .fixedSize()
         default:
             EmptyView()
         }
+    }
+}
+
+/// A menu (its label hidden) as wide as the widest of `labels`. A menu is as wide as its chosen item, so choosing
+/// another would change the width left for the label beside it, and rewrap the label's hint.
+private struct SteadyMenu<Menu: View>: View {
+    let labels: [String]
+    @ViewBuilder let menu: Menu
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            // A menu with only the widest item sets the width.
+            Picker("", selection: .constant(0)) { Text(widest).tag(0) }
+                .labelsHidden()
+                .hidden()
+                .accessibilityHidden(true)
+            menu.labelsHidden()
+        }
+    }
+
+    private var widest: String {
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
+        return labels.max { ($0 as NSString).size(withAttributes: attributes).width < ($1 as NSString).size(withAttributes: attributes).width } ?? ""
     }
 }
 
@@ -726,21 +771,24 @@ private struct FittingNumberField: View {
     }
 
     var body: some View {
-        // The hidden text sets the width; a little more leaves room for the caret.
-        Text(draft.isEmpty ? "0" : draft)
-            .hidden()
-            .padding(.horizontal, 3)
-            .frame(minWidth: 24, alignment: .trailing)
-            .overlay {
-                TextField("", text: $draft)
-                    .labelsHidden()
-                    .multilineTextAlignment(.trailing)
-                    .focused($focused)
-                    .onSubmit(save)
-            }
-            .onAppear { draft = formatted }
-            .onChange(of: value) { if !focused { draft = formatted } }
-            .onChange(of: focused) { if !focused { save() } }
+        // The hidden text sets the width, at least four digits' so that the usual numbers don't change it (which would
+        // rewrap the label's hint); a little more leaves room for the caret.
+        ZStack(alignment: .trailing) {
+            Text("0000")
+            Text(draft)
+        }
+        .hidden()
+        .padding(.horizontal, 3)
+        .overlay {
+            TextField("", text: $draft)
+                .labelsHidden()
+                .multilineTextAlignment(.trailing)
+                .focused($focused)
+                .onSubmit(save)
+        }
+        .onAppear { draft = formatted }
+        .onChange(of: value) { if !focused { draft = formatted } }
+        .onChange(of: focused) { if !focused { save() } }
     }
 
     private func save() {

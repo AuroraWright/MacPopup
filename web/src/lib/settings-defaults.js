@@ -20,14 +20,16 @@ function defaultTerminationCharacters() {
 	];
 }
 
-// Yomitan's default keyboard shortcuts for popups (its `inputs.hotkeys` with the 'popup' scope).
-// The Yomitan popup shortcut actions MacPopup supports (all except switching profiles and toggling options). Saved
-// shortcuts with another action (e.g. "toggleOption", removed after 1.1) are left out.
+// The popup shortcut actions MacPopup supports: Yomitan's (all except switching profiles and toggling options), and its
+// own addNoteSentenceAudio (see popup.js). Saved shortcuts with another action (e.g. "toggleOption", removed after 1.1)
+// are left out.
 export const popupHotkeyActions = new Set([
 	'close', 'nextEntry', 'previousEntry', 'lastEntry', 'firstEntry', 'nextEntryDifferentDictionary',
-	'previousEntryDifferentDictionary', 'historyBackward', 'historyForward', 'addNote', 'viewNotes', 'playAudio',
-	'playAudioFromSource', 'copyHostSelection',
+	'previousEntryDifferentDictionary', 'historyBackward', 'historyForward', 'addNote', 'addNoteSentenceAudio', 'viewNotes',
+	'playAudio', 'playAudioFromSource', 'copyHostSelection',
 ]);
+
+// Yomitan's default keyboard shortcuts for popups (its `inputs.hotkeys` with the 'popup' scope).
 
 function defaultHotkeys() {
 	const hotkey = (action, argument, key, modifiers) => ({ action, argument, key, modifiers, enabled: true });
