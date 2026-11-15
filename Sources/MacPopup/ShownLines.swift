@@ -173,19 +173,41 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     /// Whether two readings are of the same line: both are long enough to be matched loosely, and one contains the
     /// other, allowing a few characters to differ, since OCR may misread some.
     private static func isLongAndSame(_ a: String, _ b: String) -> Bool {
-        let a = Array(a.precomposedStringWithCompatibilityMapping), b = Array(b.precomposedStringWithCompatibilityMapping)
-        guard Swift.min(a.count, b.count) >= shortLength else { return false }
-        // Longest common subsequence.
+        let (whole, wholeB) = numbered(a.precomposedStringWithCompatibilityMapping, b.precomposedStringWithCompatibilityMapping)
+        let shorter = Swift.min(whole.count, wholeB.count)
+        guard shorter >= shortLength else { return false }
+        // Longest common subsequence: the start and end they share, and that of what's between (in a table).
+        let start = zip(whole, wholeB).prefix { $0 == $1 }.count
+        let end = zip(whole[start...].reversed(), wholeB[start...].reversed()).prefix { $0 == $1 }.count
+        let a = whole[start..<(whole.count - end)], b = Array(wholeB[start..<(wholeB.count - end)])
         var row = [Int](repeating: 0, count: b.count + 1)
-        for x in a {
-            var diagonal = 0
-            for j in 1...b.count {
-                let above = row[j]
-                row[j] = x == b[j - 1] ? diagonal + 1 : Swift.max(row[j], row[j - 1])
-                diagonal = above
+        if !b.isEmpty {
+            for x in a {
+                var diagonal = 0
+                for j in 1...b.count {
+                    let above = row[j]
+                    row[j] = x == b[j - 1] ? diagonal + 1 : Swift.max(row[j], row[j - 1])
+                    diagonal = above
+                }
             }
         }
-        return Double(row[b.count]) >= 0.85 * Double(Swift.min(a.count, b.count))
+        return Double(start + row[b.count] + end) >= 0.85 * Double(shorter)
+    }
+
+    /// The characters of `a` and `b` as numbers, the same for equal characters. The tables in isLongAndSame and ends
+    /// compare every character of one text with every character of the other, and comparing Characters is slow (it
+    /// takes Unicode's canonical equivalence into account): on a page of 1,500 characters, numbers made noting a
+    /// reading 8 times faster.
+    private static func numbered(_ a: String, _ b: String) -> ([Int], [Int]) {
+        var numbers: [Character: Int] = [:]
+        func number(_ text: String) -> [Int] {
+            text.map { character in
+                if let number = numbers[character] { return number }
+                numbers[character] = numbers.count
+                return numbers.count - 1
+            }
+        }
+        return (number(a), number(b))
     }
 
     /// The index after the first `count` non-whitespace characters of `shown`, skipping any whitespace that follows.
@@ -217,9 +239,9 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     /// how it was read. For each, that's the end of the shortest start of `new` with the fewest edits from that part of
     /// `old`, returned with the edit count. Dots that were added, dropped or read as other dots cost nothing.
     private static func ends(of old: String, in new: String, at counts: [Int]) -> [(end: Int, edits: Int)] {
-        let a = Array(old), b = Array(new)
+        let (a, b) = numbered(old, new)
         guard !b.isEmpty else { return counts.map { (0, $0) } }
-        let aDots = a.map(OCRText.isDot), bDots = b.map(OCRText.isDot)
+        let aDots = old.map(OCRText.isDot), bDots = new.map(OCRText.isDot)
         // Levenshtein distance between `old` and every start of `new`, one character of `old` at a time.
         var row = [0]
         for isDot in bDots { row.append(row[row.count - 1] + (isDot ? 0 : 1)) }
