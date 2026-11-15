@@ -4,7 +4,7 @@ import ScreenAI
 
 /// Text recognition with Screen AI, Chrome's OCR (see Sources/ScreenAI), run with Core ML. Its models are Google's and
 /// aren't shipped with the app: scripts/convert-screenai.py converts the ones Chrome downloads into a zip, which
-/// Settings → OCR Mode loads (installModels) into Application Support.
+/// Settings → OCR loads (installModels) into Application Support.
 public final class ScreenAIOCR: Sendable {
     public static let shared = ScreenAIOCR()
 

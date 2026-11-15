@@ -5,7 +5,7 @@ import ScreenCaptureKit
 import UniformTypeIdentifiers
 
 /// Screen OCR mode: instead of showing the text box, MacPopup reads the text of another app's window
-/// with the engine chosen in Settings → OCR Mode (Live Text by default) and lays an invisible copy of it
+/// with the engine chosen in Settings → OCR (Live Text by default) and lays an invisible copy of it
 /// over the window (see web/src/lib/ocr-layer.js), so hovering the window's own text opens popups.
 /// Without a captured window (Settings → General), it reads the whole screen the overlay is on instead,
 /// apart from MacPopup's own windows; "window" below then means that screen.
@@ -1131,7 +1131,7 @@ final class OCRController {
         return waited("settle time")
     }
 
-    /// The cloud engine (Settings → OCR Mode → Cloud recognition (second pass)), if one is chosen.
+    /// The cloud engine (Settings → OCR → Cloud recognition (second pass)), if one is chosen.
     private var cloudEngine: CloudOCR? {
         CloudOCR(rawValue: settings["ocrCloudEngine"] as? String ?? "")
     }
@@ -1506,7 +1506,7 @@ final class OCRController {
         watchUntil = Date().addingTimeInterval(number("ocrMouseWatchTime", 2000) / 1000)
     }
 
-    /// What reads the text (Settings → OCR Mode → Text recognition engine).
+    /// What reads the text (Settings → OCR → Text recognition engine).
     enum Engine: String {
         case liveText
         case meikiocr
@@ -1593,7 +1593,7 @@ final class OCRController {
                 showCrashNotice("\(engine.name) crashed MacPopup while loading, so it now runs on the CPU, which is slower.")
             } else {
                 SettingsStore.shared.update(["ocrEngine": Engine.liveText.rawValue])
-                showCrashNotice("\(engine.name) crashed MacPopup while loading, so OCR Mode now uses Live Text.")
+                showCrashNotice("\(engine.name) crashed MacPopup while loading, so OCR now uses Live Text.")
                 return false
             }
         }

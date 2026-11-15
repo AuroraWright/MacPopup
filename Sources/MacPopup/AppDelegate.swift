@@ -96,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         menu.addItem(.separator())
         toggleItem = NSMenuItem(title: "Hide Overlays", action: #selector(toggleOverlay), keyEquivalent: "")
         menu.addItem(toggleItem)
-        ocrItem = NSMenuItem(title: "OCR Mode", action: #selector(toggleOCR), keyEquivalent: "")
+        ocrItem = NSMenuItem(title: "OCR Overlay", action: #selector(toggleOCR), keyEquivalent: "")
         menu.addItem(ocrItem)
         moveItem = NSMenuItem(title: "Move to Next Display", action: #selector(moveToNextDisplay), keyEquivalent: "")
         menu.addItem(moveItem)

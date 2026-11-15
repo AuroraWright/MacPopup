@@ -4,7 +4,7 @@ import OneOCR
 
 /// Text recognition with OneOCR, the OCR of Windows' Snipping Tool (see Sources/OneOCR), run with Core ML. Its models
 /// are Microsoft's and aren't shipped with the app: scripts/convert-oneocr.py converts them into a zip, which
-/// Settings → OCR Mode loads into Application Support.
+/// Settings → OCR loads into Application Support.
 public final class OneOCROCR: Sendable {
     public static let shared = OneOCROCR()
 

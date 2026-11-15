@@ -6,10 +6,10 @@ The creatively-named MacPopup is a native macOS overlay for looking up words wit
 [Yomitan](https://github.com/yomidevs/yomitan) and mining flashcards to Anki—even over fullscreen
 games and apps. It works in two modes:
 
-- **Window Mode**: Inspired by [JL](https://github.com/rampaa/JL). Receives text over WebSockets
+- **Floating Window**: Inspired by [JL](https://github.com/rampaa/JL). Receives text over WebSockets
   or from the clipboard (from tools like Textractor, Agent, or LunaTranslator) and displays it in a customizable floating
   text box (similar to [texthooker-ui](https://github.com/Renji-XD/texthooker-ui)).
-- **OCR Mode**: Inspired by [meikipop](https://github.com/rtr46/meikipop) and
+- **OCR overlay**: Inspired by [meikipop](https://github.com/rtr46/meikipop) and
   [GameSentenceMiner](https://github.com/bpwhelan/GameSentenceMiner). Hides the text box and
   reads text directly from any app or game window on screen using Apple Live Text, [meikiocr](https://github.com/rtr46/meikiocr),
   [PP-OCRv6 Manga](https://huggingface.co/Kellenok/PP-OCRv6_manga), Chrome's Screen AI, or Windows' OneOCR
@@ -36,7 +36,7 @@ directly from MacPopup.
 ## Running
 
 MacPopup runs in the background without a Dock icon. Click the **speech bubble icon in the menu bar** to open Settings,
-switch between Window Mode and OCR Mode, select a target window, hide the overlay, move between
+switch between the Floating Window and the OCR overlay, select a target window, hide the overlay, move between
 displays, or quit.
 
 ---
@@ -55,16 +55,16 @@ You don't need to configure MacPopup from scratch. At the bottom of the Settings
 
 ---
 
-## Window Mode
+## Floating Window
 
-In Window Mode, MacPopup listens to every WebSocket URL listed in **Settings → WebSockets**
+In the Floating Window, MacPopup listens to every WebSocket URL listed in **Settings → WebSockets**
 (default: `ws://localhost:6677`), accepting both plain text and texthooker JSON (`{"sentence":
 "..."}`).
 
 - **Move & Resize**: Drag the floating text box by its top header and resize it from the
   bottom-right corner. Header buttons let you pause incoming lines, clear the box, open Settings, or
   hide the overlay.
-- **Clipboard Monitoring**: Turn on **Read copied text from clipboard** (*Settings → Window Mode*)
+- **Clipboard Monitoring**: Turn on **Read copied text from clipboard** (*Settings → Floating Window*)
   to automatically add text copied in any other app to the text box (passwords from password
   managers are ignored).
 - **Furigana & Formatting**: Display furigana above words (in Hiragana, Katakana, Romaji, or
@@ -72,7 +72,7 @@ In Window Mode, MacPopup listens to every WebSocket URL listed in **Settings →
   duplicate and non-CJK lines.
 - **Text Replacements**: Apply regular expression find-and-replace rules (*Settings → General*) in
   order to clean up incoming lines before they are displayed. Use the test field below the list to
-  preview how your rules transform a sample line. In OCR Mode, they apply to WebSocket lines before
+  preview how your rules transform a sample line. With the OCR overlay, they apply to WebSocket lines before
   they're matched with the recognized text.
 
 ---
@@ -116,13 +116,13 @@ Controller, Xbox controllers and others), without putting it down.
   see it disconnect. MacPopup only uses controllers that are set up.
 - **Look Up Words**: In **Settings → Scanning**, record a **Controller scan key**—a button
   combination your game doesn't use, such as `L3 + R3`. Press it to start looking up words in the
-  text box or the OCR Mode text, then move with the D-pad or left stick. When you stop moving, the
+  text box or the OCR text, then move with the D-pad or left stick. When you stop moving, the
   popup for that word opens (after the **Controller popup delay**, 1 second by default). Press the
   combination again to close the popup and give the controller back to your game.
   - With **Scan resolution** set to **Character**, you move one character at a time and choose
     exactly where a word starts. Set to **Word**, you jump from word to word.
-  - In OCR Mode, you start in the dialogue box: on the most recent WebSocket line if it's on screen,
-    or else on the bottom or top sentence (**Controller OCR Mode starting position**).
+  - With the OCR overlay, you start in the dialogue box: on the most recent WebSocket line if it's on screen,
+    or else on the bottom or top sentence (**Controller OCR starting position**).
 - **Control Popups**: Any shortcut in **Settings → Popup Shortcuts** can also have a controller
   button combination (**Record Buttons**). While a popup is open, your game won't react to a
   controller that's set up; when no popup is open, the buttons go to your game as usual.
@@ -132,9 +132,9 @@ Controller, Xbox controllers and others), without putting it down.
 
 ---
 
-## OCR Mode
+## OCR overlay
 
-Switch to **OCR Mode** from the menu bar icon or **Settings → General**. The floating text box
+Switch to the OCR overlay from the menu bar icon (**OCR Overlay**) or **Settings → General → Overlay type**. The floating text box
 hides, allowing you to hover directly over text inside your game or app window. (Requires **Screen
 Recording** permission in *System Settings → Privacy & Security*.)
 
@@ -159,11 +159,11 @@ too), with its areas.
 
 MacPopup remembers the window by its app name and title across launches. It's only read while it's
 on screen in the current Space. The selected window is also used for clean `{screenshot}` captures
-on Anki cards (even when you are using Window Mode).
+on Anki cards (even when you are using the Floating Window).
 
 ### OCR Engines
 
-Choose your engine in **Settings → OCR Mode → Text recognition engine**. Lines without any characters
+Choose your engine in **Settings → OCR → Text recognition engine**. Lines without any characters
 of the language set in *Settings → General* are skipped (e.g. an English menu
 in a Japanese game).
 
@@ -189,7 +189,7 @@ in a Japanese game).
 
 ### Hybrid WebSocket + OCR Matching
 
-If you have both a text hook (WebSocket) and OCR Mode running—with **Match and fix OCR with
+If you have both a text hook (WebSocket) and the OCR overlay running—with **Match and fix OCR with
 WebSocket text** enabled—you get the best of both worlds:
 
 - Hover words directly on the game screen using OCR's character positions, while MacPopup
@@ -265,7 +265,7 @@ made from them the line's own frame and audio:
    cookies (see step 3).
 2. Add `ws://localhost:6680` in MacPopup's *Settings → WebSockets* (the port can be changed in the
    plugin's settings). Each subtitle line arrives like a text hooker's, so you can read them in the text box, or hover
-   the subtitles on the video in OCR Mode with **Match and fix OCR with WebSocket text** on.
+   the subtitles on the video with the OCR overlay and **Match and fix OCR with WebSocket text** on.
 3. For a sentence from one of these lines, `{screenshot}` is the frame in the middle of the line, without
    subtitles, at the video's size, and the **Sentence audio field** (*Settings → Anki Audio*) gets the line's audio, with the
    padding set in *Settings → IINA Integration* (where **Use clean screenshots for cards** and **Use clean audio for

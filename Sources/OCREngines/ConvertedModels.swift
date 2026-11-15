@@ -3,7 +3,7 @@ import CoreML
 import Foundation
 
 /// The OCR engines whose models can't come with MacPopup: a script converts them on the user's Mac into a zip,
-/// which Settings → OCR Mode loads into Application Support.
+/// which Settings → OCR loads into Application Support.
 public enum ConvertedModelsKind: String, CaseIterable {
     case screenAI, oneOCR
 
@@ -104,7 +104,7 @@ public final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sen
     private func loadedEngine() throws -> Engine {
         if let engine { return engine }
         guard kind.installed else {
-            throw Failure(errorDescription: "\(kind.name)’s models aren’t loaded (Settings → OCR Mode → \(kind.name) models)")
+            throw Failure(errorDescription: "\(kind.name)’s models aren’t loaded (Settings → OCR → \(kind.name) models)")
         }
         let loaded = try make(directory)
         if let blank = Self.blankImage() { try warmUp(loaded, blank) }

@@ -176,12 +176,12 @@ enum SettingsSchema {
         return [
             SettingsSection(title: "General", symbol: "gearshape", fields: [
                 SettingsField(
-                    "ocrMode", "Mode", .toggleChoice(off: "Window Mode", on: "OCR Mode"),
-                    hint: "Window Mode displays incoming text in a floating box. OCR Mode reads text directly from a game or app window on screen."
+                    "ocrMode", "Overlay type", .toggleChoice(off: "Floating window", on: "OCR"),
+                    hint: "The Floating Window displays incoming text in a floating box. The OCR overlay reads text directly from a game or app window on screen, and you hover over it there."
                 ),
                 SettingsField(
                     "language", "Language", .select(support.languages.map { SettingsOption($0.iso, $0.name) }),
-                    hint: "Language of the text that is being looked up. Should match your active Yomitan profile language (automatically set when importing Yomitan settings). Also used to select default audio sources, format text, and choose the language OCR Mode reads (text in other scripts is skipped)."
+                    hint: "Language of the text that is being looked up. Should match your active Yomitan profile language (automatically set when importing Yomitan settings). Also used to select default audio sources, format text, and choose the language OCR reads (text in other scripts is skipped)."
                 ),
                 SettingsField(
                     "displayIndex", "Display", .display,
@@ -196,11 +196,11 @@ enum SettingsSchema {
                 ])),
                 SettingsField(
                     "ocrWindow", "Captured window", .ocrWindow,
-                    hint: "The target window read in OCR Mode and captured for Anki {screenshot} fields. If none is selected, the entire screen is used."
+                    hint: "The target window read by OCR and captured for Anki {screenshot} fields. If none is selected, the entire screen is used."
                 ),
                 SettingsField(
                     "theme", "Theme", .select(support.themes.map { SettingsOption($0) }),
-                    hint: "The colors of the text box in Window Mode. In OCR Mode, it only sets the color of text highlights."
+                    hint: "The colors of the text box in the Floating Window. With the OCR overlay, it only sets the color of text highlights."
                 ),
                 SettingsField(
                     "furiganaReadingMode", "Furigana style", .select([
@@ -210,11 +210,11 @@ enum SettingsSchema {
                         SettingsOption("romaji", "Romaji"),
                         SettingsOption("dictionary-reading", "Dictionary reading"),
                     ]),
-                    hint: "Change what type of furigana is displayed for parsed text, in the text box (when “Show furigana above words” is on) and in Anki’s {sentence-furigana} field. Japanese only. In OCR Mode, it only applies to Anki cards. Note: on Anki cards, only Hiragana and Katakana change the furigana."
+                    hint: "Change what type of furigana is displayed for parsed text, in the text box (when “Show furigana above words” is on) and in Anki’s {sentence-furigana} field. Japanese only. With the OCR overlay, it only applies to Anki cards. Note: on Anki cards, only Hiragana and Katakana change the furigana."
                 ),
                 SettingsField(
                     "replacements", "Text replacements", .replacements,
-                    hint: "Find-and-replace rules applied in order to each new line before it appears. Supports regular expressions ($1 inserts the first capture group, \\n adds a line break, and \\t adds a tab). In OCR Mode, they only apply to WebSocket lines, before they’re matched with the recognized text."
+                    hint: "Find-and-replace rules applied in order to each new line before it appears. Supports regular expressions ($1 inserts the first capture group, \\n adds a line break, and \\t adds a tab). With the OCR overlay, they only apply to WebSocket lines, before they’re matched with the recognized text."
                 ),
             ]),
             SettingsSection(title: "WebSockets", symbol: "network", fields: [
@@ -224,11 +224,11 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "continuousReconnect", "Automatically reconnect", .checkbox,
-                    hint: "Keep trying to reconnect if a WebSocket disconnects in Window Mode. (In OCR Mode with “Match and fix OCR with WebSocket text” enabled, MacPopup always reconnects automatically.)"
+                    hint: "Keep trying to reconnect if a WebSocket disconnects in the Floating Window. (With the OCR overlay and “Match and fix OCR with WebSocket text” enabled, MacPopup always reconnects automatically.)"
                 ),
                 SettingsField("showConnectionErrors", "Show connection error messages", .checkbox),
             ]),
-            SettingsSection(title: "Window Mode", symbol: "text.alignleft", fields: [
+            SettingsSection(title: "Floating Window", symbol: "text.alignleft", fields: [
                 SettingsField("boxOpacity", "Background opacity", .percentSlider(step: 0.05)),
                 SettingsField(
                     "clipboardMonitor", "Read copied text from clipboard", .checkbox,
@@ -267,8 +267,8 @@ enum SettingsSchema {
                 SettingsField("customCSS", "Custom CSS (text box)", .textarea),
             ]),
             SettingsSection(
-                title: "OCR Mode", symbol: "text.viewfinder",
-                description: "Hides the floating text box and lets you hover directly over text in the captured window (or anywhere on screen if no window is selected). Requires Screen Recording permission.",
+                title: "OCR", symbol: "text.viewfinder",
+                description: "How text is read from the captured window (or anywhere on screen if no window is selected) for the OCR overlay, which hides the floating text box and lets you hover directly over that text. Requires Screen Recording permission.",
                 fields: [
                     SettingsField(
                         "ocrEngine", "Text recognition engine",
@@ -379,23 +379,23 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "gamePauseShortcut", "Pause and scan shortcut", .shortcut,
-                    hint: "Works from any app. Pauses the game and, in OCR Mode, reads its window right away, even if the text is still appearing, so you can hover over any text on screen to look it up. Press it again to close the popup and let the game go on. The game doesn’t see this shortcut, so pick keys it doesn’t need.",
+                    hint: "Works from any app. Pauses the game and, with the OCR overlay, reads its window right away, even if the text is still appearing, so you can hover over any text on screen to look it up. Press it again to close the popup and let the game go on. The game doesn’t see this shortcut, so pick keys it doesn’t need.",
                     showIf: { $0["gamePause"] as? Bool == true }
                 ),
-                SettingsField("scanModifier", "Scan modifier key (text box/OCR Mode text)", .select(scanModifierOptions)),
+                SettingsField("scanModifier", "Scan modifier key (text box/OCR text)", .select(scanModifierOptions)),
                 SettingsField("scanInputs", "Advanced scanning inputs", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
                 SettingsField(
-                    "gamepadScanButtons", "Controller scan key (text box/OCR Mode text)", .gamepadCombo,
-                    hint: "Press this button combination on a game controller to start looking up words, then move through the text box or OCR Mode text with the D-pad or a stick—one character or one word at a time, depending on Scan resolution. Press the combination again to close the popup and hand the controller back to your game. Only controllers set up in Settings → Controllers work, and while you’re looking up words, your game won’t react to them. Your game does see this combination itself, so pick buttons it doesn’t use (for example L3 + R3)."
+                    "gamepadScanButtons", "Controller scan key (text box/OCR text)", .gamepadCombo,
+                    hint: "Press this button combination on a game controller to start looking up words, then move through the text box or OCR text with the D-pad or a stick—one character or one word at a time, depending on Scan resolution. Press the combination again to close the popup and hand the controller back to your game. Only controllers set up in Settings → Controllers work, and while you’re looking up words, your game won’t react to them. Your game does see this combination itself, so pick buttons it doesn’t use (for example L3 + R3)."
                 ),
                 SettingsField(
                     "gamepadPopupDelay", "Controller popup delay (in milliseconds)", .number(min: 0),
                     hint: "How long to wait after you stop moving with the controller before the popup opens."
                 ),
                 SettingsField(
-                    "gamepadOcrStart", "Controller OCR Mode starting position",
+                    "gamepadOcrStart", "Controller OCR starting position",
                     .select([SettingsOption("bottom", "Bottom"), SettingsOption("top", "Top")]),
-                    hint: "Where the controller starts in OCR Mode text: the bottom or top sentence of the dialogue area (in vertical text, the leftmost or rightmost). When the text matches lines received over WebSocket, it starts at the most recent one instead."
+                    hint: "Where the controller starts in OCR text: the bottom or top sentence of the dialogue area (in vertical text, the leftmost or rightmost). When the text matches lines received over WebSocket, it starts at the most recent one instead."
                 ),
                 SettingsField("popupScanModifier", "Scan modifier key (popup, for nested lookups)", .select(scanModifierOptions)),
                 SettingsField("popupScanInputs", "Advanced scanning inputs (popup)", .scanInputs, showIf: { $0["popupScanModifier"] as? String == "custom" }),
@@ -844,7 +844,7 @@ enum SettingsSchema {
                 fields: [
                     SettingsField(
                         "permission.screenRecording", "Screen Recording", .permission(.screenRecording),
-                        hint: "Required for OCR Mode and for taking Anki {screenshot} captures. You may need to reopen MacPopup after granting access."
+                        hint: "Required for OCR and for taking Anki {screenshot} captures. You may need to reopen MacPopup after granting access."
                     ),
                     SettingsField(
                         "permission.audioCapture", "System Audio Recording", .permission(.audioCapture),

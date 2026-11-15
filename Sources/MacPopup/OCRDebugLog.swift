@@ -16,7 +16,7 @@ enum OCRDebugLog {
         return folder.appendingPathComponent("ocr-debug.jsonl")
     }
 
-    /// Whether the log is written (Settings → OCR Mode → Highlight recognized text boxes (debug)).
+    /// Whether the log is written (Settings → OCR → Highlight recognized text boxes (debug)).
     @MainActor static var isOn: Bool { SettingsStore.shared.dictionary["ocrShowBoxes"] as? Bool == true }
 
     private static var oldURL: URL { url.deletingLastPathComponent().appendingPathComponent("ocr-debug.old.jsonl") }

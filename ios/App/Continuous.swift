@@ -64,7 +64,7 @@ final class Continuous: ObservableObject {
     private var pageSeen = Date.distantPast
     private static let seenLineCount = 200
     private let defaults = UserDefaults.standard
-    /// As MacPopup's OCR mode (Settings → OCR Mode: settle time, and how long to wait for text that keeps changing).
+    /// As MacPopup's OCR mode (Settings → OCR: settle time, and how long to wait for text that keeps changing).
     private var settleTime: TimeInterval { defaults.double(forKey: ContinuousKey.settleTime) }
     private var maxWait: TimeInterval { defaults.double(forKey: ContinuousKey.maxWait) }
 

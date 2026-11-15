@@ -17,7 +17,7 @@ public enum OCRLanguage {
         }
     }
 
-    /// Whether the engine (Settings → OCR Mode → Text recognition engine) reads `language`. Screen AI and OneOCR read most
+    /// Whether the engine (Settings → OCR → Text recognition engine) reads `language`. Screen AI and OneOCR read most
     /// scripts; PP-OCRv6_manga is trained on Japanese and Chinese.
     @MainActor public static func isRead(_ language: String, by engine: String) -> Bool {
         switch engine {

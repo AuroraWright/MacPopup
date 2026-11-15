@@ -3,7 +3,7 @@ import Foundation
 import LiveText
 import OCREngines
 
-/// The text recognition engines, by the names MacPopup's settings use (Settings → OCR Mode → Text recognition engine).
+/// The text recognition engines, by the names MacPopup's settings use (Settings → OCR → Text recognition engine).
 enum Engine: String, CaseIterable, Identifiable, Sendable {
     case liveText
     case meikiocr
