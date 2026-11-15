@@ -21,6 +21,14 @@ function defaultTerminationCharacters() {
 }
 
 // Yomitan's default keyboard shortcuts for popups (its `inputs.hotkeys` with the 'popup' scope).
+// The Yomitan popup shortcut actions MacPopup supports (all except switching profiles and toggling options). Saved
+// shortcuts with another action (e.g. "toggleOption", removed after 1.1) are left out.
+export const popupHotkeyActions = new Set([
+	'close', 'nextEntry', 'previousEntry', 'lastEntry', 'firstEntry', 'nextEntryDifferentDictionary',
+	'previousEntryDifferentDictionary', 'historyBackward', 'historyForward', 'addNote', 'viewNotes', 'playAudio',
+	'playAudioFromSource', 'copyHostSelection',
+]);
+
 function defaultHotkeys() {
 	const hotkey = (action, argument, key, modifiers) => ({ action, argument, key, modifiers, enabled: true });
 	return [
@@ -85,7 +93,7 @@ export const defaultSettings = {
 	displayIndex: 0,
 	windowLevel: 'screenSaver',
 
-	// Screen OCR mode: popups for the text of another app's window, read with ocrEngine (see lib/ocr-layer.js).
+	// OCR: the text of another app's window, read with ocrEngine (see lib/ocr-layer.js).
 	ocrMode: false,
 	// The window to read, {ownerName, title}, found again by these when MacPopup starts.
 	ocrWindow: null,
@@ -159,7 +167,7 @@ export const defaultSettings = {
 	gamepadScanButtons: [],
 	// How long (ms) the controller rests on a character or word before its popup opens.
 	gamepadPopupDelay: 1000,
-	// Where the controller starts in OCR Mode text without a WebSocket match: 'bottom' or 'top' (left or right in
+	// Where the controller starts in the OCR overlay's text without a WebSocket match: 'bottom' or 'top' (left or right in
 	// vertical text).
 	gamepadOcrStart: 'bottom',
 	// What MacPopup learned of each controller model, by "vendor:product" (see GamepadLearning.swift).
@@ -173,7 +181,7 @@ export const defaultSettings = {
 	gamePauseShortcut: null,
 	// The ISO code of the Yomitan profile's language (general.language; see lib/languages.js). Lookups
 	// use Yomitan's own; this one is for what MacPopup does itself: audio, text display, scan resolution,
-	// and the language OCR mode reads (Live Text's, and which lines are kept; see OCRLanguage.swift).
+	// and the language OCR reads (Live Text's, and which lines are kept; see OCRLanguage.swift).
 	language: 'ja',
 
 	// Popup appearance (Yomitan general options)
@@ -267,8 +275,8 @@ export const defaultSettings = {
 	// The field for sentence audio, recorded (cards added today with the same sentence as the newest one get the
 	// recording; their sentence field is the one their Yomitan card format fills with {sentence}) or from IINA.
 	sentenceAudioField: 'SentenceAudio',
-	// What's switched to before pressing keys: 'captured' (the captured window, ocrWindow, also outside
-	// OCR mode), 'named' (the app sentenceAudioAppName) or 'none'.
+	// What's switched to before pressing keys: 'captured' (the captured window, ocrWindow, whatever the
+	// overlay type), 'named' (the app sentenceAudioAppName) or 'none'.
 	sentenceAudioApp: 'captured',
 	sentenceAudioAppName: '',
 	// Minutes of the game's audio to keep, so a line's voice can be taken without replaying it (0 keeps none).

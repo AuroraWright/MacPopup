@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreML
 import Foundation
+import OCRLineCache
 
 /// Text recognition with meikiocr's models (https://github.com/rtr46/meikiocr), trained on Japanese game text and
 /// run with Core ML (converted by scripts/convert-meikiocr.py, see vendor/meikiocr). This follows meikiocr/ocr.py:

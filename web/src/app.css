@@ -103,7 +103,7 @@ body {
 	user-select: none;
 }
 
-/* Screen OCR mode: invisible text over another app's window (see lib/ocr-layer.js). The text must stay
+/* The OCR overlay: invisible text over another app's window (see lib/ocr-layer.js). The text must stay
    selectable, or Yomitan's scanner treats transparent text as hidden. */
 #ocr-layer {
 	position: absolute;

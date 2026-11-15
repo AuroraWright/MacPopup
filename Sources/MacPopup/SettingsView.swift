@@ -547,12 +547,6 @@ private func recordHelp(_ combination: KeyCombination?) -> String {
     combination.map { "\($0.displayName). Click to record a different key combination" } ?? "Click, then press a key combination"
 }
 
-/// A {key, modifiers} setting's key combination, or nil if it has no key.
-private func keyCombination(_ item: [String: Any]?) -> KeyCombination? {
-    guard let key = item?["key"] as? String, !key.isEmpty else { return nil }
-    return KeyCombination(key: key, modifiers: item?["modifiers"] as? [String] ?? [])
-}
-
 /// Records one keyboard shortcut.
 private struct ShortcutControl: View {
     let value: [String: Any]?
@@ -569,9 +563,9 @@ private struct ShortcutControl: View {
                     recorder.start(id: 0) { commit(["key": $0.key, "modifiers": $0.modifiers]) }
                 }
             } label: {
-                RecordingLabel(isActive ? "Press keys…" : keyCombination(value)?.displayName ?? "Record Shortcut")
+                RecordingLabel(isActive ? "Press keys…" : KeyCombination(setting: value)?.displayName ?? "Record Shortcut")
             }
-            .help(isActive ? "Click to cancel" : recordHelp(keyCombination(value)))
+            .help(isActive ? "Click to cancel" : recordHelp(KeyCombination(setting: value)))
             // While recording, it stops without changing the shortcut.
             Button("Clear") {
                 if isActive {
@@ -616,7 +610,7 @@ private struct KeySequenceControl<Label: View>: View {
                 HStack(spacing: 6) {
                     ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                         HStack(spacing: 2) {
-                            Text(keyCombination(item)?.displayName ?? "?").monospacedDigit()
+                            Text(KeyCombination(setting: item)?.displayName ?? "?").monospacedDigit()
                             Button {
                                 // A recording would add its key to the list as it was before.
                                 recorder.cancel()
@@ -883,7 +877,7 @@ private struct JSONEditor: View {
 /// match), even while recording, and longer text is truncated with "…".
 struct RecordingLabel: View {
     let text: String
-    var width = "Record Shortcut"
+    var width: String
 
     init(_ text: String, width: String = "Record Shortcut") {
         self.text = text
@@ -897,7 +891,7 @@ struct RecordingLabel: View {
 
 /// A button's label that keeps the width of the widest of `labels`, so what's beside the button doesn't move when
 /// the label changes (e.g. to "Press keys…" while recording).
-struct SteadyLabel: View {
+private struct SteadyLabel: View {
     let text: String
     let labels: [String]
 
@@ -1801,8 +1795,8 @@ private struct HotkeysControl: View {
 
     /// Whether an enabled shortcut above has the same keys (only the first one works).
     private func isDuplicate(_ index: Int) -> Bool {
-        guard items[index]["enabled"] as? Bool ?? true, let combination = keyCombination(items[index]) else { return false }
-        return items[..<index].contains { ($0["enabled"] as? Bool ?? true) && keyCombination($0) == combination }
+        guard items[index]["enabled"] as? Bool ?? true, let combination = KeyCombination(setting: items[index]) else { return false }
+        return items[..<index].contains { ($0["enabled"] as? Bool ?? true) && KeyCombination(setting: $0) == combination }
     }
 
     /// Why a shortcut's controller buttons don't work, if they don't: the controller scan key or an earlier shortcut
@@ -1837,7 +1831,7 @@ private struct HotkeyRow: View {
     private var action: String { item["action"] as? String ?? "" }
     private var argument: String { item["argument"] as? String ?? "" }
 
-    private var combination: KeyCombination? { keyCombination(item) }
+    private var combination: KeyCombination? { KeyCombination(setting: item) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {

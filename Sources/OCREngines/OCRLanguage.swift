@@ -1,7 +1,7 @@
 import Foundation
 import VisionKit
 
-/// OCR mode's language: Settings → General → Language, an ISO code of Yomitan's (see web/src/lib/languages.js).
+/// OCR's language: Settings → General → Language, an ISO code of Yomitan's (see web/src/lib/languages.js).
 public enum OCRLanguage {
     /// The languages Live Text reads on this version of macOS, e.g. "ja-JP" or "zh-Hans".
     @MainActor private static let liveTextLanguages = ImageAnalyzer.supportedTextRecognitionLanguages
@@ -44,7 +44,7 @@ public enum OCRLanguage {
 
     /// The script recognizers Screen AI needs for `language`, besides its general one (which reads Latin): ISO 15924 codes
     /// of its own (Sources/ScreenAI, LineRecognizer). It picks one by each line's language, and the others would only
-    /// read lines OCR mode leaves out (e.g. a misread picture taken for Arabic), each loaded on first use, which takes
+    /// read lines OCR leaves out (e.g. a misread picture taken for Arabic), each loaded on first use, which takes
     /// seconds the first time (its GPU code is compiled) and memory from then on. Nil, for all of them, for "Other" or
     /// a language whose script isn't known.
     public static func screenAIRecognizers(for language: String) -> Set<String>? {

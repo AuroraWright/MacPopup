@@ -109,6 +109,8 @@ final class HotkeyController {
     private var registered: [EventHotKeyRef?] = []
     private var current: [KeyCombination] = []
     private var handler: EventHandlerRef?
+    /// The single shortcut last reported as taken (see set(_:onTaken:)).
+    private var reportedTaken: KeyCombination?
 
     /// Tells this controller's hotkeys from other controllers' (each installs its own handler).
     private let signature: OSType
@@ -133,6 +135,15 @@ final class HotkeyController {
             return status == noErr ? ref : nil
         }
         return registered.map { $0 != nil }
+    }
+
+    /// Registers one shortcut (or none) in place of the previous ones. `onTaken` is called when another app or shortcut
+    /// already uses it, once for each shortcut, as this runs at every settings change.
+    func set(_ combination: KeyCombination?, onTaken: (KeyCombination) -> Void) {
+        let registered = set(combination.map { [$0] } ?? [])
+        let taken = registered.first == false ? combination : nil
+        if let taken, taken != reportedTaken { onTaken(taken) }
+        reportedTaken = taken
     }
 
     private func unregisterAll() {

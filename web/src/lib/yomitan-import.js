@@ -2,6 +2,7 @@
 
 import { formatScanInput, isValidInputName, parseScanInput } from './scan-inputs.js';
 import { languageSummaries } from './languages.js';
+import { popupHotkeyActions } from './settings-defaults.js';
 
 const scanModifiers = new Set(['shift', 'ctrl', 'alt', 'meta']);
 
@@ -91,17 +92,10 @@ const directOptions = {
 	},
 };
 
-// The Yomitan popup shortcut actions MacPopup supports (all except switching profiles and toggling options).
-const hotkeyActions = new Set([
-	'close', 'nextEntry', 'previousEntry', 'lastEntry', 'firstEntry', 'nextEntryDifferentDictionary',
-	'previousEntryDifferentDictionary', 'historyBackward', 'historyForward', 'addNote', 'viewNotes', 'playAudio',
-	'playAudioFromSource', 'copyHostSelection',
-]);
-
 /** Yomitan's keyboard shortcuts for popups, as MacPopup hotkeys (see settings-defaults.js). */
 function convertHotkeys(hotkeys) {
 	return hotkeys
-		.filter(({ action, key, scopes }) => hotkeyActions.has(action) && typeof key === 'string' && Array.isArray(scopes) && scopes.includes('popup'))
+		.filter(({ action, key, scopes }) => popupHotkeyActions.has(action) && typeof key === 'string' && Array.isArray(scopes) && scopes.includes('popup'))
 		.map(({ action, argument, key, modifiers, enabled }) => {
 			return {
 				action,

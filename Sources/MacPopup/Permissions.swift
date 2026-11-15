@@ -55,14 +55,15 @@ enum Permission {
 
     /// The permission's page in System Settings → Privacy & Security.
     func openSystemSettings() {
-        if self == .pauseHelper {
-            SMAppService.openSystemSettingsLoginItems()
-            return
-        }
         let anchor = switch self {
         case .screenRecording: "Privacy_ScreenCapture"
         case .audioCapture: "Privacy_AudioCapture"
-        case .accessibility, .pauseHelper: "Privacy_Accessibility"
+        case .accessibility: "Privacy_Accessibility"
+        case .pauseHelper: nil as String?
+        }
+        guard let anchor else {
+            SMAppService.openSystemSettingsLoginItems()
+            return
         }
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") {
             NSWorkspace.shared.open(url)

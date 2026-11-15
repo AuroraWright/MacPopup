@@ -149,7 +149,7 @@ public final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sen
             try manager.moveItem(at: compiled, to: coreml.appendingPathComponent(package.deletingPathExtension().lastPathComponent + ".mlmodelc"))
             try manager.removeItem(at: package)
         }
-        // Fails here, rather than when OCR mode starts, if something is missing.
+        // Fails here, rather than when OCR starts, if something is missing.
         _ = try make(staging)
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in

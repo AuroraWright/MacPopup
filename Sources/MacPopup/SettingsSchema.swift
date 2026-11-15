@@ -47,7 +47,7 @@ struct SettingsField: Identifiable {
         case imported(describe: ([Any]) -> String, emptyText: String, details: (([Any]) -> String)? = nil, isList: Bool = false)
         /// The handlebars templates in yomitanAnkiTemplates.
         case ankiTemplates
-        /// The window read in screen OCR mode, chosen on screen (see WindowPicker.swift).
+        /// The window OCR reads, chosen on screen (see WindowPicker.swift).
         case ocrWindow
         /// An index into the connected displays (NSScreen.screens, the main one first).
         case display

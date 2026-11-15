@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 /// Online text recognition (Settings → OCR → Cloud recognition (second pass)), with the requests owocr makes: Google
 /// Lens (as Chrome's Lens overlay sends them) and Bing's visual search, both as Chrome (see ImpersonatedSession). Both
-/// find the language by themselves. A request often takes a second or more, so OCR mode only uses them for a final
+/// find the language by themselves. A request often takes a second or more, so OCR only uses them for a final
 /// reading (see OCRController.finishReading).
 public enum CloudOCR: String, Sendable {
     case googleLens

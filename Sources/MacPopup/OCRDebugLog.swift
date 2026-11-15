@@ -64,7 +64,7 @@ enum OCRDebugLog {
         append(json)
     }
 
-    /// The settings that change how OCR Mode reads and shows text, pauses the game, and what the controller does.
+    /// The settings that change how OCR reads and shows text, pauses the game, and what the controller does.
     @MainActor static var ocrSettings: [String: Any] {
         SettingsStore.shared.dictionary.filter { key, _ in
             key.hasPrefix("ocr") || key.hasPrefix("gamePause") || key.hasPrefix("gamepad") || ["language", "websocketUrls", "floatingWindowOCR"].contains(key)

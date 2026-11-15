@@ -22,7 +22,7 @@ public final class ScreenAIOCR: Sendable {
         await models.unload()
     }
 
-    /// - Parameter language: OCR mode's language (an ISO code of Yomitan's): only the script recognizers it needs are
+    /// - Parameter language: OCR's language (an ISO code of Yomitan's): only the script recognizers it needs are
     ///   loaded and used (see OCRLanguage.screenAIRecognizers). Nil for all of them.
     public func recognize(_ image: CGImage, language: String? = nil) async throws -> [RecognizedLine] {
         let recognizers = language.flatMap(OCRLanguage.screenAIRecognizers)

@@ -54,17 +54,19 @@ enum GamepadField: Equatable {
         }
     }
 
+    /// A saved field (see json); nil when it isn't one, or points outside of a report (e.g. edited by hand).
     init?(json: [String: Any]) {
         let int = { (key: String) in (json[key] as? NSNumber)?.intValue }
         switch json["type"] as? String {
         case "bit":
-            guard let byte = int("byte"), let bit = int("bit") else { return nil }
+            guard let byte = int("byte"), let bit = int("bit"), byte >= 0, (0..<8).contains(bit) else { return nil }
             self = .bit(byte: byte, bit: bit, inverted: json["inverted"] as? Bool ?? false)
         case "values":
-            guard let byte = int("byte"), let values = json["values"] as? [NSNumber] else { return nil }
+            guard let byte = int("byte"), byte >= 0, let values = json["values"] as? [NSNumber] else { return nil }
             self = .values(byte: byte, high: json["high"] as? Bool ?? false, values: Set(values.map(\.intValue)))
         case "threshold":
-            guard let offset = int("offset"), let width = int("width"), let limit = int("limit") else { return nil }
+            guard let offset = int("offset"), let width = int("width"), let limit = int("limit"), offset >= 0, (1...32).contains(width)
+            else { return nil }
             self = .threshold(offset: offset, width: width, limit: limit, below: json["below"] as? Bool ?? false)
         default:
             return nil

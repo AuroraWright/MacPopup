@@ -61,7 +61,7 @@ final class OverlayController: NSObject {
     private let hotkeys = HotkeyController()
     /// Called with the cursor position in global coordinates (origin at the top left of the main display).
     var onCursorMoved: ((CGPoint) -> Void)?
-    /// Overrides the display chosen in the settings (screen OCR mode follows the window being read).
+    /// Overrides the display chosen in the settings (the OCR overlay follows the window being read).
     var preferredScreen: NSScreen? {
         didSet { applySettings() }
     }
@@ -170,7 +170,7 @@ final class OverlayController: NSObject {
         webView.evaluateJavaScript(js)
     }
 
-    /// Shows a message at the bottom of the text box (or of the OCR toast's place in OCR mode) for a few seconds; one
+    /// Shows a message at the bottom of the text box (or of the OCR toast's place in the OCR overlay) for a few seconds; one
     /// sent before the page can show it (e.g. as the app starts) waits for it (see pageReady).
     func showToast(_ message: String) {
         guard let data = try? JSONSerialization.data(withJSONObject: [message]), let json = String(data: data, encoding: .utf8) else { return }
@@ -186,7 +186,7 @@ final class OverlayController: NSObject {
         toasts.forEach(showToast)
     }
 
-    /// Whether a popup is open (in OCR Mode, the hit rects are the popups').
+    /// Whether a popup is open (in the OCR overlay, the hit rects are the popups').
     var showsPopups: Bool { !hitRects.isEmpty }
 
     func setHitRects(_ rects: [CGRect]) {

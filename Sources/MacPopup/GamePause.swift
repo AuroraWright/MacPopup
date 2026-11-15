@@ -29,8 +29,6 @@ final class GamePause {
     private var settings: [String: Any] { SettingsStore.shared.dictionary }
 
     private let shortcut = HotkeyController(signature: 0x4D50_5053) // "MPPS"
-    /// The shortcut last found taken (see applyShortcut).
-    private var reportedShortcut: KeyCombination?
 
     private init() {
         shortcut.onPress = { [weak self] _ in self?.onShortcut?() }
@@ -48,13 +46,9 @@ final class GamePause {
     /// Settings → Scanning → Pause and scan shortcut, registered while pausing is on.
     private func applyShortcut() {
         let combination = settings["gamePause"] as? Bool == true ? KeyCombination(setting: settings["gamePauseShortcut"]) : nil
-        let registered = shortcut.set(combination.map { [$0] } ?? [])
-        // Told once for each shortcut (this runs at every settings change).
-        let failed = registered.first == false ? combination : nil
-        if let failed, failed != reportedShortcut {
-            onToast?("The pause and scan shortcut \(failed.displayName) is used by another app or shortcut")
+        shortcut.set(combination) { [weak self] taken in
+            self?.onToast?("The pause and scan shortcut \(taken.displayName) is used by another app or shortcut")
         }
-        reportedShortcut = failed
     }
 
     /// With pausing on, the helper is connected to (and so started by launchd) beforehand: the first freeze would
@@ -112,7 +106,7 @@ final class GamePause {
             frozen = true
             frozenPIDs = pids + [app]
             GameClock.freeze()
-            freezing = Task { await stop(pids) }
+            freezing = stop(pids)
         } else {
             frozen = false
             GameClock.thaw()
@@ -121,19 +115,22 @@ final class GamePause {
         }
     }
 
-    /// Has the helper stop the game, and returns once it did (or didn't answer).
-    private func stop(_ pids: [pid_t]) async {
-        await withCheckedContinuation { continuation in
-            let once = Once(continuation)
-            guard let helper = helper(onError: once.resume) else { return once.resume() }
+    /// Has the helper stop the game. The request is sent right away, so that a resume asked for after it (a popup
+    /// closed at once) reaches the helper after it too; the task ends once the helper did it (or didn't answer).
+    private func stop(_ pids: [pid_t]) -> Task<Void, Never> {
+        let (replied, reply) = AsyncStream<Void>.makeStream()
+        if let helper = helper(onError: { reply.finish() }) {
             helper.freeze(pids.map { NSNumber(value: $0) }) { stopped in
                 if stopped.count < pids.count {
                     NSLog("MacPopup: the pause helper stopped \(stopped.count) of \(pids.count) processes")
                     Task { @MainActor in OCRDebugLog.note("the pause helper stopped \(stopped.count) of \(pids.count) processes") }
                 }
-                once.resume()
+                reply.finish()
             }
+        } else {
+            reply.finish()
         }
+        return Task { for await _ in replied {} }
     }
 
     /// The connection to the helper, kept while MacPopup runs: when it's gone (MacPopup quit or crashed), the helper
@@ -170,42 +167,21 @@ final class GamePause {
         }
     }
 
-    /// For test scripts: has the helper stop `pids` (replying with the ones it stopped), or continue what it stopped.
-    func debugHelper(freeze pids: [pid_t]?) async -> [Int] {
-        guard let helper = helper() else { return [] }
-        guard let pids else {
-            await withCheckedContinuation { continuation in helper.resume { continuation.resume() } }
-            return []
-        }
-        return await withCheckedContinuation { continuation in
-            helper.freeze(pids.map { NSNumber(value: $0) }) { continuation.resume(returning: $0.map(\.intValue)) }
-        }
-    }
-
     // MARK: The game
 
-    /// The game's processes: the captured window's app (or else the app in front) and its helpers, or for a Windows app
-    /// in Parallels' Coherence mode, Parallels' VM (the whole VM pauses).
-    /// The game's app, and the processes to stop.
+    /// The game's app and the processes to stop: the captured window's app (or else the app in front) and its helpers,
+    /// or for a Windows app in Parallels' Coherence mode, Parallels' VM (the whole VM pauses).
     private static func gameProcesses() -> (app: pid_t, pids: [pid_t])? {
         let own = ProcessInfo.processInfo.processIdentifier
-        guard let app = capturedWindowPID() ?? NSWorkspace.shared.frontmostApplication?.processIdentifier, app != own else { return nil }
+        guard let app = OCRController.savedWindow()?.ownerPID ?? NSWorkspace.shared.frontmostApplication?.processIdentifier, app != own
+        else { return nil }
         let all = allPIDs()
         let bundleID = NSRunningApplication(processIdentifier: app)?.bundleIdentifier ?? ""
-        if bundleID.hasPrefix("com.parallels.winapp.") {
-            return (app, all.filter { AudioTap.executablePath($0)?.hasSuffix("/Parallels VM.app/Contents/MacOS/prl_vm_app") == true })
+        if PauseHelper.isParallelsWinApp(bundleID: bundleID) {
+            return (app, all.filter(PauseHelper.isParallelsVM))
         }
         let bundle = AudioTap.bundlePath(of: app)
         return (app, all.filter { $0 != own && AudioTap.belongs($0, to: app, bundle: bundle) })
-    }
-
-    private static func capturedWindowPID() -> pid_t? {
-        guard let saved = SettingsStore.shared.dictionary["ocrWindow"] as? [String: Any], let owner = saved["ownerName"] as? String
-        else { return nil }
-        let title = saved["title"] as? String ?? ""
-        let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        let windows = list.compactMap(OCRController.windowInfo).filter { $0.ownerName == owner && $0.layer == 0 }
-        return (windows.first { $0.title == title } ?? windows.first)?.ownerPID
     }
 
     private static func allPIDs() -> [pid_t] {
@@ -214,23 +190,6 @@ final class GamePause {
         var pids = [pid_t](repeating: 0, count: Int(count) * 2)
         let found = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
         return Array(pids.prefix(Int(max(0, found)))).filter { $0 > 1 }
-    }
-}
-
-/// Resumes a continuation once, from whichever of the helper's reply and its error handler comes first.
-private final class Once: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    init(_ continuation: CheckedContinuation<Void, Never>) {
-        self.continuation = continuation
-    }
-
-    func resume() {
-        lock.withLock {
-            continuation?.resume()
-            continuation = nil
-        }
     }
 }
 

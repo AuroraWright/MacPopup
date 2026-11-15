@@ -1,5 +1,6 @@
 import Accelerate
 import Foundation
+import OCRLineCache
 
 /// An interleaved 8-bit image (rows of width × channels bytes), BGR when it has 3 channels.
 struct ImageU8 {

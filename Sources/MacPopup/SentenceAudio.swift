@@ -29,8 +29,6 @@ final class SentenceAudioController {
 
     private let overlay: OverlayController
     private let hotkey = HotkeyController(signature: 0x4D50_5341) // "MPSA"
-    /// The shortcut last found taken (see applySettings).
-    private var reportedShortcut: KeyCombination?
     private var state = State.idle {
         didSet {
             // Cards added from a popup while busy get their voice once the current one is done.
@@ -90,13 +88,9 @@ final class SentenceAudioController {
 
     private func applySettings() {
         let shortcut = Self.isEnabled(settings) ? KeyCombination(setting: settings["sentenceAudioShortcut"]) : nil
-        let registered = hotkey.set(shortcut.map { [$0] } ?? [])
-        // Told once for each shortcut (this runs at every settings change).
-        let failed = registered.first == false ? shortcut : nil
-        if let failed, failed != reportedShortcut {
-            showToast("The sentence audio shortcut \(failed.displayName) is used by another app or shortcut")
+        hotkey.set(shortcut) { [weak self] taken in
+            self?.showToast("The sentence audio shortcut \(taken.displayName) is used by another app or shortcut")
         }
-        reportedShortcut = failed
         updateHistory()
     }
 
@@ -201,11 +195,11 @@ final class SentenceAudioController {
                 if next != nil, voice.1 > clip.duration - 0.35 {
                     return "The line’s voice was cut off by the next line"
                 }
-                // A voice that starts with the line is kept from the line's start, since a soft start is detected a
-                // little late.
+                // A voice that starts with the line is kept from the line's start (the clip's), since a soft start is
+                // detected a little late.
                 let clip = clip.trimmed(
                     voiceFrom: voice.0, to: voice.1, padding: number("sentenceAudioPadding", 500) / 1000,
-                    startingBy: voice.0 < shownAt + 1 ? max(0, lines[index].info.start - start) : .infinity
+                    startingBy: voice.0 < shownAt + 1 ? 0 : .infinity
                 )
                 await addClip(clip, cards: cards)
                 return nil
@@ -345,17 +339,10 @@ final class SentenceAudioController {
         return formatter.string(from: Date())
     }
 
-    /// The process of the captured window (Settings → General, also outside OCR mode), whose audio is
-    /// recorded, or nil when there isn't one or it isn't open.
+    /// The process of the captured window (Settings → General, whatever the overlay type), whose audio is recorded, or
+    /// nil when there isn't one or it isn't open.
     private func capturedWindowPID() -> pid_t? {
-        guard let saved = settings["ocrWindow"] as? [String: Any], let owner = saved["ownerName"] as? String else { return nil }
-        return findWindow(ownerName: owner, title: saved["title"] as? String ?? "")?.ownerPID
-    }
-
-    private func findWindow(ownerName: String, title: String) -> OCRController.WindowInfo? {
-        let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        let windows = list.compactMap(OCRController.windowInfo).filter { $0.ownerName == ownerName && $0.layer == 0 }
-        return windows.first(where: { $0.title == title }) ?? windows.first
+        OCRController.savedWindow()?.ownerPID
     }
 
     // MARK: Keys
@@ -397,7 +384,7 @@ final class SentenceAudioController {
         }
     }
 
-    /// Brings the game to the front: the captured window (Settings → General, also outside OCR mode),
+    /// Brings the game to the front: the captured window (Settings → General, whatever the overlay type),
     /// or the app named. Returns whether it was found.
     private func activateApp() -> Bool {
         switch string("sentenceAudioApp", "captured") {
@@ -424,7 +411,7 @@ final class SentenceAudioController {
     /// Activates the app of a window, found by its app and title like the captured window, and raises
     /// the window above the app's others (with Accessibility permission).
     private func activateWindow(ownerName: String, title: String) -> Bool {
-        guard let window = findWindow(ownerName: ownerName, title: title),
+        guard let window = OCRController.savedWindow(ownerName: ownerName, title: title),
               NSRunningApplication(processIdentifier: window.ownerPID) != nil else {
             showToast("\(ownerName) isn’t running")
             return false

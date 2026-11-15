@@ -11,7 +11,7 @@ final class SettingsStore {
     private var observers: [(String) -> Void] = []
 
     private(set) var json: String
-    /// `json` parsed: once per change, as some settings are read many times a second (e.g. by screen OCR mode).
+    /// `json` parsed: once per change, as some settings are read many times a second (e.g. by OCR).
     private(set) var dictionary: [String: Any]
 
     private init() {

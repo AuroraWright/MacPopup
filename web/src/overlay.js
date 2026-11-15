@@ -6,8 +6,9 @@ import { log, nativeCall } from './lib/native.js';
 import { getPopupPosition } from './lib/popup-position.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
 import { getTextSourceFromPoint, searchTextSource, setHighlight, textSourceAt } from './lib/scanner.js';
-import { correctWithText, decodeLines, joinLines, lineText, ocrCharOf, paragraphBreaks, renderLines, wrappedReach } from './lib/ocr-layer.js';
+import { correctWithText, decodeLines, joinLines, letterCount, lineText, ocrCharOf, paragraphBreaks, renderLines, wrappedReach } from './lib/ocr-layer.js';
 import { applyReplacements } from './lib/replacements.js';
+import { popupHotkeyActions } from './lib/settings-defaults.js';
 import { cursorAt } from './lib/cursor.js';
 import { Tooltip } from './lib/tooltip.js';
 import { getSettings, loadSettings, onSettingsChanged, resolveTheme, saveSettings } from './lib/settings.js';
@@ -72,6 +73,9 @@ const state = {
 	lineTextCounts: new Map(),
 	paused: false,
 	nextId: 1,
+	// The line shown for the last OCR line the host noted (see noteTextBoxLine in AppDelegate.swift), or null when that
+	// line wasn't shown (e.g. left out as a duplicate) or isn't the last.
+	ocrLine: null,
 	renderKey: '',
 	// The order and writing direction the lines are laid out in, which settings can have changed since.
 	lineLayout: { reverseLineOrder: false, displayVertical: false },
@@ -122,14 +126,18 @@ function scrollToEnd() {
 
 /**
  * Tells Anki Audio (SentenceAudio.swift) and Anki Screenshot (ScreenshotHistory.swift) that a line was shown `age`
- * seconds ago. `settled` means OCR read it after its text stopped changing; it's then a whole page, and `breaks` are
- * its paragraph starts (see ShownLines.note).
+ * seconds ago. `page` is set for OCR's reading after its text stopped changing (see pageRows).
  */
-function noteSentenceLine(text, age = 0, settled = false, breaks = []) {
+function noteSentenceLine(text, age = 0, page = null) {
 	const settings = getSettings();
 	const keepsAudio = settings.sentenceAudioEnabled && settings.sentenceAudioHistory > 0;
 	if (!text || !settings.ankiEnabled || !(keepsAudio || settings.screenshotHistory > 0)) return;
-	nativeCall('sentenceLine', { text, age, settled, breaks }).catch(() => {});
+	nativeCall('sentenceLine', { text, age, settled: !!page, ...page }).catch(() => {});
+}
+
+/** A settled reading's rows, and the indices of those that start a paragraph (see ShownLines.note). */
+function pageRows(lines) {
+	return { rows: lines.map(lineText), breaks: paragraphBreaks(lines, ocr.reach ?? undefined) };
 }
 
 /**
@@ -139,7 +147,7 @@ function noteSentenceLine(text, age = 0, settled = false, breaks = []) {
  */
 function noteOcrDialogue(dialogue, age = 0) {
 	const lines = withoutNextIcon(dialogue.filter((line) => !(line.match > 0)));
-	noteSentenceLine(lines.map(lineText).join(''), age, true, paragraphBreaks(lines, ocr.reach ?? undefined));
+	noteSentenceLine(lines.map(lineText).join(''), age, pageRows(lines));
 }
 
 /**
@@ -168,18 +176,13 @@ function readsOcr(settings = getSettings()) {
 	return !!settings.ocrMode || !!settings.floatingWindowOCR;
 }
 
-/** Whether OCR readings are added to the text box ("Read text from OCR"). */
-function readsOcrIntoBox(settings = getSettings()) {
-	return !!settings.floatingWindowOCR;
-}
-
 /**
  * Adds a line from a WebSocket or the clipboard. With "Read text from OCR", if OCR already added the same line, this
  * one takes its place (see noteTextBoxLine in AppDelegate.swift).
  */
 function addLine(rawText) {
 	if (state.paused || typeof rawText !== 'string') return;
-	if (!readsOcrIntoBox()) {
+	if (!getSettings().floatingWindowOCR) {
 		pushLine(rawText);
 		return;
 	}
@@ -187,8 +190,9 @@ function addLine(rawText) {
 	nativeCall('textBoxLine', { text, ocr: false })
 		.catch(() => ({}))
 		.then((result) => {
-			const last = state.lines.at(-1);
-			if (result?.replacesOCR && last?.ocr) removeLine(last);
+			if (state.paused) return;
+			if (result?.replacesOCR) removeOcrLine();
+			state.ocrLine = null;
 			pushLine(rawText);
 		});
 }
@@ -200,21 +204,28 @@ function addLine(rawText) {
 function addOcrLines(dialogue) {
 	const lines = withoutNextIcon(dialogue);
 	if (state.paused || lines.length === 0) return;
-	nativeCall('textBoxLine', { text: joinLines(lines), ocr: true, breaks: paragraphBreaks(lines, ocr.reach ?? undefined) })
+	nativeCall('textBoxLine', { text: joinLines(lines), ocr: true, ...pageRows(lines) })
 		.catch(() => ({}))
 		.then((result) => {
 			if (state.paused) return;
 			if (result?.replace) {
-				const last = state.lines.at(-1);
-				if (last?.ocr) removeLine(last);
-				pushLine(result.replace, { ocr: true });
+				removeOcrLine();
+				state.ocrLine = pushLine(result.replace, { ocr: true }) ?? null;
 			} else if (result?.add) {
-				pushLine(result.add, { ocr: true });
+				state.ocrLine = pushLine(result.add, { ocr: true }) ?? null;
 			}
 		});
 }
 
-/** Adds a line to the text box. `ocr` means OCR read it, so it was already passed to Anki Audio and Screenshot. */
+/** Removes the line shown for the host's last OCR line, which is being replaced, if it's still the box's last. */
+function removeOcrLine() {
+	if (state.ocrLine && state.lines.at(-1) === state.ocrLine) removeLine(state.ocrLine);
+}
+
+/**
+ * Adds a line to the text box, and returns it (undefined when it's left out, see transformLine). `ocr` means OCR read
+ * it, so it was already passed to Anki Audio and Screenshot.
+ */
 function pushLine(rawText, { ocr = false } = {}) {
 	const text = transformLine(rawText);
 	if (text === undefined) return;
@@ -226,7 +237,7 @@ function pushLine(rawText, { ocr = false } = {}) {
 		removeLine(previous);
 	}
 
-	const line = { id: `${state.nextId++}`, text, ocr, tokens: null, element: null, tokenizing: new AbortController() };
+	const line = { id: `${state.nextId++}`, text, tokens: null, element: null, tokenizing: new AbortController() };
 	state.lines.push(line);
 	countLine(text, 1);
 	if (!ocr) noteSentenceLine(text);
@@ -234,12 +245,13 @@ function pushLine(rawText, { ocr = false } = {}) {
 		removeLine(state.lines[0]);
 	}
 
-	// Not while the box is hidden in OCR mode: it would play when the box is shown again.
+	// Not while the box is hidden by the OCR overlay: it would play when the box is shown again.
 	line.element = createLineElement(line, settings.enableLineAnimation && !box.hidden);
 	if (settings.reverseLineOrder) linesElement.prepend(line.element);
 	else linesElement.append(line.element);
 	if (atEnd) scrollToEnd();
 	void tokenizeLine(line);
+	return line;
 }
 
 function removeLine(line) {
@@ -254,6 +266,7 @@ function removeLine(line) {
 function clearLines() {
 	for (const line of state.lines) line.tokenizing.abort();
 	state.lines = [];
+	state.ocrLine = null;
 	state.lineTextCounts.clear();
 	linesElement.textContent = '';
 	popupManager.closeAll();
@@ -320,7 +333,7 @@ function createLineElement(line, animate) {
 	if (settings.showLinePoints) p.classList.add('show-bullet');
 	if (animate) {
 		p.classList.add(vertical ? 'line-enter-vertical' : 'line-enter');
-		// Otherwise it plays again whenever the box is shown again after OCR mode (hiding it cancels the animation).
+		// Otherwise it plays again whenever the box is shown again after the OCR overlay (hiding it cancels the animation).
 		const done = () => p.classList.remove('line-enter', 'line-enter-vertical');
 		p.addEventListener('animationend', done, { once: true });
 		p.addEventListener('animationcancel', done, { once: true });
@@ -434,7 +447,7 @@ class SocketConnection {
 	onClose(socket) {
 		if (socket !== this.socket) return;
 		const settings = getSettings();
-		const reconnects = alwaysReconnects(settings) || settings.continuousReconnect;
+		const reconnects = matchesWebsocketLines(settings) || settings.continuousReconnect;
 		if (!this.closeRequested && settings.showConnectionErrors && (this.wasConnected || !reconnects)) {
 			showToast(this.wasConnected ? `Lost connection to ${this.url}` : `Unable to connect to ${this.url}`);
 		}
@@ -507,7 +520,7 @@ function addPlayerLine(rawText, player) {
 }
 
 /**
- * The video player's line that a sentence was scanned in (in the text box, or matched with OCR Mode's text),
+ * The video player's line that a sentence was scanned in (in the text box, or matched with the OCR overlay's text),
  * or null.
  */
 function findPlayerLine(sentence) {
@@ -517,11 +530,10 @@ function findPlayerLine(sentence) {
 }
 
 /**
- * When OCR is matched with WebSocket lines (in the OCR overlay or with "Read text from OCR"), WebSockets always
- * reconnect, since the readings depend on their lines. The overlay also hides the WebSocket icons that reconnect when
- * clicked.
+ * Whether OCR's readings are matched with WebSocket lines (in the OCR overlay or with "Read text from OCR"). WebSockets
+ * then always reconnect, since the readings depend on their lines, and the window is read when a line arrives.
  */
-function alwaysReconnects(settings) {
+function matchesWebsocketLines(settings) {
 	return readsOcr(settings) && !!settings.ocrUseWebsocket;
 }
 
@@ -556,7 +568,7 @@ function syncSockets() {
 		// Not connected and not about to retry (e.g. disconnected by hand in the Floating Window). Only in the OCR
 		// overlay, which hides the buttons for reconnecting.
 		const settings = getSettings();
-		if (settings.ocrMode && alwaysReconnects(settings) && socket.state === 3 && socket.retryTimer === null) socket.connect();
+		if (settings.ocrMode && matchesWebsocketLines(settings) && socket.state === 3 && socket.retryTimer === null) socket.connect();
 	}
 	reportConnectedSockets();
 }
@@ -814,7 +826,7 @@ let registeredHotkeys = null;
 
 function updateHotkeys() {
 	const visible = popupManager.visiblePopups().length > 0;
-	const hotkeys = visible ? (getSettings().hotkeys ?? []).filter(({ enabled, key }) => enabled && typeof key === 'string' && key !== '') : [];
+	const hotkeys = visible ? popupHotkeys().filter(({ key }) => typeof key === 'string' && key !== '') : [];
 	activeHotkeys = hotkeys;
 	const combinations = hotkeys.map(({ key, modifiers }) => ({ key, modifiers: Array.isArray(modifiers) ? modifiers : [] }));
 	updateGamepadHold();
@@ -846,7 +858,7 @@ function runHotkey(hotkey) {
 }
 
 async function getDocumentTitle() {
-	// In screen OCR mode, the app being read.
+	// With the OCR overlay, the app being read.
 	const ocrWindow = getSettings().ocrMode && getSettings().ocrWindow;
 	if (ocrWindow?.ownerName) return ocrWindow.ownerName;
 	try {
@@ -1114,7 +1126,7 @@ window.__macpopupPointer = (x, y, shift, ctrl, alt, meta, pressed = []) => {
 };
 
 window.__macpopupOutsideClick = () => popupManager.closeAll();
-// Popups close when switching spaces, in Window mode too (the box shows on every space).
+// Popups close when switching spaces, in the Floating Window too (the box shows on every space).
 window.__macpopupSpaceChanged = () => popupManager.closeAll();
 
 // Copied text, with "Read copied text from clipboard" (see ClipboardMonitor.swift).
@@ -1123,7 +1135,7 @@ window.__macpopupClipboard = (text) => {
 	addLine(Number.isFinite(max) && max > 0 && text.length > max ? text.slice(0, max) : text);
 };
 
-// Screen OCR mode: the host reads another app's window with Live Text or another OCR engine
+// OCR: the host reads another app's window with Live Text or another OCR engine
 // (OCRController.swift) and sends the text here, where it's laid over the window invisibly
 // (lib/ocr-layer.js) for scanning.
 
@@ -1131,7 +1143,7 @@ const ocr = {
 	window: null,
 	// Another window is in front of the target under the cursor.
 	covered: false,
-	// The latest WebSocket line, matched against what's read. It's kept outside OCR mode too, for the
+	// The latest WebSocket line, matched against what's read. It's kept while OCR is off too, for the
 	// readings after switching to it.
 	line: null,
 	// The lines before it that may still be on screen, oldest first (at most "Previous WebSocket lines
@@ -1169,16 +1181,23 @@ const ocr = {
  * returns once the reading is shown (or kept for when the popups close), or it can't be read.
  */
 async function readOcrNow() {
+	let done;
+	let timer;
 	const read = new Promise((resolve) => {
-		ocr.onReading.push(() => resolve(true));
+		done = () => resolve(true);
+		ocr.onReading.push(done);
 		// E.g. a cloud engine that takes too long.
-		setTimeout(() => resolve(false), 10000);
+		timer = setTimeout(() => resolve(false), 10000);
 	});
 	if (!(await nativeCall('ocr', { action: 'readNow' }).catch(() => false))) {
+		ocr.onReading = ocr.onReading.filter((callback) => callback !== done);
+		clearTimeout(timer);
 		logOcrEvent('reading as it is: not taken (no window to read)');
 		return;
 	}
-	if (!(await read)) logOcrEvent('reading as it is: none within 10 s');
+	const taken = await read;
+	clearTimeout(timer);
+	if (!taken) logOcrEvent('reading as it is: none within 10 s');
 }
 
 function readingDone() {
@@ -1333,11 +1352,6 @@ function markMatch(lines, match) {
 	return lines.map((line) => (line.matched && line.match === undefined ? { ...line, match } : line));
 }
 
-/** The number of letters and digits in `text`, counted the way correctWithText's quality counts them. */
-function letterCount(text) {
-	return (text.match(/[\p{L}\p{N}]/gu) ?? []).length;
-}
-
 /** What correctWithText found, for the debug log. */
 function matchSummary(result) {
 	return { quality: Math.round(result.quality * 1000) / 1000, missingEnd: result.missingEnd, partial: !!result.partial };
@@ -1403,8 +1417,11 @@ function showOcrResult(message) {
 	// it moves, or the game goes on by itself) can be hovered: the dialogue's reading is still the settled
 	// one (for a new line, and Anki Audio's lines).
 	let unsettled = !!message.provisional;
+	// The reading matched with the WebSocket line, after the earlier lines that match it better.
+	const first = usesLine ? matchBetterEarlierLines(dialogue, minQuality) : null;
+	const lineResult = first && (first.latest ?? correctWithText(first.lines, ocr.line, minQuality));
 	if (unsettled && readsDialogue && usesLine) {
-		const result = correctWithText(matchBetterEarlierLines(dialogue, minQuality).lines, ocr.line, minQuality);
+		const result = lineResult;
 		if (result.quality >= minQuality && result.missingEnd === 0) {
 			unsettled = false;
 			nativeCall('ocr', { action: 'accept' }).catch(() => {});
@@ -1419,9 +1436,8 @@ function showOcrResult(message) {
 	// Whether the WebSocket line is still being drawn, so the reading only has its start.
 	let drawsLine = false;
 	if (usesLine) {
-		const first = matchBetterEarlierLines(dialogue, minQuality);
 		dialogue = first.lines;
-		const result = first.latest ?? correctWithText(dialogue, ocr.line, minQuality);
+		const result = lineResult;
 		debug.match = matchSummary(result);
 		const read = letterCount(dialogue.map(lineText).join(''));
 		drawsLine = result.missingEnd > 0 && read > 0 && Math.round(result.quality * letterCount(ocr.line)) >= read;
@@ -1551,6 +1567,20 @@ function ocrScanPlace() {
 }
 
 /**
+ * The text node and offset of character `offset` in an OCR line's element. A start (`isStart`) is at the beginning of
+ * its character's node, an end at the end of the node before.
+ */
+function pointInLine(line, offset, isStart) {
+	const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+	let left = offset;
+	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+		if (left < node.length || (left === node.length && !isStart)) return { node, offset: left };
+		left -= node.length;
+	}
+	return null;
+}
+
+/**
  * Moves the word shown in the popup (or being looked up) to the new OCR text where it has the same lines as at
  * `place` (see ocrScanPlace), e.g. read again after coming back from another space but a pixel off, so its
  * highlight stays with the popup. Returns whether it did.
@@ -1563,14 +1593,7 @@ function moveOcrScan(place) {
 		// The same line, or else the only one with that text.
 		const same = lines.filter((line) => line.textContent === text);
 		const line = lines[index]?.textContent === text ? lines[index] : same.length === 1 ? same[0] : null;
-		if (!line) return null;
-		const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
-		let left = offset;
-		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-			if (left < node.length || (left === node.length && !isStart)) return { node, offset: left };
-			left -= node.length;
-		}
-		return null;
+		return line ? pointInLine(line, offset, isStart) : null;
 	};
 	let start = find(place.start, true);
 	let end = find(place.end, false);
@@ -1597,15 +1620,6 @@ function findMovedWord(place, lines) {
 	const before = start.text[start.offset - 1];
 	const after = start.text[end.offset];
 	if (!word) return null;
-	const pointIn = (line, offset, isStart) => {
-		const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
-		let left = offset;
-		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-			if (left < node.length || (left === node.length && !isStart)) return { node, offset: left };
-			left -= node.length;
-		}
-		return null;
-	};
 	let best = null;
 	for (const line of lines) {
 		const text = line.textContent;
@@ -1613,7 +1627,7 @@ function findMovedWord(place, lines) {
 			const sameAround = (before === undefined && after === undefined) || (before !== undefined && text[i - 1] === before)
 				|| (after !== undefined && text[i + word.length] === after);
 			if (!sameAround) continue;
-			const found = [pointIn(line, i, true), pointIn(line, i + word.length, false)];
+			const found = [pointInLine(line, i, true), pointInLine(line, i + word.length, false)];
 			if (!found[0] || !found[1]) continue;
 			const range = document.createRange();
 			range.setStart(found[0].node, found[0].offset);
@@ -1656,7 +1670,7 @@ window.__macpopupOcr = (message) => {
 // for changes all the time.
 function updateOcrWebsocket() {
 	const settings = getSettings();
-	const connected = readsOcr(settings) && !!settings.ocrUseWebsocket && !state.paused && [...sockets.values()].some((socket) => socket.state === 1);
+	const connected = matchesWebsocketLines(settings) && !state.paused && [...sockets.values()].some((socket) => socket.state === 1);
 	if (connected === ocr.websocketConnected) return;
 	ocr.websocketConnected = connected;
 	nativeCall('ocr', { action: 'websocket', connected }).catch(() => {});
@@ -1676,10 +1690,11 @@ function ocrWebsocketLine(rawText) {
 	logOcrDebug({ type: 'line', text, received: rawText });
 	if (ocr.line !== null) ocr.earlierLines = [...ocr.earlierLines, ocr.line].slice(-Math.max(1, settings.ocrEarlierLines));
 	ocr.line = text;
-	if (!readsOcr(settings) || !settings.ocrUseWebsocket) return;
+	if (!matchesWebsocketLines(settings)) return;
 	ocr.awaitingLine = true;
-	// While the game is paused, its window doesn't change: the text stays, and the window is read again for the line.
-	if (gamepad.pausing) {
+	// While the game is paused, its window doesn't change: the text stays, and the window is read again for the line
+	// (in the OCR overlay; the Floating Window's reading waits for the line as usual).
+	if (gamepad.pausing && settings.ocrMode) {
 		void readOcrNow();
 		return;
 	}
@@ -1710,7 +1725,7 @@ function scanOcr(x, y, mods, lineElement) {
 
 // Game controllers (Gamepads.swift). The host sends the held controls by GameController's names ("Button A",
 // "Direction Pad Left", "Left Thumbstick Up"). The controller scan key's buttons give the text controller focus: the
-// D-pad (or a stick) then moves through the text box or OCR Mode text until they're pressed again. It moves by
+// D-pad (or a stick) then moves through the text box or the OCR overlay's text until they're pressed again. It moves by
 // character (a cursor whose word is looked up once it rests) or by word, as Scan resolution says; either way, the
 // popup opens once it rests for gamepadPopupDelay. Popup shortcuts can have buttons too. While the text has controller
 // focus, or a popup with such shortcuts is open, the host holds the controllers, so the game doesn't get their presses.
@@ -1742,7 +1757,7 @@ const gamepad = {
 	pausedFocus: 0,
 	// Counts the times the controller got or lost focus: a move still looking up from before doesn't go on.
 	focusChanges: 0,
-	// OCR Mode when the text got controller focus: switching drops it.
+	// The OCR overlay when the text got controller focus: switching drops it.
 	ocrMode: null,
 };
 
@@ -1757,7 +1772,12 @@ const sameButtons = (a, b) => a.length === b.length && a.every((name) => b.inclu
 const movesByCharacter = () => getSettings().scanResolution !== 'word';
 
 function controllerHotkeys() {
-	return (getSettings().hotkeys ?? []).filter(({ enabled, buttons }) => enabled && Array.isArray(buttons) && buttons.length > 0);
+	return popupHotkeys().filter(({ buttons }) => Array.isArray(buttons) && buttons.length > 0);
+}
+
+/** The popup shortcuts that are on, with an action MacPopup supports (see popupHotkeyActions). */
+function popupHotkeys() {
+	return (getSettings().hotkeys ?? []).filter(({ enabled, action }) => enabled && popupHotkeyActions.has(action));
 }
 
 // Settings → Scanning → Pause and scan shortcut: the game is paused until it's pressed again (togglePausedScan).
@@ -1849,11 +1869,7 @@ function setControllerFocus(focus) {
 		return;
 	}
 	if (focus) {
-		if (controllerChars().length === 0) {
-			logOcrEvent('no text to look up', ocrTextState());
-		showToast('No text to look up');
-			return;
-		}
+		if (!hasControllerText()) return;
 		gamepad.focus = true;
 		gamepad.ocrMode = !!getSettings().ocrMode;
 		void moveController(null);
@@ -1865,8 +1881,16 @@ function setControllerFocus(focus) {
 	updateGamepadHold();
 }
 
+/** Whether there's text for the controller to move in, telling the user when there isn't. */
+function hasControllerText() {
+	if (controllerChars().length > 0) return true;
+	logOcrEvent('no text to look up', ocrTextState());
+	showToast('No text to look up');
+	return false;
+}
+
 /**
- * Controller focus in OCR Mode with Pause the game: the game is paused at once, and its window read as it is then,
+ * Controller focus in the OCR overlay with Pause the game: the game is paused at once, and its window read as it is then,
  * even if the text was still changing (e.g. drawn a character at a time), so the controller starts on what's on screen.
  * Moves meanwhile wait for the reading.
  */
@@ -1884,9 +1908,7 @@ async function focusPaused() {
 	const queued = gamepad.queued;
 	gamepad.queued = null;
 	if (!gamepad.focus) return;
-	if (controllerChars().length === 0) {
-		logOcrEvent('no text to look up', ocrTextState());
-		showToast('No text to look up');
+	if (!hasControllerText()) {
 		setControllerFocus(false);
 		return;
 	}
@@ -1896,7 +1918,7 @@ async function focusPaused() {
 }
 
 /**
- * The pause and scan shortcut: pauses the game and, in OCR Mode, has its window read as it is (as focusPaused does),
+ * The pause and scan shortcut: pauses the game and, in the OCR overlay, has its window read as it is (as focusPaused does),
  * so that whatever's on screen can be hovered over; pressed again (or once you switch to another app, see
  * GamePause.onSwitchAway), closes the popups and lets the game go on.
  */
@@ -1947,7 +1969,7 @@ function holdDirection(direction) {
 
 // The text
 
-/** The lines the controller moves through: OCR Mode's text, or the text box's. */
+/** The lines the controller moves through: the OCR overlay's text, or the text box's. */
 function controllerLines() {
 	if (getSettings().ocrMode) {
 		// Not ocr.covered: that's about where the pointer is, which the controller doesn't use.
@@ -1984,7 +2006,7 @@ const charRect = (char) => charRange(char).getBoundingClientRect();
 
 const isVerticalLine = (line) => (line.classList.contains('ocr-line') ? line.style.writingMode === 'vertical-rl' : !!getSettings().displayVertical);
 
-/** Where the controller starts: the first character of the text box's newest line, or of firstOcrLine in OCR Mode. */
+/** Where the controller starts: the first character of the text box's newest line, or of firstOcrLine in the OCR overlay. */
 function firstIndex(chars) {
 	if (getSettings().ocrMode) return Math.max(0, chars.findIndex((char) => char.line === firstOcrLine(chars)));
 	const newest = chars[getSettings().reverseLineOrder ? 0 : chars.length - 1];
@@ -2290,7 +2312,7 @@ function applySettings(settings) {
 		state.renderKey = renderKey;
 		rerenderLines();
 	}
-	// It doesn't scroll while it's hidden in OCR mode, which keeps adding lines.
+	// It doesn't scroll while it's hidden by the OCR overlay, which keeps adding lines.
 	if (atEnd || shown) scrollToEnd();
 	syncSockets();
 	updateOcrWebsocket();

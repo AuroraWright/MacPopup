@@ -14,7 +14,7 @@ enum ScreenCapture {
         try await limited { try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) }
     }
 
-    /// ScreenCaptureKit's calls can, rarely, never return (once in OCR mode, which then stopped reading for good, since
+    /// ScreenCaptureKit's calls can, rarely, never return (once while reading with OCR, which then stopped for good, since
     /// it waits for each capture). This gives up on `operation` after `seconds` with an error. It's left running, as it may
     /// not stop when cancelled, and what it returns then is dropped.
     fileprivate static func limited<T>(seconds: Double = 5, _ operation: @escaping () async throws -> T) async throws -> T {
@@ -43,10 +43,10 @@ enum ScreenCapture {
         }
 
         func resume(with result: Result<T, Error>) {
-            lock.lock()
-            let continuation = continuation
-            self.continuation = nil
-            lock.unlock()
+            let continuation = lock.withLock {
+                defer { self.continuation = nil }
+                return self.continuation
+            }
             continuation?.resume(with: result)
         }
     }
@@ -91,7 +91,7 @@ extension NSScreen {
     }
 }
 
-/// One ScreenCaptureKit stream, for a picture that's captured often (screen OCR mode's checks for changes). A screenshot
+/// One ScreenCaptureKit stream, for a picture that's captured often (OCR's checks for changes). A screenshot
 /// each time makes the system check the permission and update its recording indicator for every capture (tccd,
 /// ControlCenter, systemstatusd and replayd took about half a core between them at 10 a second); a stream does that once,
 /// and only sends a picture when it changed.
@@ -129,7 +129,11 @@ final class CaptureStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
 
     func stop() {
         lock.withLock { stopped = true }
-        Task { [stream] in try? await stream!.stopCapture() }
+        // The stream keeps its output: removing it lets both go.
+        Task { [stream, self] in
+            try? await stream!.stopCapture()
+            try? stream!.removeStreamOutput(self, type: .screen)
+        }
     }
 
     /// The latest picture: nil until the first one came.

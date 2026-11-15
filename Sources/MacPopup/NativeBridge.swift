@@ -11,7 +11,7 @@ protocol BridgeHost: AnyObject {
     func overlayMenuBarHeight() -> Double
     func setOverlayVisible(_ visible: Bool)
     func snapshotOverlay() async throws -> Data
-    /// The window being read in screen OCR mode, or nil when there isn't one.
+    /// The window being read by the OCR overlay, or nil when there isn't one.
     /// - Parameter fullResolution: At the display's scale, or else at 1x.
     func ocrWindowScreenshot(fullResolution: Bool) async throws -> CGImage?
     func simulateMouse(x: Double, y: Double, shift: Bool)
@@ -99,7 +99,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
                let data = host?.bufferedScreenshot(sentence: sentence, format: format, quality: quality, fullResolution: fullResolution) {
                 return data.base64EncodedString()
             }
-            // In screen OCR mode, only the window being read; otherwise the display the overlay is on.
+            // With the OCR overlay, only the window being read; otherwise the display the overlay is on.
             if let image = try await host?.ocrWindowScreenshot(fullResolution: fullResolution) {
                 return try ScreenCapture.encode(image, format: format, quality: quality).base64EncodedString()
             }
@@ -150,12 +150,12 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "sentenceLine":
             host?.noteSentenceLine(
                 body["text"] as? String ?? "", age: (body["age"] as? NSNumber)?.doubleValue ?? 0, settled: body["settled"] as? Bool ?? false,
-                breaks: Set((body["breaks"] as? [NSNumber] ?? []).map(\.intValue))
+                breaks: Self.paragraphBreaks(body)
             )
             return nil
         case "textBoxLine":
             return host?.noteTextBoxLine(
-                body["text"] as? String ?? "", fromOCR: body["ocr"] as? Bool ?? false, breaks: Set((body["breaks"] as? [NSNumber] ?? []).map(\.intValue))
+                body["text"] as? String ?? "", fromOCR: body["ocr"] as? Bool ?? false, breaks: Self.paragraphBreaks(body)
             ) ?? [:]
         case "gamePause":
             // A popup opened or closed (see updateGamePause in overlay.js); replies once the game is frozen.
@@ -209,9 +209,6 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
                 shift: body["shift"] as? Bool ?? false
             )
             return ["ignoresMouseEvents": host.overlayIgnoresMouseEvents]
-        case "debugPauseHelper":
-            guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil else { throw AppError("Unavailable") }
-            return await GamePause.shared.debugHelper(freeze: (body["freeze"] as? [NSNumber])?.map(\.int32Value))
         case "debugSentenceAudio":
             guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
                 throw AppError("Unavailable")
@@ -261,6 +258,18 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             ]
         }
         return ["status": status, "body": String(decoding: data, as: UTF8.self)]
+    }
+
+    /// Where a settled reading's paragraphs start, in characters of its normalized text (see ShownLines.note), from its
+    /// rows' texts (`rows`) and the indices of the rows that start one (`breaks`, see paragraphBreaks in ocr-layer.js).
+    private static func paragraphBreaks(_ body: [String: Any]) -> Set<Int> {
+        let starts = Set((body["breaks"] as? [NSNumber] ?? []).map(\.intValue))
+        var breaks = Set<Int>(), count = 0
+        for (index, row) in (body["rows"] as? [String] ?? []).enumerated() {
+            if starts.contains(index) { breaks.insert(count) }
+            count += ShownLines<Void>.normalized(row).count
+        }
+        return breaks
     }
 }
 

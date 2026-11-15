@@ -15,9 +15,15 @@ let package = Package(
             path: "Sources/LiveText",
             linkerSettings: [.linkedFramework("VisionKit")]
         ),
+        // What the engines recognized lines of recent readings as (see LineCache), shared by ScreenAI, OneOCR and OCREngines.
+        .target(
+            name: "OCRLineCache",
+            path: "Sources/OCRLineCache"
+        ),
         // Screen AI OCR (Chrome's OCR models, converted to Core ML by scripts/convert-screenai.py).
         .target(
             name: "ScreenAI",
+            dependencies: ["OCRLineCache"],
             path: "Sources/ScreenAI"
         ),
         // Runs Screen AI on image files (for checking the port against the C++ one).
@@ -37,7 +43,7 @@ let package = Package(
         ),
         .target(
             name: "OneOCR",
-            dependencies: ["OneOCRKernels"],
+            dependencies: ["OneOCRKernels", "OCRLineCache"],
             path: "Sources/OneOCR"
         ),
         // Runs oneocr on image files (for checking the port against the Python reimplementation).
@@ -61,7 +67,7 @@ let package = Package(
         // language), shared with the iOS app.
         .target(
             name: "OCREngines",
-            dependencies: ["ScreenAI", "OneOCR", "CurlImpersonate"],
+            dependencies: ["ScreenAI", "OneOCR", "CurlImpersonate", "OCRLineCache"],
             path: "Sources/OCREngines"
         ),
         // What MacPopup and its pause helper say to each other over XPC.

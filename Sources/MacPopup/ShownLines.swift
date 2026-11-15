@@ -143,13 +143,8 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         return String(shown[start...])
     }
 
-    /// Dots, which OCR often reads with one more or fewer, or misses.
-    private static func isDot(_ character: Character) -> Bool {
-        "・･.．…‥·".contains(character)
-    }
-
     private static func undotted(_ text: String) -> String {
-        text.filter { !isDot($0) }
+        text.filter { !OCRText.isDot($0) }
     }
 
     /// Where the earlier reading `old` ends within `new`, in characters, allowing for differences in how it was read.
@@ -158,17 +153,18 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     private static func end(of old: String, in new: String) -> (end: Int, edits: Int) {
         let a = Array(old), b = Array(new)
         guard !a.isEmpty, !b.isEmpty else { return (0, a.count) }
-        let cost = { (character: Character) in isDot(character) ? 0 : 1 }
+        let aDots = a.map(OCRText.isDot), bDots = b.map(OCRText.isDot)
         // Levenshtein distance between `old` and every start of `new`, one character of `old` at a time.
         var row = [0]
-        for character in b { row.append(row[row.count - 1] + cost(character)) }
-        for x in a {
+        for isDot in bDots { row.append(row[row.count - 1] + (isDot ? 0 : 1)) }
+        for (i, x) in a.enumerated() {
+            let cost = aDots[i] ? 0 : 1
             var diagonal = row[0]
-            row[0] += cost(x)
+            row[0] += cost
             for j in 1...b.count {
                 let above = row[j]
-                let substitution = x == b[j - 1] || (isDot(x) && isDot(b[j - 1])) ? 0 : 1
-                row[j] = Swift.min(diagonal + substitution, above + cost(x), row[j - 1] + cost(b[j - 1]))
+                let substitution = x == b[j - 1] || (aDots[i] && bDots[j - 1]) ? 0 : 1
+                row[j] = Swift.min(diagonal + substitution, above + cost, row[j - 1] + (bDots[j - 1] ? 0 : 1))
                 diagonal = above
             }
         }

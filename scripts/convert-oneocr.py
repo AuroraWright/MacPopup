@@ -2,7 +2,7 @@
 """Converts oneocr's models (the OCR of the Windows Snipping Tool) for MacPopup's "OneOCR" engine.
 
 The models are Microsoft's and can't be redistributed, so they are converted on your machine and packed into a zip
-that MacPopup loads (Settings > OCR Mode > OneOCR models > Load).
+that MacPopup loads (Settings > OCR > OneOCR models > Load).
 
 The input is the folder of decrypted models: config.json next to the Model_Edge folder (for example the output of
 the oneocr_native project's `python -m oneocr_native.extract_models`). This script doesn't decrypt anything.
@@ -492,7 +492,7 @@ def main():
                     z.write(path, path.relative_to(root).as_posix())
         partial.replace(output)
     print(f"Wrote {output}")
-    print("In MacPopup, choose Settings > OCR Mode > OneOCR models > Load, and pick this file.")
+    print("In MacPopup, choose Settings > OCR > OneOCR models > Load, and pick this file.")
 
 
 if __name__ == "__main__":

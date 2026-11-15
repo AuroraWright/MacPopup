@@ -126,7 +126,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     /// Whether any area changed clearly (or the areas did).
     private static func differs(_ a: [[UInt8]], _ b: [[UInt8]]) -> Bool {
         guard a.count == b.count else { return true }
-        // As MacPopup's OCR mode (OCRController.differs): more than the threshold's share of an area's pixels changed
+        // As MacPopup's OCR (OCRController.differs): more than the threshold's share of an area's pixels changed
         // clearly (by more than 40 of 255), so a blinking cursor or slight animation doesn't count.
         let threshold = SharedFrame.changeThreshold / 100
         return zip(a, b).contains { x, y in

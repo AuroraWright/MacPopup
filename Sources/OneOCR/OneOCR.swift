@@ -2,6 +2,7 @@ import Accelerate
 import CoreGraphics
 import CoreML
 import Foundation
+import OCRLineCache
 
 /// OneOCR, the OCR of Windows' Snipping Tool: its text detector, script and layout classifiers and line recognizers,
 /// converted to Core ML by scripts/convert-oneocr.py, with the original's pre- and post-processing reimplemented so

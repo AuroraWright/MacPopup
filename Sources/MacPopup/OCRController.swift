@@ -4,7 +4,7 @@ import OCREngines
 import ScreenCaptureKit
 import UniformTypeIdentifiers
 
-/// Screen OCR mode: instead of showing the text box, MacPopup reads the text of another app's window
+/// OCR: MacPopup reads the text of another app's window
 /// with the engine chosen in Settings → OCR (Live Text by default) and lays an invisible copy of it
 /// over the window (see web/src/lib/ocr-layer.js), so hovering the window's own text opens popups.
 /// Without a captured window (Settings → General), it reads the whole screen the overlay is on instead,
@@ -76,6 +76,10 @@ final class OCRController {
         /// It had more looks than are kept (e.g. a continuous animation): any change there is left out until then, or
         /// until input meant for the game (see gameInput), which could bring up text there.
         var ignoredUntil: Date?
+
+        func isIgnored(at now: Date) -> Bool {
+            ignoredUntil.map { $0 > now } == true
+        }
     }
     /// Per area, the thumbnail blocks learned as animated, by index (see changedBlocks).
     private var animatedBlocks: [[Int: AnimatedBlock]] = []
@@ -117,18 +121,22 @@ final class OCRController {
         isWatching || Date() < watchUntil
     }
 
+    /// How long the window is watched after input or a change (Settings → OCR Overlay → Keep checking after activity
+    /// for), in seconds.
+    private var watchTime: Double { number("ocrMouseWatchTime", 2000) / 1000 }
+
     /// The game was paused (see GamePause) and goes on: like after input, the dialogue is watched for a
     /// while, e.g. for the rest of a line it was drawing when it was read while paused.
     func gameResumed() {
         log("game resumed")
-        watchUntil = max(watchUntil, Date().addingTimeInterval(number("ocrMouseWatchTime", 2000) / 1000))
+        watchUntil = max(watchUntil, Date().addingTimeInterval(watchTime))
         checkSoon = true
     }
 
     /// The window is watched for a while after input (e.g. a click, key or controller button advancing a game's
     /// text, or the cursor moving to it), since the text that brings up takes a moment to appear.
     func inputUsed() {
-        let duration = number("ocrMouseWatchTime", 2000) / 1000
+        let duration = watchTime
         if !isInputActive {
             checkSoon = true
             log("input (\(duration)s)")
@@ -163,7 +171,7 @@ final class OCRController {
         let now = Date()
         var watched = 0
         for area in animatedBlocks.indices {
-            for (index, block) in animatedBlocks[area] where block.ignoredUntil.map({ $0 > now }) == true {
+            for (index, block) in animatedBlocks[area] where block.isIgnored(at: now) {
                 animatedBlocks[area][index]?.ignoredUntil = nil
                 watched += 1
             }
@@ -209,6 +217,8 @@ final class OCRController {
     /// picked again: it doesn't change otherwise. Unused when the resolution is set in Settings.
     private var readingScale: CGFloat?
     private var lastCoverCheck = Date.distantPast
+    /// The last list of windows in front of the target (see windows(inFrontOf:)).
+    private var windowsInFront: (window: CGWindowID, time: Date, list: [WindowInfo])?
     private var isCursorCovered = false
     /// The apps whose windows cover what's read of the window: it's not read until it can be seen (see coveringApps).
     /// Nil when it's not covered.
@@ -329,8 +339,11 @@ final class OCRController {
         }
     }
 
-    func setEnabled(_ enabled: Bool) {
-        SettingsStore.shared.update(["ocrMode": enabled])
+    /// Whether the OCR overlay is the overlay type (Settings → General → Overlay type).
+    var isOverlayOn: Bool { settings["ocrMode"] as? Bool ?? false }
+
+    func setOverlayOn(_ on: Bool) {
+        SettingsStore.shared.update(["ocrMode": on])
     }
 
     // MARK: Lifecycle
@@ -339,7 +352,7 @@ final class OCRController {
         if CGPreflightScreenCaptureAccess() == false {
             CGRequestScreenCaptureAccess()
         }
-        // Another window may have been saved while OCR mode was off.
+        // Another window may have been saved while OCR was off.
         if let target, !Self.isSaved(target, settings["ocrWindow"] as? [String: Any]) {
             self.target = nil
         }
@@ -406,12 +419,19 @@ final class OCRController {
     /// An app can have hidden windows too, with the same title (e.g. a Windows app in Parallels' Coherence mode has
     /// several untitled ones off screen besides its window). Also windows that aren't on screen now, e.g. a game in its
     /// own full screen space.
-    private static func savedWindow(ownerName: String, title: String) -> WindowInfo? {
+    static func savedWindow(ownerName: String, title: String) -> WindowInfo? {
         let windows = windows(onScreenOnly: false).filter { $0.ownerName == ownerName }
         let titled = windows.filter { $0.title == title }
         return (titled.isEmpty ? windows : titled).max { a, b in
             (a.isOnScreen ? 1 : 0, a.bounds.width * a.bounds.height) < (b.isOnScreen ? 1 : 0, b.bounds.width * b.bounds.height)
         }
+    }
+
+    /// The captured window saved in the settings (Settings → General), found as savedWindow(ownerName:title:) does.
+    static func savedWindow() -> WindowInfo? {
+        guard let saved = SettingsStore.shared.dictionary["ocrWindow"] as? [String: Any], let owner = saved["ownerName"] as? String
+        else { return nil }
+        return savedWindow(ownerName: owner, title: saved["title"] as? String ?? "")
     }
 
     /// Reads `window` instead of the window being read, as a window found again.
@@ -445,7 +465,7 @@ final class OCRController {
 
     // MARK: Choosing the window
 
-    /// Lets the user pick the captured window and its areas. Screen OCR mode stays as it is: the window is also what
+    /// Lets the user pick the captured window and its areas. OCR stays as it is: the window is also what
     /// screenshots for cards capture.
     func selectWindow() {
         guard !isPicking else { return }
@@ -548,7 +568,6 @@ final class OCRController {
     }
 
     /// Returns whether it's done: for readNow, whether the window will be read.
-    @discardableResult
     func handle(_ body: [String: Any]) -> Bool {
         log("page: \(body["action"] ?? "")\(body["connected"].map { " \($0)" } ?? "")")
         switch body["action"] as? String {
@@ -609,7 +628,7 @@ final class OCRController {
         var alpha: Double
     }
 
-    static func windowInfo(_ dictionary: [String: Any]) -> WindowInfo? {
+    private static func windowInfo(_ dictionary: [String: Any]) -> WindowInfo? {
         guard let id = dictionary[kCGWindowNumber as String] as? CGWindowID,
               let boundsDictionary = dictionary[kCGWindowBounds as String] as? NSDictionary,
               let bounds = CGRect(dictionaryRepresentation: boundsDictionary) else { return nil }
@@ -827,12 +846,16 @@ final class OCRController {
         // trip to the window server).
         guard Date().timeIntervalSince(lastCoverCheck) > (moved ? 0.1 : 0.5) else { return }
         lastCoverCheck = Date()
-        setCursorCovered(Self.windows(inFrontOf: target.windowID).contains { $0.bounds.contains(point) })
+        setCursorCovered(windows(inFrontOf: target.windowID).contains { $0.bounds.contains(point) })
     }
 
-    /// Other apps' windows in front of the window, except ones that are entirely transparent.
-    private static func windows(inFrontOf window: CGWindowID) -> [WindowInfo] {
-        windows([.optionOnScreenAboveWindow, .excludeDesktopElements], relativeTo: window).filter { $0.alpha > 0 }
+    /// Other apps' windows in front of the window, except ones that are entirely transparent. The list is kept for a
+    /// tenth of a second, as the coverage check and the cursor's ask for it in the same tick.
+    private func windows(inFrontOf window: CGWindowID) -> [WindowInfo] {
+        if let known = windowsInFront, known.window == window, Date().timeIntervalSince(known.time) < 0.1 { return known.list }
+        let list = Self.windows([.optionOnScreenAboveWindow, .excludeDesktopElements], relativeTo: window).filter { $0.alpha > 0 }
+        windowsInFront = (window, Date(), list)
+        return list
     }
 
     /// When other windows cover all but a sliver of the window's part that's read (its areas), so it can't be seen,
@@ -844,7 +867,7 @@ final class OCRController {
         let read = CGRect(x: windowBounds.minX + part.minX * windowBounds.width, y: windowBounds.minY + part.minY * windowBounds.height,
                           width: part.width * windowBounds.width, height: part.height * windowBounds.height)
         guard read.width > 0, read.height > 0 else { return nil }
-        let covering = Self.windows(inFrontOf: target.windowID).filter { !$0.bounds.intersection(read).isEmpty }
+        let covering = windows(inFrontOf: target.windowID).filter { !$0.bounds.intersection(read).isEmpty }
         guard !covering.isEmpty,
               Self.uncoveredArea(of: read, by: covering.map { $0.bounds.intersection(read) }) < read.width * read.height * 0.05 else { return nil }
         return covering.reduce(into: []) { apps, window in if !apps.contains(window.ownerName) { apps.append(window.ownerName) } }
@@ -1020,11 +1043,14 @@ final class OCRController {
                 finishReading(lastImage, frame: lastImageFrame, areas: lastImageAreas, started: Date(), extra: waited.merging(["accepted": true]) { $1 })
                 return
             }
+            // The window as it looks now, captured once for both checks below.
+            var current: Frame?
             if !sawChange {
                 guard let (_, frame) = await capture(scale: Self.comparisonScale) else {
                     keepCue()
                     return
                 }
+                current = frame
                 if let last = lastRecognizedFrame, differs(frame, last, only: [0]) {
                     sawChange = true
                     previous = nil
@@ -1032,13 +1058,13 @@ final class OCRController {
                     sawChange = true
                 }
             }
-            // How the window looked before this reading, to wait for it to change after it (see below).
-            let before = sawChange ? await capture(scale: Self.comparisonScale)?.1 : nil
             // The reference for changes once the round ends: the window as it was read, not as it is after (a reading
             // can take a while), so that what changes meanwhile (e.g. the next line appearing as the old one's gone) is
             // still read.
-            var readFrame = before
+            var readFrame = current
             if readFrame == nil { readFrame = await capture(scale: Self.comparisonScale)?.1 }
+            // How the window looked before this reading, to wait for it to change after it (see below).
+            let before = sawChange ? readFrame : nil
             let started = Date()
             guard let image = await captureForReading() else {
                 keepCue()
@@ -1104,16 +1130,13 @@ final class OCRController {
         }
     }
 
-    /// A line's text as compared to tell whether it's still changing, leaving out what OCR reads inconsistently:
-    /// - A dash (a thin line) is read as any of several characters, or missed, so a run of them counts as one, and a
-    ///   run at the end of the line is dropped.
-    /// - Dots are read in varying numbers, or missed, so they're dropped.
-    /// - A symbol at the end is usually the page's "next" icon, which often blinks (▷, ■), so it's dropped too.
+    /// A line's text as compared to tell whether it's still changing, leaving out what OCR reads inconsistently (see
+    /// OCRText): dots are dropped, a run of dashes counts as one, and dashes or the "next" icon at the end are dropped.
     nonisolated static func settleKey(_ text: String) -> String {
         var key = ""
         var last: Character?
-        for character in text where !"・･.．…‥·".contains(character) {
-            let mark: Character? = "-‐‑–—―─━ー一－".contains(character) ? "—" : nil
+        for character in text where !OCRText.isDot(character) {
+            let mark: Character? = OCRText.isDash(character) ? "—" : nil
             if let mark {
                 if last != mark { key.append(mark) }
                 last = mark
@@ -1122,15 +1145,8 @@ final class OCRController {
                 last = character
             }
         }
-        while let end = key.last, end == "—" || end.isWhitespace || isSymbol(end) { key.removeLast() }
+        while let end = key.last, end == "—" || OCRText.isNextIcon(end) { key.removeLast() }
         return key
-    }
-
-    /// Whether a character is a symbol (Unicode's So and Sm: shapes, arrows, icons). A page's "next" icon is read as
-    /// one, while dialogue text rarely ends with one.
-    nonisolated static func isSymbol(_ character: Character) -> Bool {
-        guard let category = character.unicodeScalars.first?.properties.generalCategory else { return false }
-        return category == .otherSymbol || category == .mathSymbol
     }
 
     /// Waits until `deadline`, or until the dialogue looks different from `frame` (checked at the check interval; any
@@ -1239,7 +1255,7 @@ final class OCRController {
                     self.pendingCue = .now
                 } else if self.pendingCue == nil {
                     self.pendingCue = .retry
-                    self.watchUntil = max(self.watchUntil, Date().addingTimeInterval(self.number("ocrMouseWatchTime", 2000) / 1000))
+                    self.watchUntil = max(self.watchUntil, Date().addingTimeInterval(self.watchTime))
                 }
                 return
             }
@@ -1339,7 +1355,7 @@ final class OCRController {
             checkScale = Self.captureScale > 1 && readingScale == nil
             scale = checkScale ? Self.captureScale : readingScale ?? Self.captureScale
         }
-        guard let (image, _) = await capture(scale: scale) else { return nil }
+        guard let image = await captureImage(scale: scale) else { return nil }
         if checkScale, let detail = GrayImage(image)?.hasFineDetail {
             readingScale = detail ? Self.captureScale : 1
             log("drawn at \(detail ? "full" : "1x") resolution: reading at \(readingScale!)x")
@@ -1531,7 +1547,7 @@ final class OCRController {
         guard texts != watchedTexts else { return }
         watchedTexts = texts
         continuationRereads = 0
-        watchUntil = Date().addingTimeInterval(number("ocrMouseWatchTime", 2000) / 1000)
+        watchUntil = Date().addingTimeInterval(watchTime)
     }
 
     /// What reads the text (Settings → OCR → Text recognition engine).
@@ -1558,7 +1574,7 @@ final class OCRController {
         }
     }
 
-    /// The engine when OCR mode started or it last changed.
+    /// The engine when OCR started or it last changed.
     private var startedEngine: Engine?
 
     private var engine: Engine {
@@ -1575,7 +1591,7 @@ final class OCRController {
         language == "ja" && settings["ocrStripFurigana"] as? Bool ?? true
     }
 
-    /// The language, stripsFurigana and cloud engine when OCR mode started or they last changed.
+    /// The language, stripsFurigana and cloud engine when OCR started or they last changed.
     private var startedLanguage: String?
     private var startedStripsFurigana: Bool?
     private var startedCloudEngine: CloudOCR??
@@ -1606,9 +1622,9 @@ final class OCRController {
     private var crashNotice: String?
 
     /// Loading an engine's models can crash MacPopup (on macOS 27, PP-OCRv6 Manga's detector made Apple's GPU code
-    /// abort), and since the engine loads as OCR mode starts, it would crash at every launch. So the engine is saved
+    /// abort), and since the engine loads as OCR starts, it would crash at every launch. So the engine is saved
     /// while it loads: if it's still saved at the next warm-up, it crashed, and it's loaded on the CPU from then on
-    /// (until macOS is updated; every engine with models can run there); if it did so on the CPU too, OCR mode switches
+    /// (until macOS is updated; every engine with models can run there); if it did so on the CPU too, OCR switches
     /// to Live Text. Returns false when the engine is switched.
     private func guardLoading(_ engine: Engine) -> Bool {
         let defaults = SettingsStore.shared.defaults
@@ -1732,11 +1748,16 @@ final class OCRController {
     /// positions in the image wouldn't match the screen. A window that isn't entirely within a display
     /// (moved partly off screen) is captured by itself, since there's no part of a display to capture.
     private func capture(scale: CGFloat) async -> (CGImage, Frame)? {
+        guard let image = await captureImage(scale: scale), let (thumbnails, widths) = thumbnails(of: image) else { return nil }
+        return (image, Frame(thumbnails: thumbnails, widths: widths))
+    }
+
+    /// The capture of `capture(scale:)`, without thumbnails (for reading it).
+    private func captureImage(scale: CGFloat) async -> CGImage? {
         do {
-            guard let image = try await captureImage(part: capturedPart, scale: scale),
-                  let (thumbnails, widths) = thumbnails(of: image) else { return nil }
+            guard let image = try await captureImage(part: capturedPart, scale: scale) else { return nil }
             captureFailures = 0
-            return (image, Frame(thumbnails: thumbnails, widths: widths))
+            return image
         } catch {
             log("capture failed: \(error)")
             // A single failure can happen while windows change (e.g. switching spaces); report it
@@ -1816,7 +1837,7 @@ final class OCRController {
         do {
             let stream = try CaptureStream(filter: filter, configuration: configuration, key: key)
             try await stream.start()
-            // OCR mode may have stopped meanwhile (then nothing would stop the stream).
+            // OCR may have stopped meanwhile (then nothing would stop the stream).
             guard isEnabled, !Task.isCancelled else {
                 stream.stop()
                 return nil
@@ -1877,7 +1898,7 @@ final class OCRController {
 
     /// The captured window (Settings → General), whole, at its display's resolution or at 1x, for the
     /// `{screenshot}` Anki marker: only that window, without other windows in front of it or the overlay.
-    /// Also when screen OCR mode is off. Nil when no window is set or it isn't on screen.
+    /// Also when OCR is off. Nil when no window is set or it isn't on screen.
     func windowScreenshot(fullResolution: Bool) async throws -> CGImage? {
         guard let saved = settings["ocrWindow"] as? [String: Any], let ownerName = saved["ownerName"] as? String else { return nil }
         let title = saved["title"] as? String ?? ""
@@ -1894,24 +1915,13 @@ final class OCRController {
 
     /// Small grayscale copies of the watched areas, the same size whatever the capture scale.
     private func thumbnails(of image: CGImage) -> ([[UInt8]], [Int])? {
-        thumbnailAreas(in: image).flatMap { Self.thumbnails(of: image, areas: $0) }
-    }
-
-    /// Each area's rectangle in `image`, in pixels, and its size in points.
-    private func thumbnailAreas(in image: CGImage) -> [(rect: CGRect, pointSize: CGSize)]? {
         guard let bounds else { return nil }
-        return areas.map {
-            (pixelRect(of: $0, in: image), CGSize(width: $0.width * bounds.width, height: $0.height * bounds.height))
-        }
-    }
-
-    /// - Parameter areas: As given by `thumbnailAreas(in:)`.
-    nonisolated private static func thumbnails(of image: CGImage, areas: [(rect: CGRect, pointSize: CGSize)]) -> ([[UInt8]], [Int])? {
         var result: [[UInt8]] = []
         var widths: [Int] = []
-        for (rect, pointSize) in areas {
-            guard let crop = image.cropping(to: rect) else { return nil }
-            let factor = thumbnailLongSide / max(pointSize.width, pointSize.height, 1)
+        for area in areas {
+            guard let crop = image.cropping(to: pixelRect(of: area, in: image)) else { return nil }
+            let pointSize = CGSize(width: area.width * bounds.width, height: area.height * bounds.height)
+            let factor = Self.thumbnailLongSide / max(pointSize.width, pointSize.height, 1)
             let width = max(1, Int(pointSize.width * factor)), height = max(1, Int(pointSize.height * factor))
             var pixels = [UInt8](repeating: 0, count: width * height)
             let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
@@ -1945,8 +1955,10 @@ final class OCRController {
     }
 
     private static let block = 8
+    /// How many gray levels a thumbnail pixel must differ by to count as changed.
+    private static let clearChange = 40
     /// The thumbnails' long side, in pixels (see thumbnails).
-    nonisolated private static let thumbnailLongSide: CGFloat = 320
+    private static let thumbnailLongSide: CGFloat = 320
 
     /// How many pixels of two thumbnails of an area are drawn on its background in either: clearly lighter or darker
     /// than the commonest shade of each.
@@ -1958,7 +1970,7 @@ final class OCRController {
         }
         let (first, second) = (background(a), background(b))
         var drawn = 0
-        for index in a.indices where abs(Int(a[index]) - first) > 40 || abs(Int(b[index]) - second) > 40 {
+        for index in a.indices where abs(Int(a[index]) - first) > Self.clearChange || abs(Int(b[index]) - second) > Self.clearChange {
             drawn += 1
         }
         return drawn
@@ -1986,7 +1998,7 @@ final class OCRController {
             for row in 0..<height {
                 for column in 0..<width {
                     let index = row * width + column
-                    guard abs(Int(x[index]) - Int(y[index])) > 40 else { continue }
+                    guard abs(Int(x[index]) - Int(y[index])) > Self.clearChange else { continue }
                     let cell = (row / block) * columns + column / block
                     counts[cell] += 1
                     if counts[cell] == 5 { changed.insert(cell) }
@@ -2017,7 +2029,7 @@ final class OCRController {
         for (area, blocks) in found.enumerated() where !blocks.isEmpty {
             let width = first.widths[area], height = first.thumbnails[area].count / max(width, 1)
             let total = ((width + Self.block - 1) / Self.block) * ((height + Self.block - 1) / Self.block)
-            var ignored = animatedBlocks[area].values.filter { $0.ignoredUntil.map { $0 > now } == true }.count
+            var ignored = animatedBlocks[area].values.filter { $0.isIgnored(at: now) }.count
             var (added, newlyIgnored) = (0, 0)
             for index in blocks {
                 var block = animatedBlocks[area][index] ?? AnimatedBlock()
@@ -2037,7 +2049,7 @@ final class OCRController {
                         }
                     }
                 }
-                if overflowed, block.ignoredUntil.map({ $0 > now }) != true, !nearText.contains(index),
+                if overflowed, !block.isIgnored(at: now), !nearText.contains(index),
                    Double(ignored + 1) <= Double(total) * 0.1 {
                     block.ignoredUntil = now.addingTimeInterval(Self.animatedIgnoreTime)
                     ignored += 1
@@ -2068,7 +2080,7 @@ final class OCRController {
     private static func looksAlike(_ a: [UInt8], _ b: [UInt8]) -> Bool {
         guard a.count == b.count else { return false }
         var different = 0
-        for index in a.indices where abs(Int(a[index]) - Int(b[index])) > 40 {
+        for index in a.indices where abs(Int(a[index]) - Int(b[index])) > Self.clearChange {
             different += 1
             if different >= 5 { return false }
         }
@@ -2085,7 +2097,7 @@ final class OCRController {
             if let known = decided[index] { return known }
             var result = false
             if let block = animatedBlocks[area][index] {
-                if block.ignoredUntil.map({ $0 > now }) == true {
+                if block.isIgnored(at: now) {
                     result = true
                 } else {
                     let pixels = Self.blockPixels(thumbnail, width: width, block: index)
@@ -2123,7 +2135,7 @@ final class OCRController {
             var box = decoded.box
             // Leave out a symbol at the end (the page's "next" icon), so its blinking can be learned as animation.
             let chars = decoded.chars
-            let kept = chars.reversed().drop { $0.text.allSatisfy { $0.isWhitespace || Self.isSymbol($0) } }
+            let kept = chars.reversed().drop { $0.text.allSatisfy(OCRText.isNextIcon) }
             if !chars.isEmpty, kept.count < chars.count {
                 guard let first = kept.first else { return nil }
                 box = kept.dropFirst().reduce(first.box) { $0.union($1.box) }
@@ -2188,7 +2200,7 @@ final class OCRController {
             for row in firstRow...lastRow {
                 for column in firstColumn...lastColumn {
                     let index = row * width + column
-                    guard abs(Int(x[index]) - Int(y[index])) > 40, !animated((row / block) * columns + column / block) else { continue }
+                    guard abs(Int(x[index]) - Int(y[index])) > Self.clearChange, !animated((row / block) * columns + column / block) else { continue }
                     changed += 1
                 }
             }
@@ -2217,7 +2229,7 @@ final class OCRController {
             let animated = animation(in: a, area: area)
             let columns = (width + block - 1) / block
             var changed = 0
-            for index in x.indices where abs(Int(x[index]) - Int(y[index])) > 40 {
+            for index in x.indices where abs(Int(x[index]) - Int(y[index])) > Self.clearChange {
                 if animated((index / width / block) * columns + (index % width) / block) { continue }
                 changed += 1
             }

@@ -57,7 +57,7 @@ final class GamepadController: ObservableObject {
     /// Called with a message for the overlay to show (when another app holds a controller).
     var onToast: ((String) -> Void)?
     /// Called when a control of a controller that's set up is pressed or let go, held or not (e.g. to advance a game's
-    /// text: OCR Mode then checks for changes, see OCRController.inputUsed).
+    /// text: OCR then checks for changes, see OCRController.inputUsed).
     var onInput: (() -> Void)?
     /// Whether the overlay is shown: controllers are only held then.
     var overlayVisible = false {
@@ -247,7 +247,7 @@ final class GamepadController: ObservableObject {
     /// How each controller is opened: held while the overlay asks for it (if the overlay is shown and no controller is
     /// being learned), opened just to read it otherwise, and not at all without a layout unless it's being learned.
     private func applyModes() {
-        let hold = holdRequested && overlayVisible && learning == nil
+        let hold = isHeld
         for pad in pads {
             let mode: IOOptionBits?
             if learning?.key == pad.key {
@@ -616,11 +616,8 @@ final class GamepadController: ObservableObject {
 
     /// Saves (or removes, with nil) a model's layout.
     func setLayout(_ layout: GamepadLayout?, for key: String) {
-        var settings = SettingsStore.shared.dictionary
-        var saved = settings["gamepadLayouts"] as? [String: Any] ?? [:]
+        var saved = SettingsStore.shared.dictionary["gamepadLayouts"] as? [String: Any] ?? [:]
         saved[key] = layout?.json
-        settings["gamepadLayouts"] = saved
-        guard let data = try? JSONSerialization.data(withJSONObject: settings), let json = String(data: data, encoding: .utf8) else { return }
-        SettingsStore.shared.update(json: json)
+        SettingsStore.shared.update(["gamepadLayouts": saved])
     }
 }

@@ -119,8 +119,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         // The status line changes if the check finds something else while the menu is open.
         yomitanAPI.check()
         toggleItem.title = overlay.isVisible ? "Hide Overlays" : "Show Overlays"
-        ocrItem.state = ocr.isEnabled ? .on : .off
-        // Hidden when it would do nothing: with one display, or while screen OCR mode keeps the overlay on the
+        ocrItem.state = ocr.isOverlayOn ? .on : .off
+        // Hidden when it would do nothing: with one display, or while the OCR overlay keeps the overlay on the
         // display of the window it reads.
         moveItem.isHidden = NSScreen.screens.count < 2 || overlay.preferredScreen != nil
     }
@@ -130,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     }
 
     @objc private func toggleOCR() {
-        ocr.setEnabled(!ocr.isEnabled)
+        ocr.setOverlayOn(!ocr.isOverlayOn)
     }
 
     @objc private func selectOCRWindow() {

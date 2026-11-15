@@ -1,4 +1,4 @@
-// Screen OCR mode: an invisible copy of the text Live Text (or another OCR engine) found in another
+// The OCR overlay: an invisible copy of the text Live Text (or another OCR engine) found in another
 // app's window, laid over that window so the usual scanning (caret from point, Yomitan's DOM text scanner, highlights) works
 // on it. Each character is an inline-block with the size and position of its box in the window, and
 // its glyph is stretched to fill that box, since Yomitan only accepts points inside the glyph.
@@ -10,6 +10,11 @@
 const SPACE = /\s/u;
 const LINE_BREAK = /[\n\v\f\r\u0085\u2028\u2029]/u;
 const LETTER = /[\p{L}\p{N}]/u;
+
+/** The number of letters and digits in `text`, which correctWithText's quality counts. */
+export function letterCount(text) {
+	return [...text].filter((character) => LETTER.test(character)).length;
+}
 const OPENING = /^[\p{Ps}\p{Pi}]$/u;
 const CLOSING = /^[\p{Pe}\p{Pf}]$/u;
 const BRACKET = /^[\p{Ps}\p{Pe}\p{Pi}\p{Pf}]$/u;
@@ -104,7 +109,7 @@ export function correctWithText(lines, text, minQuality = 0.6) {
 		});
 	});
 	// A reading in parentheses after kanji ("声音(こわね)", as some hooks give furigana) is drawn above the word, if at
-	// all, and OCR mode leaves furigana out: it's skipped for free, and left out when nothing on screen matched it.
+	// all, and OCR leaves furigana out: it's skipped for free, and left out when nothing on screen matched it.
 	const reading = new Int32Array(target.length).fill(-1);
 	for (let k = 1; k < target.length; k++) {
 		if (!/^[(（]$/u.test(target[k]) || !/\p{scx=Han}/u.test(target[k - 1])) continue;
@@ -514,13 +519,6 @@ function continuesParagraph(previous, next) {
 	return gap > -size * 0.5 && gap < size * 1.2 && b.x < a.x + a.width && a.x < b.x + b.width;
 }
 
-const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-
-/** The number of non-whitespace characters in `text`, counted the way ShownLines.swift counts them. */
-function characterCount(text) {
-	return [...graphemes.segment(text.replace(/\s/g, ''))].length;
-}
-
 /** Where a row ends: its right edge, or its bottom when it's vertical. */
 function rowEnd(line) {
 	const box = bounds(line.chars);
@@ -555,8 +553,8 @@ export function wrappedReach(lines, reach = { horizontal: 0, vertical: 0 }) {
 }
 
 /**
- * Where new paragraphs start in `lines` (a reading's rows, in reading order), counted in non-whitespace characters
- * (see ShownLines.note). A paragraph starts at a row that doesn't continue the one before (see continuesParagraph),
+ * The indices of the rows in `lines` (a reading's rows, in reading order) that start a new paragraph (see
+ * ShownLines.note). A paragraph starts at a row that doesn't continue the one before (see continuesParagraph),
  * or after a row that ends early: with room left for the next row's first word before where rows wrap (the farthest
  * row in this reading, or `reach`; see wrappedReach). In text written without spaces, the first word is one character.
  */
@@ -567,18 +565,13 @@ export function paragraphBreaks(lines, reach = { horizontal: 0, vertical: 0 }) {
 		vertical: Math.max(reach.vertical, ...ends.filter((_, index) => lines[index].vertical)),
 	};
 	const spaced = lines.some((line) => /\S\s+\S/.test(lineText(line)));
-	const breaks = [];
-	let count = 0;
-	lines.forEach((line, index) => {
+	return lines.flatMap((line, index) => {
 		const previous = lines[index - 1];
-		if (previous) {
-			const size = rowSize(previous);
-			const room = farthest[previous.vertical ? 'vertical' : 'horizontal'] - ends[index - 1];
-			if (!continuesParagraph(previous, line) || room > firstWordSize(line, spaced) + size * 0.5) breaks.push(count);
-		}
-		count += characterCount(lineText(line));
+		if (!previous) return [];
+		const size = rowSize(previous);
+		const room = farthest[previous.vertical ? 'vertical' : 'horizontal'] - ends[index - 1];
+		return !continuesParagraph(previous, line) || room > firstWordSize(line, spaced) + size * 0.5 ? [index] : [];
 	});
-	return breaks;
 }
 
 /** The length of a row's first word: up to its first space, or its first character in text written without spaces. */

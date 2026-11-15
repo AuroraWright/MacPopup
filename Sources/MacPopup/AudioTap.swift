@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreAudio
 import Darwin
+import PauseHelperInterface
 
 /// Records what some processes play, with a Core Audio process tap: an app with its helper
 /// processes, or every process but some. Apps often play their sound from another process (WebKit's GPU
@@ -148,7 +149,7 @@ final class AudioTap {
         }
         // Parallels runs the VM as root, so it isn't the helper's child, and the helper is in a folder of
         // the user's, not in Parallels' app.
-        isParallelsApp = bundle.flatMap { Bundle(path: $0)?.bundleIdentifier }?.hasPrefix("com.parallels.winapp.") ?? false
+        isParallelsApp = PauseHelper.isParallelsWinApp(bundleID: bundle.flatMap { Bundle(path: $0)?.bundleIdentifier })
         self.queue = queue
         self.onBuffer = onBuffer
         self.bufferFrames = bufferFrames
@@ -221,7 +222,7 @@ final class AudioTap {
     /// The processes to tap: the app's (none until it has played sound, by leaving every process out), or
     /// every one but the app's.
     private func target() -> (exclusive: Bool, objects: [AudioObjectID], summary: String) {
-        let all = Self.audioProcesses()
+        let all = Self.audioProcesses(withBundleIDs: isParallelsApp)
         let app = switch processes {
         case let .app(pid), let .allBut(pid): pid
         }
@@ -267,8 +268,8 @@ final class AudioTap {
     // MARK: Processes
 
     /// Core Audio's objects for the processes that have played or recorded sound, with their process IDs
-    /// and bundle IDs.
-    private static func audioProcesses() -> [(object: AudioObjectID, pid: pid_t, bundleID: String)] {
+    /// and, `withBundleIDs`, bundle IDs (each one more call to coreaudiod; else empty).
+    private static func audioProcesses(withBundleIDs: Bool) -> [(object: AudioObjectID, pid: pid_t, bundleID: String)] {
         var address = address(kAudioHardwarePropertyProcessObjectList)
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr else { return [] }
@@ -277,7 +278,7 @@ final class AudioTap {
         return objects.compactMap { object in
             var pid: pid_t = -1
             var bundleID = "" as CFString
-            _ = get(object, kAudioProcessPropertyBundleID, &bundleID)
+            if withBundleIDs { _ = get(object, kAudioProcessPropertyBundleID, &bundleID) }
             return get(object, kAudioProcessPropertyPID, &pid) == noErr ? (object, pid, bundleID as String) : nil
         }
     }
@@ -292,20 +293,14 @@ final class AudioTap {
             if parent == app { return true }
             parent = parentPID(parent)
         }
-        if let bundle, let path = executablePath(pid), path.hasPrefix(bundle + "/") { return true }
+        if let bundle, let path = PauseHelper.executablePath(pid), path.hasPrefix(bundle + "/") { return true }
         return false
     }
 
     /// The outermost .app bundle the process's executable is in.
     static func bundlePath(of pid: pid_t) -> String? {
-        guard let path = executablePath(pid), let range = path.range(of: ".app/") else { return nil }
+        guard let path = PauseHelper.executablePath(pid), let range = path.range(of: ".app/") else { return nil }
         return String(path[..<range.lowerBound]) + ".app"
-    }
-
-    static func executablePath(_ pid: pid_t) -> String? {
-        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        return String(cString: buffer)
     }
 
     private static func parentPID(_ pid: pid_t) -> pid_t {

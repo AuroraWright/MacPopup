@@ -15,12 +15,6 @@ import Security
 /// The processes stopped, kept for a helper started again after a crash. (/var/run is emptied when the Mac starts.)
 let stateFile = URL(fileURLWithPath: "/private/var/run/\(PauseHelper.label).json")
 
-func executablePath(_ pid: pid_t) -> String? {
-    var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-    guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-    return String(cString: buffer)
-}
-
 func owner(_ pid: pid_t) -> uid_t? {
     var info = proc_bsdinfo()
     guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) > 0 else { return nil }
@@ -32,7 +26,7 @@ func owner(_ pid: pid_t) -> uid_t? {
 func mayStop(_ pid: pid_t, for user: uid_t) -> Bool {
     guard pid > 1, pid != getpid(), let processOwner = owner(pid) else { return false }
     if user != 0, processOwner == user { return true }
-    return processOwner == 0 && executablePath(pid)?.hasSuffix("/Parallels VM.app/Contents/MacOS/prl_vm_app") == true
+    return processOwner == 0 && PauseHelper.isParallelsVM(pid)
 }
 
 /// The team that signed the helper, which MacPopup must be signed by too (nil when it's signed ad-hoc).
@@ -52,7 +46,8 @@ final class Helper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     // On the queue:
     /// The processes each connection stopped.
     private var stopped: [ObjectIdentifier: Set<pid_t>] = [:]
-    private var connections = 0
+    /// The connections open now (each may be both interrupted and invalidated, so it's counted once).
+    private var connections = Set<ObjectIdentifier>()
     private let requirement: String?
 
     override init() {
@@ -73,12 +68,12 @@ final class Helper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         connection.exportedObject = Session(helper: self, id: id, user: user)
         connection.invalidationHandler = { [weak self] in self?.disconnected(id) }
         connection.interruptionHandler = { [weak self] in self?.disconnected(id) }
-        queue.sync { connections += 1 }
+        queue.sync { _ = connections.insert(id) }
         connection.resume()
         return true
     }
 
-    var isIdle: Bool { queue.sync { connections <= 0 } }
+    var isIdle: Bool { queue.sync { connections.isEmpty } }
 
     func freeze(_ pids: [pid_t], id: ObjectIdentifier, user: uid_t) -> [pid_t] {
         queue.sync {
@@ -101,8 +96,8 @@ final class Helper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     private func disconnected(_ id: ObjectIdentifier) {
         resume(id: id)
         let last = queue.sync {
-            connections -= 1
-            return connections <= 0
+            connections.remove(id)
+            return connections.isEmpty
         }
         if last { exit(0) }
     }

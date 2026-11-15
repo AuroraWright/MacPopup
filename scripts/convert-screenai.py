@@ -2,7 +2,7 @@
 """Converts Chrome's Screen AI OCR models to Core ML for MacPopup's "Screen AI" OCR engine.
 
 The models are Google's and can't be redistributed, so they are converted on your machine from the copy Chrome
-downloads (its "screen_ai" component) and packed into a zip that MacPopup loads (Settings > OCR Mode > Screen AI
+downloads (its "screen_ai" component) and packed into a zip that MacPopup loads (Settings > OCR > Screen AI
 models > Load).
 
 Needs Python 3.10-3.12 with coremltools, ai-edge-litert, flatbuffers and numpy:
@@ -544,7 +544,7 @@ def main():
                     z.write(path, path.relative_to(root).as_posix())
         partial.replace(output)
     print(f"Wrote {output}")
-    print("In MacPopup, choose Settings > OCR Mode > Screen AI models > Load, and pick this file.")
+    print("In MacPopup, choose Settings > OCR > Screen AI models > Load, and pick this file.")
 
 
 if __name__ == "__main__":

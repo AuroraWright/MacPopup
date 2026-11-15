@@ -2,6 +2,7 @@ import Accelerate
 import CoreGraphics
 import CoreML
 import Foundation
+import OCRLineCache
 
 /// Text recognition with PP-OCRv6_manga's models (https://huggingface.co/Kellenok/PP-OCRv6_manga), trained on manga and
 /// anime (Japanese and Chinese) and run with Core ML (converted by scripts/convert-ppocr-manga.py, see

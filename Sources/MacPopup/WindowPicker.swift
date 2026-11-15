@@ -1,6 +1,6 @@
 import AppKit
 
-/// Lets the user click the window to read in screen OCR mode, then optionally drag rectangles over
+/// Lets the user click the window for OCR to read, then optionally drag rectangles over
 /// the parts with text. Covers every display with a transparent window above everything else.
 @MainActor
 final class WindowPicker {

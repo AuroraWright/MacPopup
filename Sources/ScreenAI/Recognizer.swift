@@ -1,6 +1,7 @@
 import Accelerate
 import CoreML
 import Foundation
+import OCRLineCache
 
 // Line recognition: GocrLineRecognizer (line images, chunked model runs, CTC decoding) for every LINE the detector
 // found, run by the MultiPassLineRecognitionMutator: the "und" recognizer first, then, for lines whose language

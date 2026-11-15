@@ -17,7 +17,7 @@ const { ws, global, preferences, console } = iina;
 
 // The connections from this Mac.
 const connections = new Set();
-// The last line, sent to MacPopup when it connects (OCR Mode matches the window's text with it).
+// The last line, sent to MacPopup when it connects (OCR matches the window's text with it).
 let lastLine = null;
 
 function send(connection, message) {

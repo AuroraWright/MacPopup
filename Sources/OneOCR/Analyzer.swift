@@ -1,5 +1,6 @@
 import CoreML
 import Foundation
+import OCRLineCache
 
 // The text analyzer: AuxMltCls (script, handwritten, flipped) and LineLayout (CJK horizontal or vertical) per line,
 // then oneocr's per-image decisions on each line's OCR mode, orientation and layout.
