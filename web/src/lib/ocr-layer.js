@@ -514,6 +514,87 @@ function continuesParagraph(previous, next) {
 	return gap > -size * 0.5 && gap < size * 1.2 && b.x < a.x + a.width && a.x < b.x + b.width;
 }
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/** The number of characters in `text` without its whitespace, as ShownLines.swift counts them. */
+function characterCount(text) {
+	return [...graphemes.segment(text.replace(/\s/g, ''))].length;
+}
+
+/** Where a row ends: its right edge, or its bottom when it's vertical. */
+function rowEnd(line) {
+	const box = bounds(line.chars);
+	return line.vertical ? box.y + box.height : box.x + box.width;
+}
+
+/** A row's font size: its height, or its width when it's vertical. */
+function rowSize(line) {
+	const box = bounds(line.chars);
+	return line.vertical ? box.width : box.height;
+}
+
+/**
+ * How far wrapped rows reach in `lines` (a reading's rows, in reading order), horizontal and vertical, at least as far
+ * as `reach` (the same, from the readings before). A wrapped row is one the next row continues, starting where it did:
+ * how far those reach is how far the text goes before it wraps (a short page's rows may all end before that).
+ */
+export function wrappedReach(lines, reach = { horizontal: 0, vertical: 0 }) {
+	const result = { ...reach };
+	lines.forEach((line, index) => {
+		const next = lines[index + 1];
+		if (!next || !continuesParagraph(line, next)) return;
+		const a = bounds(line.chars);
+		const b = bounds(next.chars);
+		const start = line.vertical ? Math.abs(a.y - b.y) : Math.abs(a.x - b.x);
+		if (start > rowSize(line)) return;
+		const key = line.vertical ? 'vertical' : 'horizontal';
+		result[key] = Math.max(result[key], rowEnd(line));
+	});
+	return result;
+}
+
+/**
+ * Where paragraphs start in `lines` (a reading's rows, in reading order) after the first, in characters of their text
+ * without whitespace (see ShownLines.note): at a row that doesn't continue the one before (see continuesParagraph), or
+ * after one that ends with room for the next row's first word (a character, in text written without spaces) before
+ * where the rows reach: this reading's, or `reach`, wrapped rows' (see wrappedReach).
+ */
+export function paragraphBreaks(lines, reach = { horizontal: 0, vertical: 0 }) {
+	const ends = lines.map(rowEnd);
+	const farthest = {
+		horizontal: Math.max(reach.horizontal, ...ends.filter((_, index) => !lines[index].vertical)),
+		vertical: Math.max(reach.vertical, ...ends.filter((_, index) => lines[index].vertical)),
+	};
+	const spaced = lines.some((line) => /\S\s+\S/.test(lineText(line)));
+	const breaks = [];
+	let count = 0;
+	lines.forEach((line, index) => {
+		const previous = lines[index - 1];
+		if (previous) {
+			const size = rowSize(previous);
+			const room = farthest[previous.vertical ? 'vertical' : 'horizontal'] - ends[index - 1];
+			if (!continuesParagraph(previous, line) || room > firstWordSize(line, spaced) + size * 0.5) breaks.push(count);
+		}
+		count += characterCount(lineText(line));
+	});
+	return breaks;
+}
+
+/** The size of a row's first word along it: up to its first space in text written with spaces, else its first character. */
+function firstWordSize(line, spaced) {
+	const start = line.chars.findIndex((char) => !SPACE.test(char.text));
+	let end = start + 1;
+	if (spaced) while (end < line.chars.length && !SPACE.test(line.chars[end].text)) end++;
+	const box = bounds(line.chars.slice(start, end));
+	return line.vertical ? box.height : box.width;
+}
+
+/** A reading's rows as one text: with a space between them in text that has spaces of its own (a language written with them). */
+export function joinLines(lines) {
+	const texts = lines.map(lineText);
+	return texts.join(texts.some((text) => /\S\s+\S/.test(text)) ? ' ' : '');
+}
+
 /** Groups consecutive lines into paragraphs. Lines matched with the WebSocket line form one paragraph. */
 function groupParagraphs(lines) {
 	const paragraphs = [];
@@ -620,7 +701,7 @@ export function renderLines(container, lines) {
 
 	// Stretch each glyph along the line to the width of its box (letter-spacing counts as part of the
 	// character's rect). Measured all at once so layout happens only once. The spacing goes after the
-	// glyph, so where the text is shown (Highlight recognized text boxes), it's drawn shifted to the middle.
+	// glyph, so where the text is shown (Settings → OCR → Debug), it's drawn shifted to the middle.
 	// Measured unscaled: the container may still be scaled to the window since its last reading (the
 	// rects include that), until the caller scales it for these lines.
 	const transform = container.style.transform;

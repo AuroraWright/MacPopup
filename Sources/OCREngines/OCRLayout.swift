@@ -176,7 +176,8 @@ public enum OCRLayout {
         return ordered
     }
 
-    /// Whether `next` starts where `line` ends, on the same row and at about the same size.
+    /// Whether `next` starts where `line` ends, on the same row and at about the same size: after a gap of up to two
+    /// characters (Japanese puts a full-width space after ！ and ？, which the engine may split a line at).
     private static func continues(_ next: Line, _ line: Line) -> Bool {
         guard next.vertical == line.vertical else { return false }
         let vertical = line.vertical
@@ -188,7 +189,7 @@ public enum OCRLayout {
         guard size > 0, nextSize > 0 else { return false }
         return min(far, nextFar) - max(near, nextNear) >= min(size, nextSize) / 2
             && max(size, nextSize) <= min(size, nextSize) * 1.5
-            && nextStart >= end - size / 2 && nextStart <= end + size
+            && nextStart >= end - size / 2 && nextStart <= end + size * 2
     }
 
     /// A line with one box per character, in window points. The engines give boxes per word (Live Text: single characters

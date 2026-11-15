@@ -1,6 +1,6 @@
 import Foundation
 
-/// With "Highlight recognized text boxes (debug)" on, the page writes each OCR reading and WebSocket line here, one JSON object per
+/// With "Debug" (Settings → OCR) on, the page writes each OCR reading and WebSocket line here, one JSON object per
 /// line (see logOcrDebug in web/src/overlay.js), what happens around them (controller focus, the pause and scan
 /// shortcut), and OCRController and GamePause what they do (what triggers readings, how long they take, the window, the
 /// game being paused), after a session record with the settings: Application Support/MacPopup/ocr-debug.jsonl, or the
@@ -16,7 +16,7 @@ enum OCRDebugLog {
         return folder.appendingPathComponent("ocr-debug.jsonl")
     }
 
-    /// Whether the log is written (Settings → OCR → Highlight recognized text boxes (debug)).
+    /// Whether the log is written (Settings → OCR → Debug).
     @MainActor static var isOn: Bool { SettingsStore.shared.dictionary["ocrShowBoxes"] as? Bool == true }
 
     private static var oldURL: URL { url.deletingLastPathComponent().appendingPathComponent("ocr-debug.old.jsonl") }
@@ -67,7 +67,7 @@ enum OCRDebugLog {
     /// The settings that change how OCR Mode reads and shows text, pauses the game, and what the controller does.
     @MainActor static var ocrSettings: [String: Any] {
         SettingsStore.shared.dictionary.filter { key, _ in
-            key.hasPrefix("ocr") || key.hasPrefix("gamePause") || key.hasPrefix("gamepad") || ["language", "websocketUrls"].contains(key)
+            key.hasPrefix("ocr") || key.hasPrefix("gamePause") || key.hasPrefix("gamepad") || ["language", "websocketUrls", "floatingWindowOCR"].contains(key)
         }
     }
 

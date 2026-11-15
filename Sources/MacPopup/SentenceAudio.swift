@@ -128,22 +128,23 @@ final class SentenceAudioController {
         history.record(processes, minutes: minutes)
     }
 
-    /// A line was shown in the text box or read by OCR, `age` seconds ago.
-    func noteLine(_ text: String, age: Double) {
+    /// A line was shown in the text box or read by OCR, `age` seconds ago. `page` and `breaks`: see ShownLines.note.
+    func noteLine(_ text: String, age: Double, page: Bool, breaks: Set<Int>) {
         let minutes = historyMinutes
-        let text = ShownLines<LineTimes>.normalized(text)
-        guard minutes > 0, !text.isEmpty else { return }
+        guard minutes > 0 else { return }
         let now = GameClock.now
         let shown = now - max(0, age)
         // OCR may notice a change up to one check late and reads it after that, while a WebSocket line arrives as the
         // game shows it.
         let start = shown - (age > 0 ? 0.75 : 0.25)
-        switch lines.note(text, info: { LineTimes(shown: shown, start: start) }) {
+        switch lines.note(text, page: page, breaks: breaks, info: { LineTimes(shown: shown, start: start) }) {
+        case nil:
+            break
         case .again(let index, _):
             lines[index].info.shown = min(lines[index].info.shown, shown)
             lines[index].info.start = min(lines[index].info.start, start)
-        case .new:
-            sentenceAudioLog(String(format: "line shown %.2f s ago: %@", now - shown, text))
+        case .new(let index):
+            sentenceAudioLog(String(format: "line shown %.2f s ago: %@", now - shown, lines[index].text))
             lines.removeAll { $0.info.shown < now - minutes * 60 - 60 }
         }
     }

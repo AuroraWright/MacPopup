@@ -67,6 +67,16 @@ In the Floating Window, MacPopup listens to every WebSocket URL listed in **Sett
 - **Clipboard Monitoring**: Turn on **Read copied text from clipboard** (*Settings → Floating Window*)
   to automatically add text copied in any other app to the text box (passwords from password
   managers are ignored).
+- **Read text from OCR**: Turn on **Read text from OCR** (*Settings → Floating Window*, or the
+  **OCR** button next to **Clipboard** in the header) to add the game's text to the text box by reading
+  its window (see [OCR overlay](#ocr-overlay) for selecting it). Only the dialogue area (the first
+  one, or the whole window when there are none) is read. A page of text that grows, as in visual
+  novels, is split into lines where a sentence or paragraph ends. Text a WebSocket line already
+  added isn't added again, and a WebSocket line that arrives after OCR read it replaces the OCR
+  line. The window is still read while other windows cover it or it's in another Space, but not
+  while it's minimized or hidden. Games in a virtual machine (Parallels) need part of their
+  window visible, and web pages aren't redrawn while they're covered. While you use the OCR
+  overlay, what it reads is added too, so the text box keeps every line when you switch back.
 - **Furigana & Formatting**: Display furigana above words (in Hiragana, Katakana, Romaji, or
   dictionary reading), add spaces between parsed words, display text vertically, or filter out
   duplicate and non-CJK lines.
@@ -122,7 +132,7 @@ Controller, Xbox controllers and others), without putting it down.
   - With **Scan resolution** set to **Character**, you move one character at a time and choose
     exactly where a word starts. Set to **Word**, you jump from word to word.
   - With the OCR overlay, you start in the dialogue box: on the most recent WebSocket line if it's on screen,
-    or else on the bottom or top sentence (**Controller OCR starting position**).
+    or else on the bottom or top sentence (**Controller OCR starting position**, in *Settings → OCR Overlay*).
 - **Control Popups**: Any shortcut in **Settings → Popup Shortcuts** can also have a controller
   button combination (**Record Buttons**). While a popup is open, your game won't react to a
   controller that's set up; when no popup is open, the buttons go to your game as usual.
@@ -135,7 +145,8 @@ Controller, Xbox controllers and others), without putting it down.
 ## OCR overlay
 
 Switch to the OCR overlay from the menu bar icon (**OCR Overlay**) or **Settings → General → Overlay type**. The floating text box
-hides, allowing you to hover directly over text inside your game or app window. (Requires **Screen
+hides, allowing you to hover directly over text inside your game or app window. *Settings → OCR Overlay* has what
+only applies to the overlay; *Settings → OCR* sets how text is read, also for **Read text from OCR**. (Requires **Screen
 Recording** permission in *System Settings → Privacy & Security*.)
 
 ### Selecting a Window and Capture Areas

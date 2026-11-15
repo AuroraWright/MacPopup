@@ -37,18 +37,19 @@ final class ScreenshotHistory {
 
     private var count: Int { (settings["screenshotHistory"] as? NSNumber)?.intValue ?? 20 }
 
-    /// A line was shown in the text box or read by OCR. `settled` means its text had stopped changing.
-    func noteLine(_ text: String, settled: Bool) {
+    /// A line was shown in the text box or read by OCR. `settled` means OCR saw its text stop changing (it's then a
+    /// page, with `breaks`: see ShownLines.note).
+    func noteLine(_ text: String, settled: Bool, breaks: Set<Int>) {
         let count = count
         // Only with Anki integration on: the screenshots are for its cards.
         guard count > 0, settings["ankiEnabled"] as? Bool ?? true, settings["ocrWindow"] is [String: Any] else {
             clear()
             return
         }
-        let text = ShownLines<Shot>.normalized(text)
-        guard !text.isEmpty else { return }
         let delay = settled ? 0 : ((settings["screenshotDelay"] as? NSNumber)?.doubleValue ?? 1000) / 1000
-        switch shots.note(text, info: { Shot(settled: settled) }) {
+        switch shots.note(text, page: settled, breaks: breaks, info: { Shot(settled: settled) }) {
+        case nil:
+            break
         case .again(let index, let grew):
             // Its screenshot is taken again while it may still be being drawn: it grew, or OCR saw it settle for the
             // first time. Not when it's read again later (e.g. it moved, or the game goes on behind it while a card is

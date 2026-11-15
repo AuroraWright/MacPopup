@@ -19,8 +19,10 @@ protocol BridgeHost: AnyObject {
     /// the recording goes to that card only, replacing its sentence audio.
     func pressSentenceAudioShortcut(note: Int64?)
     /// Tells Anki Audio and Anki Screenshot that a line was shown `age` seconds ago. `settled` means OCR read it after
-    /// its text stopped changing.
-    func noteSentenceLine(_ text: String, age: Double, settled: Bool)
+    /// its text stopped changing (a page, with paragraph `breaks`: see ShownLines.note).
+    func noteSentenceLine(_ text: String, age: Double, settled: Bool, breaks: Set<Int>)
+    /// What the Floating Window's text box does with a line (see AppDelegate.noteTextBoxLine).
+    func noteTextBoxLine(_ text: String, fromOCR: Bool, breaks: Set<Int>) -> [String: Any]
     /// The screenshot taken when a card's sentence was shown, if there is one (see ScreenshotHistory).
     func bufferedScreenshot(sentence: String, format: String, quality: Double, fullResolution: Bool) -> Data?
     func setOverlayCursor(_ cursor: String?)
@@ -147,9 +149,14 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             return nil
         case "sentenceLine":
             host?.noteSentenceLine(
-                body["text"] as? String ?? "", age: (body["age"] as? NSNumber)?.doubleValue ?? 0, settled: body["settled"] as? Bool ?? false
+                body["text"] as? String ?? "", age: (body["age"] as? NSNumber)?.doubleValue ?? 0, settled: body["settled"] as? Bool ?? false,
+                breaks: Set((body["breaks"] as? [NSNumber] ?? []).map(\.intValue))
             )
             return nil
+        case "textBoxLine":
+            return host?.noteTextBoxLine(
+                body["text"] as? String ?? "", fromOCR: body["ocr"] as? Bool ?? false, breaks: Set((body["breaks"] as? [NSNumber] ?? []).map(\.intValue))
+            ) ?? [:]
         case "gamePause":
             // A popup opened or closed (see updateGamePause in overlay.js); replies once the game is frozen.
             await GamePause.shared.setPaused(body["pause"] as? Bool ?? false)

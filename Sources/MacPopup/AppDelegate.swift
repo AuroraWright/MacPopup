@@ -17,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var clipboardMonitor: ClipboardMonitor!
     private var sentenceAudio: SentenceAudioController!
     private var screenshots: ScreenshotHistory!
+    /// The Floating Window's lines, for "Read text from OCR": whether each was read by OCR.
+    private var textBoxLines = ShownLines<Bool>()
     private var connectedWebsockets: [String] = []
     private var yomitanAPI: YomitanAPIStatus!
     private var welcomeWindow: WelcomeWindowController?
@@ -191,9 +193,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         sentenceAudio.shortcutPressed(note: note)
     }
 
-    func noteSentenceLine(_ text: String, age: Double, settled: Bool) {
-        sentenceAudio.noteLine(text, age: age)
-        screenshots.noteLine(text, settled: settled)
+    func noteSentenceLine(_ text: String, age: Double, settled: Bool, breaks: Set<Int>) {
+        sentenceAudio.noteLine(text, age: age, page: settled, breaks: breaks)
+        screenshots.noteLine(text, settled: settled, breaks: breaks)
+    }
+
+    /// With "Read text from OCR", what the Floating Window's text box does with a line, as Anki Audio and Screenshot
+    /// take lines (ShownLines): OCR's settled reading of the dialogue (the part not matched with a WebSocket line) is a
+    /// new line ("add"), the last OCR line grown ("replace", for the box's last line), or one already there (nothing).
+    /// A line from a WebSocket or the clipboard that the last OCR line already showed replaces it ("replacesOCR": the
+    /// box removes its last line before adding it).
+    func noteTextBoxLine(_ text: String, fromOCR: Bool, breaks: Set<Int>) -> [String: Any] {
+        if textBoxLines.count >= 100 { textBoxLines.removeFirst(textBoxLines.count - 99) }
+        let noted = textBoxLines.note(text, page: fromOCR, breaks: breaks) { fromOCR }
+        switch noted {
+        case .new(let index):
+            return fromOCR ? ["add": textBoxLines[index].text] : [:]
+        case .again(let index, let grew):
+            guard textBoxLines[index].info else { return [:] }
+            if fromOCR { return grew ? ["replace": textBoxLines[index].text] : [:] }
+            textBoxLines[index].info = false
+            return ["replacesOCR": true]
+        case nil:
+            return [:]
+        }
     }
 
     func bufferedScreenshot(sentence: String, format: String, quality: Double, fullResolution: Bool) -> Data? {

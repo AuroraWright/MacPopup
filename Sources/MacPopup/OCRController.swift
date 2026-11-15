@@ -35,7 +35,11 @@ final class OCRController {
     }
 
     private let overlay: OverlayController
+    /// Text is read: for the OCR overlay, or for the Floating Window's text box ("Read text from OCR").
     private(set) var isEnabled = false
+    /// For the OCR overlay (else for the Floating Window, which only takes the dialogue's settled readings as lines,
+    /// like a text hooker's: the window is read whether or not it can be seen, and all the time).
+    private var showsOverlay = false
     private var target: Target?
     /// No window is set: the whole screen is read.
     private var readsScreen = false
@@ -105,7 +109,7 @@ final class OCRController {
     /// Whether the window is watched for changes now: all the time, or (with
     /// "Only check for changes after input activity") only for a while after input.
     private var isWatching: Bool {
-        !(settings["ocrMouseWatch"] as? Bool ?? true) || isInputActive
+        !showsOverlay || !(settings["ocrMouseWatch"] as? Bool ?? true) || isInputActive
     }
 
     /// The dialogue is also watched for a while after each reading that changed its text.
@@ -244,7 +248,10 @@ final class OCRController {
 
     private func applySettings() {
         if isEnabled { logSettingsChanges() }
-        let enabled = settings["ocrMode"] as? Bool ?? false
+        let overlayMode = settings["ocrMode"] as? Bool ?? false
+        let enabled = overlayMode || settings["floatingWindowOCR"] as? Bool ?? false
+        let switched = enabled && isEnabled && overlayMode != showsOverlay
+        showsOverlay = overlayMode
         if enabled != isEnabled {
             isEnabled = enabled
             if enabled {
@@ -255,6 +262,12 @@ final class OCRController {
             return
         }
         guard isEnabled, !isPicking else { return }
+        if switched {
+            // Between the overlay and the Floating Window: what the window can be read for changed (see trackWindow).
+            log(showsOverlay ? "for the OCR overlay" : "for the Floating Window")
+            coveredBy = nil
+            readAgain()
+        }
         if engine != startedEngine || language != startedLanguage || stripsFurigana != startedStripsFurigana || cloudEngine != startedCloudEngine {
             if engine != startedEngine {
                 startedEngine = engine
@@ -539,8 +552,8 @@ final class OCRController {
         log("page: \(body["action"] ?? "")\(body["connected"].map { " \($0)" } ?? "")")
         switch body["action"] as? String {
         case "readNow":
-            // The game was paused: a reading on its way stops, and the window is read as it is.
-            guard isEnabled, !isPicking, hasSource, bounds != nil, isWindowAvailable else { return false }
+            // The game was paused: a reading on its way stops, and the window is read as it is (for the overlay).
+            guard isEnabled, showsOverlay, !isPicking, hasSource, bounds != nil, isWindowAvailable else { return false }
             pendingCue = .now
             dropCloudRequest()
         case "websocket":
@@ -718,15 +731,18 @@ final class OCRController {
             boundsChangedAt = Date()
         }
         let onDisplay = NSScreen.screens.contains { Self.globalFrame(of: $0).intersects(info.bounds) }
-        if !info.isOnScreen {
+        if !info.isOnScreen || !showsOverlay {
             coveredBy = nil
         } else if coverageCheck?.window != target.windowID || Date().timeIntervalSince(coverageCheck?.time ?? .distantPast) > 0.3 {
             coverageCheck = (target.windowID, Date())
             coveredBy = coveringApps(info.bounds)
         }
-        let available = info.isOnScreen && onDisplay && coveredBy == nil && Date().timeIntervalSince(boundsChangedAt) >= 0.3
+        // For the Floating Window, also while it can't be seen: a window covered or in another space is still drawn, and
+        // read, by most apps; one minimized or hidden isn't, and then nothing changes (its readings time out).
+        let canBeRead = !showsOverlay || (info.isOnScreen && onDisplay && coveredBy == nil)
+        let available = canBeRead && Date().timeIntervalSince(boundsChangedAt) >= 0.3
         if !available, isWindowAvailable {
-            let reasons = [info.isOnScreen ? nil : "not on screen (e.g. another space, minimized)", onDisplay ? nil : "off the displays",
+            let reasons = [info.isOnScreen || !showsOverlay ? nil : "not on screen (e.g. another space, minimized)", onDisplay || !showsOverlay ? nil : "off the displays",
                            coveredBy.map { "covered by other windows (\($0.joined(separator: ", ")))" }, Date().timeIntervalSince(boundsChangedAt) < 0.3 ? "moving" : nil]
             log("window unavailable: \(reasons.compactMap { $0 }.joined(separator: ", "))")
         }
@@ -801,7 +817,7 @@ final class OCRController {
         if moved {
             lastCursorPoint = point
         }
-        guard isEnabled, let target, let bounds, bounds.contains(point) else {
+        guard isEnabled, showsOverlay, let target, let bounds, bounds.contains(point) else {
             setCursorCovered(false)
             return
         }
@@ -941,7 +957,7 @@ final class OCRController {
         // learnAnimatedBlocks). When the text is still what was read before the round (e.g. the round is for a
         // blinking icon), from before the change too.
         var frames: [Frame] = []
-        let textBefore = (keys: watchedTexts.map { $0.map(Self.settleKey) }, frame: lastRecognizedFrame)
+        let textBefore = (keys: watchedTexts.map { $0.map(Self.settleKey).filter { !$0.isEmpty } }, frame: lastRecognizedFrame)
         // Where the dialogue's text was read during the round (see textBlocks): not learned as animated.
         var roundTextBlocks = Set<Int>()
         // Near it: where the text read before it was, which may be going away during the round (fading out, or
@@ -1046,7 +1062,8 @@ final class OCRController {
             nearTextBlocks.formUnion(textBlocks(areaLines.first ?? [], goingOn: true))
             unlearnAnimatedBlocks(covered)
             let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
-            let keys = texts.map(Self.settleKey), length = texts.joined().count
+            // Rows of only dots or an icon (read as a row of their own at times) don't count.
+            let keys = texts.map(Self.settleKey).filter { !$0.isEmpty }, length = texts.joined().count
             if previous?.keys != keys {
                 previous = (keys, started, length)
                 frames = keys == textBefore.keys ? textBefore.frame.map { [$0] } ?? [] : []
@@ -1086,13 +1103,14 @@ final class OCRController {
     }
 
     /// A line's text as compared to tell whether it's still changing: engines read a dash (a thin line) as any of several
-    /// characters, or not at all, from one reading to the next, and dots likewise, so a run of either counts as one,
-    /// and a run at the end of the line as none.
+    /// characters, or not at all, from one reading to the next, so a run of them counts as one, and a run at the end of
+    /// the line as none. Dots are read in any number, or not at all, so they don't count. Nor does a symbol at the end
+    /// (a page's "next" icon, which often blinks: ▷, ■).
     nonisolated static func settleKey(_ text: String) -> String {
         var key = ""
         var last: Character?
-        for character in text {
-            let mark: Character? = "-‐‑–—―─━ー一－".contains(character) ? "—" : "・･.．…‥·".contains(character) ? "…" : nil
+        for character in text where !"・･.．…‥·".contains(character) {
+            let mark: Character? = "-‐‑–—―─━ー一－".contains(character) ? "—" : nil
             if let mark {
                 if last != mark { key.append(mark) }
                 last = mark
@@ -1101,8 +1119,15 @@ final class OCRController {
                 last = character
             }
         }
-        while let end = key.last, end == "—" || end == "…" { key.removeLast() }
+        while let end = key.last, end == "—" || end.isWhitespace || isSymbol(end) { key.removeLast() }
         return key
+    }
+
+    /// Whether a character is a symbol (Unicode's So and Sm: shapes, arrows, icons), which text that's read doesn't end
+    /// with but a page's "next" icon is read as.
+    nonisolated static func isSymbol(_ character: Character) -> Bool {
+        guard let category = character.unicodeScalars.first?.properties.generalCategory else { return false }
+        return category == .otherSymbol || category == .mathSymbol
     }
 
     /// Waits until `deadline`, or until the dialogue looks different from `frame` (checked at the check interval; any
@@ -1228,7 +1253,7 @@ final class OCRController {
                 let cloud = self.lines(from: items, in: crop, area: 0, bounds: bounds, ordered: false, exactBoxes: true)
                 // It may miss text the local engine read, but not all of it.
                 if !cloud.lines.isEmpty {
-                    // Marked for the overlay's outlines (with Highlight recognized text boxes on).
+                    // Marked for the overlay's outlines (with Settings → OCR → Debug on).
                     let cloudLines = cloud.lines.map { line in line.merging(["cloud": true]) { $1 } }
                     (lines, removed) = (Self.adding(local, to: cloudLines), cloud.removed)
                     self.cloudReading = (engine, localTexts, bounds, lines, removed)
@@ -1433,7 +1458,7 @@ final class OCRController {
         }
         let gray = GrayImage(crop)
         let size = CGSize(width: crop.width, height: crop.height)
-        // The lines left out, for the page's debug log (with Highlight recognized text boxes on).
+        // The lines left out, for the page's debug log (with Settings → OCR → Debug on).
         let recordsRemoved = settings["ocrShowBoxes"] as? Bool ?? false
         var removed: [[String: Any]] = []
         let box = { (box: CGRect) in [box.minX, box.minY, box.width, box.height] }
@@ -1714,7 +1739,8 @@ final class OCRController {
             // A single failure can happen while windows change (e.g. switching spaces); report it
             // only if it keeps failing.
             captureFailures += 1
-            if captureFailures == 3 {
+            // Not for the Floating Window, which reads the window also while it can't be captured (e.g. minimized).
+            if captureFailures == 3, showsOverlay {
                 send(["type": "error", "message": "Screen capture failed: \(error.localizedDescription)"])
             }
             scWindow = nil
@@ -2088,10 +2114,18 @@ final class OCRController {
         let block = Self.block, columns = (width + block - 1) / block, rows = (height + block - 1) / block
         let origin = CGPoint(x: area.minX * bounds.width, y: area.minY * bounds.height)
         var blocks = Set<Int>()
-        let rects = lines.map { line in
-            let value = { (key: String) in line[key] as? CGFloat ?? 0 }
-            return CGRect(x: (value("x") - origin.x) * factor, y: (value("y") - origin.y) * factor,
-                          width: value("width") * factor, height: value("height") * factor)
+        let rects = lines.compactMap { line -> CGRect? in
+            let decoded = Self.decode(line)
+            var box = decoded.box
+            // Not a symbol at the end (a page's "next" icon): where it blinks can be learned as animated.
+            let chars = decoded.chars
+            let kept = chars.reversed().drop { $0.text.allSatisfy { $0.isWhitespace || Self.isSymbol($0) } }
+            if !chars.isEmpty, kept.count < chars.count {
+                guard let first = kept.first else { return nil }
+                box = kept.dropFirst().reduce(first.box) { $0.union($1.box) }
+            }
+            return CGRect(x: (box.minX - origin.x) * factor, y: (box.minY - origin.y) * factor,
+                          width: box.width * factor, height: box.height * factor)
         } + (goingOn ? continuationRects(lines) : [])
         for rect in rects.map({ $0.insetBy(dx: -CGFloat(block) / 2, dy: -CGFloat(block) / 2) }) {
             let firstColumn = max(0, Int(rect.minX) / block), lastColumn = min(columns - 1, Int(rect.maxX) / block)

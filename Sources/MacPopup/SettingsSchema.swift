@@ -224,7 +224,7 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "continuousReconnect", "Automatically reconnect", .checkbox,
-                    hint: "Keep trying to reconnect if a WebSocket disconnects in the Floating Window. (With the OCR overlay and “Match and fix OCR with WebSocket text” enabled, MacPopup always reconnects automatically.)"
+                    hint: "Keep trying to reconnect if a WebSocket disconnects. (While OCR reads text, with the OCR overlay or “Read text from OCR”, and “Match and fix OCR with WebSocket text” is enabled, MacPopup always reconnects automatically.)"
                 ),
                 SettingsField("showConnectionErrors", "Show connection error messages", .checkbox),
             ]),
@@ -238,6 +238,10 @@ enum SettingsSchema {
                     "clipboardMaxLength", "Maximum clipboard text length", .number(min: 1),
                     hint: "Copied text longer than this character limit is truncated.",
                     showIf: { $0["clipboardMonitor"] as? Bool == true }
+                ),
+                SettingsField(
+                    "floatingWindowOCR", "Read text from OCR", .checkbox,
+                    hint: "Adds the text OCR reads in the captured window’s dialogue area (Settings → General → Captured window) to the text box, as a text hook would, once it stops changing. As a page of text grows, each sentence or paragraph added becomes a line of its own. While WebSockets send lines, only readings that match none of them are added, and a line that arrives after the same text was read replaces it. Without a dialogue area, the whole window counts as dialogue, menus and all. The window is read while it’s covered or in another space, but some apps stop drawing then: a virtual machine (such as Parallels) is only read while part of its window can be seen, and web pages aren’t. Minimized or hidden windows can’t be read. With the OCR overlay, its readings are added too (it reads the window only while it can be seen). Uses the OCR settings, and requires Screen Recording permission."
                 ),
                 SettingsField("fontSize", "Font size (px)", .number(min: 1)),
                 SettingsField("linePadding", "Line spacing", .number(min: 0, step: 0.1)),
@@ -267,8 +271,28 @@ enum SettingsSchema {
                 SettingsField("customCSS", "Custom CSS (text box)", .textarea),
             ]),
             SettingsSection(
+                title: "OCR Overlay", symbol: "square.on.square.dashed",
+                description: "The OCR overlay hides the floating text box and reads the captured window (or anywhere on screen if no window is selected), so you can hover directly over the game’s own text. The window is only read while it can be seen. How the text is read is set in OCR. Requires Screen Recording permission.",
+                fields: [
+                    SettingsField(
+                        "ocrMouseWatch", "Only check for changes after input activity", .checkbox,
+                        hint: "Saves CPU by checking for new text only briefly after you use the mouse, keyboard or a controller (for example, when clicking or pressing a button to advance dialogue). Controllers count once they’re set up in Settings → Controllers. (“Read text from OCR” in the Floating Window always checks.)"
+                    ),
+                    SettingsField(
+                        "ocrMouseWatchTime", "Keep checking after activity for (ms)", .number(min: 0),
+                        hint: "How long to keep watching for screen changes after using the mouse, keyboard or a controller, or after new dialogue arrives. Increase this if your game has long transitions before dialogue appears. Keep this value well above Settings → OCR → Check for screen changes every.",
+                        showIf: { $0["ocrMouseWatch"] as? Bool ?? true }
+                    ),
+                    SettingsField(
+                        "gamepadOcrStart", "Controller OCR starting position",
+                        .select([SettingsOption("bottom", "Bottom"), SettingsOption("top", "Top")]),
+                        hint: "Where the controller starts in the OCR overlay’s text: the bottom or top sentence of the dialogue area (in vertical text, the leftmost or rightmost). When the text matches lines received over WebSocket, it starts at the most recent one instead."
+                    ),
+                ]
+            ),
+            SettingsSection(
                 title: "OCR", symbol: "text.viewfinder",
-                description: "How text is read from the captured window (or anywhere on screen if no window is selected) for the OCR overlay, which hides the floating text box and lets you hover directly over that text. Requires Screen Recording permission.",
+                description: "How text is read from the captured window (or anywhere on screen if no window is selected), for the OCR overlay and for “Read text from OCR” in the Floating Window. Requires Screen Recording permission.",
                 fields: [
                     SettingsField(
                         "ocrEngine", "Text recognition engine",
@@ -315,7 +339,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "ocrUseWebsocket", "Match and fix OCR with WebSocket text", .checkbox,
-                        hint: "When connected to a WebSocket, scans the window whenever a new line arrives and replaces matching on-screen OCR text with the exact text from the WebSocket."
+                        hint: "When connected to a WebSocket, scans the window whenever a new line arrives and replaces matching on-screen OCR text with the exact text from the WebSocket. With “Read text from OCR” in the Floating Window, text that matches a WebSocket line isn’t added to the text box again, so turning this off adds hooked lines twice."
                     ),
                     SettingsField(
                         "ocrMatchThreshold", "Minimum WebSocket match (%)", .number(min: 1, max: 100),
@@ -341,15 +365,6 @@ enum SettingsSchema {
                         hint: "How often the window is checked for new text. Shorter intervals detect text faster but use more CPU."
                     ),
                     SettingsField(
-                        "ocrMouseWatch", "Only check for changes after input activity", .checkbox,
-                        hint: "Saves CPU by checking for new text only briefly after you use the mouse, keyboard or a controller (for example, when clicking or pressing a button to advance dialogue). Controllers count once they’re set up in Settings → Controllers."
-                    ),
-                    SettingsField(
-                        "ocrMouseWatchTime", "Keep checking after activity for (ms)", .number(min: 0),
-                        hint: "How long to keep watching for screen changes after using the mouse, keyboard or a controller, or after new dialogue arrives. Increase this if your game has long transitions before dialogue appears. Keep this value well above the check interval above.",
-                        showIf: { $0["ocrMouseWatch"] as? Bool ?? true }
-                    ),
-                    SettingsField(
                         "ocrSettleTime", "Text must stay unchanged for (ms)", .number(min: 0),
                         hint: "Scans the dialogue area repeatedly until the recognized text stays unchanged for this duration, avoiding half-typed lines. WebSocket matches and secondary capture areas don’t wait."
                     ),
@@ -358,8 +373,8 @@ enum SettingsSchema {
                         hint: "If text keeps changing continuously (such as very slow typewriter text), use the latest reading after this time limit and keep updating as more text appears."
                     ),
                     SettingsField(
-                        "ocrShowBoxes", "Highlight recognized text boxes (debug)", .checkbox,
-                        hint: "Draws colored outlines over recognized text for troubleshooting: red while the text is still changing, orange for local OCR, gold for cloud OCR, and green for WebSocket-corrected lines (darker with cloud OCR boxes). Also logs each scan, what triggered it, and what happened around it (the window, game pauses, the controller), with your OCR settings and MacPopup version, to ~/Library/Application Support/MacPopup/ocr-debug.jsonl, which is deleted when this is turned off."
+                        "ocrShowBoxes", "Debug", .checkbox,
+                        hint: "For troubleshooting. Highlights the text the OCR overlay recognized with colored outlines: red while the text is still changing, orange for local OCR, gold for cloud OCR, and green for WebSocket-corrected lines (darker with cloud OCR boxes). Also logs each scan, what triggered it, and what happened around it (the window, game pauses, the controller), with your OCR settings and MacPopup version, to ~/Library/Application Support/MacPopup/ocr-debug.jsonl, which is deleted when this is turned off."
                     ),
                 ]
             ),
@@ -391,11 +406,6 @@ enum SettingsSchema {
                 SettingsField(
                     "gamepadPopupDelay", "Controller popup delay (in milliseconds)", .number(min: 0),
                     hint: "How long to wait after you stop moving with the controller before the popup opens."
-                ),
-                SettingsField(
-                    "gamepadOcrStart", "Controller OCR starting position",
-                    .select([SettingsOption("bottom", "Bottom"), SettingsOption("top", "Top")]),
-                    hint: "Where the controller starts in OCR text: the bottom or top sentence of the dialogue area (in vertical text, the leftmost or rightmost). When the text matches lines received over WebSocket, it starts at the most recent one instead."
                 ),
                 SettingsField("popupScanModifier", "Scan modifier key (popup, for nested lookups)", .select(scanModifierOptions)),
                 SettingsField("popupScanInputs", "Advanced scanning inputs (popup)", .scanInputs, showIf: { $0["popupScanModifier"] as? String == "custom" }),

@@ -67,6 +67,7 @@ export const defaultSettings = {
 	// Copied text is added as a line, up to this many characters (Yomitan's background clipboard
 	// monitor, which opens its search page instead).
 	clipboardMonitor: false,
+	floatingWindowOCR: false,
 	clipboardMaxLength: 1000,
 	replacements: [],
 	customCSS: '',
