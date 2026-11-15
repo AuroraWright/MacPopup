@@ -9,7 +9,9 @@ import UniformTypeIdentifiers
 /// - `/r/<id>/reading.json` and `/r/<id>/image`: a reading's data and picture;
 /// - `/live` (continuous mode's readings, newest first), `/live.json` ([{id, createdAt}]), `/l/<id>/…` (a live
 ///   reading, as `/r/<id>/…`) and `/live/events` (server-sent events: `{id}` for each new live reading); the live page
-///   asks for `/live.json?visible` every second while it's in front, so continuous mode pauses (Continuous.pageIsVisible).
+///   asks for `/live.json?visible` every second while it's in front, so continuous mode pauses (Continuous.pageIsVisible);
+/// - `POST /delete?ids=<id>,<id>…` (or `?all`): deletes readings, answering `{"deleted": <count>}`. Only from the page
+///   itself (its Origin), so that other websites can't delete readings.
 final class PageServer: @unchecked Sendable {
     static let port: UInt16 = 47101
     static let shared = PageServer()
@@ -84,11 +86,14 @@ final class PageServer: @unchecked Sendable {
             guard let self else { return }
             var buffer = buffer
             if let data { buffer.append(data) }
-            if let target = Self.requestTarget(buffer) {
-                guard target != "/live/events" else { return subscribe(connection) }
-                let response = target.map { target in
-                    self.respond(to: String(target.prefix { $0 != "?" }), query: String(target.drop { $0 != "?" }.dropFirst()))
-                } ?? (status: "405 Method Not Allowed", type: "text/plain", body: Data())
+            if let request = Self.request(buffer) {
+                guard request.method != "GET" || request.target != "/live/events" else { return subscribe(connection) }
+                let path = String(request.target.prefix { $0 != "?" }), query = String(request.target.drop { $0 != "?" }.dropFirst())
+                let response = switch request.method {
+                case "GET": self.respond(to: path, query: query)
+                case "POST" where path == "/delete": self.delete(query: query, origin: request.origin)
+                default: (status: "405 Method Not Allowed", type: "text/plain", body: Data())
+                }
                 var head = "HTTP/1.1 \(response.status)\r\nContent-Type: \(response.type)\r\nContent-Length: \(response.body.count)\r\n"
                 head += "Cache-Control: no-cache\r\nConnection: close\r\n\r\n"
                 connection.send(content: Data(head.utf8) + response.body, completion: .contentProcessed { _ in connection.cancel() })
@@ -129,13 +134,32 @@ final class PageServer: @unchecked Sendable {
         })
     }
 
-    /// The path and query of a complete GET request's head (nil for other methods), or nil while the head is incomplete.
-    private static func requestTarget(_ data: Data) -> String?? {
+    /// The method, path and query, and Origin header of a complete request's head (none of its body), or nil while the
+    /// head is incomplete.
+    private static func request(_ data: Data) -> (method: String, target: String, origin: String?)? {
         guard let end = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
-        let line = String(decoding: data[..<end.lowerBound], as: UTF8.self).prefix { $0 != "\r" }
-        let parts = line.split(separator: " ")
-        guard parts.count >= 2, parts[0] == "GET" else { return .some(nil) }
-        return .some(String(parts[1].prefix { $0 != "#" }))
+        let lines = String(decoding: data[..<end.lowerBound], as: UTF8.self).components(separatedBy: "\r\n")
+        let parts = lines[0].split(separator: " ")
+        let origin = lines.dropFirst().first { $0.lowercased().hasPrefix("origin:") }.map {
+            $0.dropFirst("origin:".count).trimmingCharacters(in: .whitespaces)
+        }
+        guard parts.count >= 2 else { return ("", "", nil) }
+        return (String(parts[0]), String(parts[1].prefix { $0 != "#" }), origin)
+    }
+
+    /// Deletes the readings in the query (`ids=<id>,<id>…`, or `all`), for the page.
+    private func delete(query: String, origin: String?) -> (status: String, type: String, body: Data) {
+        guard origin == "http://127.0.0.1:\(Self.port)" else { return ("403 Forbidden", "text/plain", Data("Forbidden".utf8)) }
+        let store = ReadingStore.shared
+        let known = Set(store.readings.map(\.id))
+        let ids: Set<String> = if query == "all" {
+            known
+        } else {
+            Set((query.hasPrefix("ids=") ? query.dropFirst(4) : "").split(separator: ",").map(String.init)).intersection(known)
+        }
+        store.delete(ids)
+        Task { @MainActor in AppModel.shared.refresh() }
+        return ok("application/json", try? JSONSerialization.data(withJSONObject: ["deleted": ids.count]))
     }
 
     private func respond(to path: String, query: String) -> (status: String, type: String, body: Data) {

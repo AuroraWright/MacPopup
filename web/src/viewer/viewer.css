@@ -145,6 +145,67 @@ header a {
 	padding: 24px 16px;
 }
 
+/* Edit and Delete in the header, like its links. */
+header button {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--accent);
+	font: inherit;
+}
+
+button.destructive {
+	color: #e0362c;
+}
+
+button:disabled {
+	color: var(--muted);
+}
+
+/* Choosing readings to delete (Edit): a circle before each, filled when it's chosen. */
+.editing #readings a::before {
+	content: '';
+	flex: none;
+	width: 22px;
+	height: 22px;
+	box-sizing: border-box;
+	border: 2px solid var(--muted);
+	border-radius: 50%;
+}
+
+.editing #readings .chosen a::before {
+	border-color: var(--accent);
+	background: var(--accent) radial-gradient(circle, #fff 0 3px, transparent 3.5px);
+}
+
+.editing #readings {
+	padding-bottom: calc(56px + env(safe-area-inset-bottom));
+}
+
+#edit-bar {
+	position: fixed;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	display: flex;
+	justify-content: space-between;
+	padding: 12px max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+	background: var(--bg);
+	border-top: 1px solid var(--line);
+}
+
+#edit-bar button {
+	padding: 4px 0;
+	border: 0;
+	background: none;
+	font: inherit;
+	font-size: 17px;
+}
+
+#edit-bar button.destructive:disabled {
+	color: var(--muted);
+}
+
 /* Continuous mode's live page: the newest reading first, the earlier ones under it. */
 #live-readings article {
 	border-bottom: 1px solid var(--line);

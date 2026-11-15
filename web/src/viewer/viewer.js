@@ -1,7 +1,8 @@
 // The iOS app's reading page: a picture with MacPopup's invisible text layer over it (lib/ocr-layer.js), opened in
 // Safari so the user's dictionary extension scans it. The app serves it from 127.0.0.1 while it runs; the service
 // worker (sw.js) and the readings kept in the cache let pages open again once the app is suspended or quit. /live is
-// continuous mode's page: its readings as they come, newest first.
+// continuous mode's page: its readings as they come, newest first. Readings can be deleted from the list (Edit) and from
+// a reading's page while the app runs.
 import { decodeLines, lineText, renderLines } from '../lib/ocr-layer.js';
 
 const CACHE = 'macpopup-readings';
@@ -85,10 +86,52 @@ async function fetchNew(url) {
 	}
 }
 
+/**
+ * Deletes readings in the app (`ids`, or all of them with null), then Safari's copies. Throws when the app doesn't
+ * answer: it has to be running, since the readings would come back from it.
+ */
+async function deleteReadings(ids) {
+	const controller = new AbortController();
+	// (A suspended app's port takes the request without answering.)
+	const timer = setTimeout(() => controller.abort(), 3000);
+	try {
+		const response = await fetch(`/delete?${ids ? `ids=${ids.join(',')}` : 'all'}`, { method: 'POST', signal: controller.signal });
+		if (!response.ok) throw new Error(`HTTP ${response.status}`);
+	} finally {
+		clearTimeout(timer);
+	}
+	// (If this fails, the list drops them later: see forgetDeleted.)
+	try {
+		const cache = await caches.open(CACHE);
+		for (const request of await cache.keys()) {
+			const [kind, id] = new URL(request.url).pathname.split('/').slice(1);
+			if (kind === 'r' && (!ids || ids.includes(id))) await cache.delete(request);
+		}
+	} catch {}
+}
+
+/** When the app doesn't answer: a link that opens it (it then answers for a while in the background). */
+function showCantDelete() {
+	const link = element('a');
+	link.href = 'macpopup://';
+	link.textContent = 'Open MacPopup';
+	$('status').replaceChildren('Couldn’t delete: MacPopup isn’t running. ', link, ', then try again.');
+}
+
 /** A reading: /r/<id>/reading.json and its picture. */
 async function showReading(id) {
 	$('reading').hidden = false;
 	$('boxes-toggle').hidden = false;
+	$('delete-reading').hidden = false;
+	$('delete-reading').addEventListener('click', async () => {
+		if (!confirm('Delete this reading?')) return;
+		try {
+			await deleteReadings([id]);
+			location.replace('/');
+		} catch {
+			showCantDelete();
+		}
+	});
 	const base = `/r/${id}`;
 	const reading = await (await fetchNew(`${base}/reading.json`)).json();
 	const { lines, image } = renderReading($('reading'), base, reading);
@@ -126,6 +169,9 @@ async function showIndex() {
 	try {
 		readings = await (await fetch('/readings.json')).json();
 		forgetDeleted('r', readings).catch(() => {});
+		// (Readings are deleted in the app, so only while it runs.)
+		$('edit').hidden = readings.length === 0;
+		$('status').textContent = '';
 	} catch {
 		const cache = await caches.open(CACHE);
 		const ids = await keptIds('r');
@@ -135,12 +181,28 @@ async function showIndex() {
 		}));
 		readings.sort((a, b) => b.createdAt - a.createdAt);
 		$('status').textContent = 'The app isn’t running: readings kept by Safari';
+		// Back in Safari (e.g. after opening the app), the list comes from the app again if it answers now.
+		const retry = () => {
+			if (document.visibilityState !== 'visible') return;
+			document.removeEventListener('visibilitychange', retry);
+			fetch('/readings.json').then((response) => response.ok && showIndex()).catch(() => {
+				document.addEventListener('visibilitychange', retry);
+			});
+		};
+		document.addEventListener('visibilitychange', retry);
 	}
 	$('empty').hidden = readings.length > 0;
 	$('readings').replaceChildren(...readings.map(({ id, createdAt, text }) => {
 		const item = document.createElement('li');
+		item.dataset.id = id;
 		const link = document.createElement('a');
 		link.href = `/r/${id}`;
+		link.addEventListener('click', (event) => {
+			if (!document.body.classList.contains('editing')) return;
+			event.preventDefault();
+			item.classList.toggle('chosen');
+			updateEditBar();
+		});
 		const thumbnail = document.createElement('img');
 		thumbnail.src = `/r/${id}/image`;
 		thumbnail.loading = 'lazy';
@@ -159,6 +221,56 @@ async function showIndex() {
 		return item;
 	}));
 }
+
+function chosenIds() {
+	return [...document.querySelectorAll('#readings .chosen')].map((item) => item.dataset.id);
+}
+
+function updateEditBar() {
+	const count = chosenIds().length;
+	$('delete-selected').disabled = count === 0;
+	$('delete-selected').textContent = count ? `Delete (${count})` : 'Delete';
+}
+
+function setEditing(editing) {
+	document.body.classList.toggle('editing', editing);
+	$('edit').textContent = editing ? 'Done' : 'Edit';
+	$('edit-bar').hidden = !editing;
+	for (const item of document.querySelectorAll('#readings .chosen')) item.classList.remove('chosen');
+	updateEditBar();
+}
+
+/** Removes deleted readings from the list (`ids`, or all of them with null). */
+function removeFromList(ids) {
+	for (const item of [...$('readings').children]) if (!ids || ids.includes(item.dataset.id)) item.remove();
+	if ($('readings').children.length === 0) {
+		setEditing(false);
+		$('edit').hidden = true;
+		$('empty').hidden = false;
+	}
+}
+
+$('edit').addEventListener('click', () => setEditing(!document.body.classList.contains('editing')));
+$('delete-selected').addEventListener('click', async () => {
+	const ids = chosenIds();
+	if (!ids.length || !confirm(ids.length === 1 ? 'Delete this reading?' : `Delete these ${ids.length} readings?`)) return;
+	try {
+		await deleteReadings(ids);
+		removeFromList(ids);
+		updateEditBar();
+	} catch {
+		showCantDelete();
+	}
+});
+$('delete-all').addEventListener('click', async () => {
+	if (!confirm('Delete all readings? This can’t be undone.')) return;
+	try {
+		await deleteReadings(null);
+		removeFromList(null);
+	} catch {
+		showCantDelete();
+	}
+});
 
 /** The live readings shown, by id. */
 const shownLive = new Set();

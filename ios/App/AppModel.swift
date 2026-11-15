@@ -204,6 +204,13 @@ final class AppModel: ObservableObject {
     /// the page's service worker has it.
     func serve() {
         PageServer.shared.start(fresh: true)
+        keepServing()
+    }
+
+    /// Keeps the page server answering for the background time iOS gives (about 30 s), as the app goes to the
+    /// background: a suspended app's port takes requests without answering them, and the page needs the app to delete
+    /// readings (e.g. when the user opens the app, then goes back to Safari).
+    func keepServing() {
         endServing()
         servingTask = UIApplication.shared.beginBackgroundTask(withName: "Serve the page") {
             MainActor.assumeIsolated { AppModel.shared.endServing() }

@@ -13,11 +13,17 @@
 	<a id="live-link" href="/live">Live</a>
 	<span id="status"></span>
 	<label id="boxes-toggle" hidden><input type="checkbox" id="boxes"> Boxes</label>
+	<button id="edit" hidden>Edit</button>
+	<button id="delete-reading" class="destructive" hidden>Delete</button>
 </header>
 <main id="reading" hidden></main>
 <main id="index" hidden>
 	<ul id="readings"></ul>
 	<p id="empty" class="empty" hidden>No readings yet. Read a picture in the app.</p>
+	<div id="edit-bar" hidden>
+		<button id="delete-all" class="destructive">Delete All</button>
+		<button id="delete-selected" class="destructive" disabled>Delete</button>
+	</div>
 </main>
 <main id="live" hidden>
 	<div id="live-readings"></div>

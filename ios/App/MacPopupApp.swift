@@ -24,6 +24,8 @@ struct MacPopupApp: App {
                         Screenshots.shared.refresh()
                         Continuous.shared.appBecameActive()
                         Task { await model.readShared() }
+                    } else if phase == .background {
+                        model.keepServing()
                     }
                 }
         }
