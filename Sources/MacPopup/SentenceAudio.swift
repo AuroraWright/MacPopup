@@ -50,15 +50,11 @@ final class SentenceAudioController {
     /// MACPOPUP_TEST_AUDIO_FILE: a sound file played in place of the game's audio (for test runs).
     private let testFile = ProcessInfo.processInfo.environment["MACPOPUP_TEST_AUDIO_FILE"]
     private let history = AudioHistory()
-    /// The lines shown in the last few minutes, oldest first.
-    private var lines: [ShownLine] = []
-    private var nextLineID = 0
+    /// The lines shown in the last few minutes.
+    private var lines = ShownLines<LineTimes>()
 
-    /// A shown line and when it appeared. `texts` holds every version of it seen, without whitespace: the same line can
-    /// arrive again (from OCR after the WebSocket) or grow as the game draws it.
-    private struct ShownLine {
-        let id: Int
-        var texts: [String]
+    /// When a shown line appeared.
+    private struct LineTimes {
         var shown: Double
         /// The earliest its voice may have started: shortly before it was shown, or before OCR saw the text change.
         var start: Double
@@ -115,7 +111,7 @@ final class SentenceAudioController {
         let minutes = historyMinutes
         guard minutes > 0 else {
             history.record(nil, minutes: 0)
-            lines = []
+            lines.removeAll()
             return
         }
         let processes: AudioTap.Processes
@@ -135,46 +131,21 @@ final class SentenceAudioController {
     /// A line was shown in the text box or read by OCR, `age` seconds ago.
     func noteLine(_ text: String, age: Double) {
         let minutes = historyMinutes
-        let text = text.components(separatedBy: .whitespacesAndNewlines).joined()
+        let text = ShownLines<LineTimes>.normalized(text)
         guard minutes > 0, !text.isEmpty else { return }
         let now = GameClock.now
         let shown = now - max(0, age)
         // OCR may notice a change up to one check late and reads it after that, while a WebSocket line arrives as the
         // game shows it.
         let start = shown - (age > 0 ? 0.75 : 0.25)
-        if var last = lines.last, last.texts.contains(where: { text.hasPrefix($0) || $0.hasPrefix(text) }) {
-            if !last.texts.contains(text) { last.texts.append(text) }
-            last.shown = min(last.shown, shown)
-            last.start = min(last.start, start)
-            lines[lines.count - 1] = last
-            return
+        switch lines.note(text, info: { LineTimes(shown: shown, start: start) }) {
+        case .again(let index, _):
+            lines[index].info.shown = min(lines[index].info.shown, shown)
+            lines[index].info.start = min(lines[index].info.start, start)
+        case .new:
+            sentenceAudioLog(String(format: "line shown %.2f s ago: %@", now - shown, text))
+            lines.removeAll { $0.info.shown < now - minutes * 60 - 60 }
         }
-        sentenceAudioLog(String(format: "line shown %.2f s ago: %@", now - shown, text))
-        lines.append(ShownLine(id: nextLineID, texts: [text], shown: shown, start: start))
-        nextLineID += 1
-        lines.removeAll { $0.shown < now - minutes * 60 - 60 }
-    }
-
-    /// Whether a card's sentence comes from a line shown with `text`: one must contain the other (a sentence is often
-    /// part of a line; a short one, only that way round), allowing a few characters to differ, since OCR may misread
-    /// some.
-    static func isSameLine(_ sentence: String, _ text: String) -> Bool {
-        let a = Array(sentence.precomposedStringWithCompatibilityMapping), b = Array(text.precomposedStringWithCompatibilityMapping)
-        guard !a.isEmpty, !b.isEmpty else { return false }
-        // Short text could match almost any line, so it has to match exactly: a short sentence may be part of its line,
-        // but a short line (e.g. a stray character OCR read on its own) isn't the line of every sentence it's part of.
-        if min(a.count, b.count) < 6 { return String(b).contains(String(a)) }
-        // Longest common subsequence.
-        var row = [Int](repeating: 0, count: b.count + 1)
-        for x in a {
-            var diagonal = 0
-            for j in 1...b.count {
-                let above = row[j]
-                row[j] = x == b[j - 1] ? diagonal + 1 : max(row[j], row[j - 1])
-                diagonal = above
-            }
-        }
-        return Double(row[b.count]) >= 0.85 * Double(min(a.count, b.count))
     }
 
     /// Takes the voice of the newest card's line from the audio history and adds it to the cards. Returns nil on
@@ -189,7 +160,7 @@ final class SentenceAudioController {
             showToast(error.localizedDescription)
             return nil
         }
-        guard let id = lines.last(where: { line in line.texts.contains { Self.isSameLine(cards.sentence, $0) } })?.id else {
+        guard let id = lines.lastIndex(of: cards.sentence).map({ lines[$0].id }) else {
             sentenceAudioLog("history: \(cards.sentence) isn't one of the last \(lines.count) lines")
             return "Couldn’t find this card’s sentence among the recent lines"
         }
@@ -208,8 +179,8 @@ final class SentenceAudioController {
             }
             guard let index = lines.firstIndex(where: { $0.id == id }) else { return "This card’s line is older than the kept audio" }
             let now = GameClock.now
-            let start = max(lines[index].start, index > 0 ? lines[index - 1].shown : 0)
-            let next = index + 1 < lines.count ? lines[index + 1].shown : nil
+            let start = max(lines[index].info.start, index > 0 ? lines[index - 1].info.shown : 0)
+            let next = index + 1 < lines.count ? lines[index + 1].info.shown : nil
             let end = min(next ?? now, start + maxLength)
             // Another line followed it, or it has reached the longest a recording can be.
             let ended = next != nil || end < now
@@ -222,7 +193,7 @@ final class SentenceAudioController {
             guard let (clip, voice) = await history.voice(from: start, to: end) else {
                 return "This card’s line is older than the kept audio"
             }
-            let shownAt = lines[index].shown - start
+            let shownAt = lines[index].info.shown - start
             let span = String(format: "%.2f s from %.2f s before it was shown", clip.duration, shownAt)
             if let voice, ended || clip.duration - voice.1 >= pause {
                 sentenceAudioLog(String(format: "history: voice %.2f–%.2f s of \(span)", voice.0, voice.1))
@@ -233,7 +204,7 @@ final class SentenceAudioController {
                 // little late.
                 let clip = clip.trimmed(
                     voiceFrom: voice.0, to: voice.1, padding: number("sentenceAudioPadding", 500) / 1000,
-                    startingBy: voice.0 < shownAt + 1 ? max(0, lines[index].start - start) : .infinity
+                    startingBy: voice.0 < shownAt + 1 ? max(0, lines[index].info.start - start) : .infinity
                 )
                 await addClip(clip, cards: cards)
                 return nil

@@ -15,9 +15,6 @@ final class ScreenshotHistory {
     }
 
     private struct Shot {
-        let id: Int
-        /// Every version of the line's text seen, without whitespace (see SentenceAudioController.ShownLine).
-        var texts: [String]
         var data: Data?
         var format: Format?
         /// OCR saw the line's text settle, and the screenshot was taken then (see noteLine).
@@ -28,8 +25,8 @@ final class ScreenshotHistory {
     }
 
     private let capture: (_ fullResolution: Bool) async throws -> CGImage?
-    private var shots: [Shot] = []
-    private var nextID = 0
+    /// The lines, each with its screenshot.
+    private var shots = ShownLines<Shot>()
 
     /// - Parameter capture: Takes a picture of the captured window, or returns nil if there isn't one.
     init(capture: @escaping (_ fullResolution: Bool) async throws -> CGImage?) {
@@ -48,59 +45,52 @@ final class ScreenshotHistory {
             clear()
             return
         }
-        let text = text.components(separatedBy: .whitespacesAndNewlines).joined()
+        let text = ShownLines<Shot>.normalized(text)
         guard !text.isEmpty else { return }
         let delay = settled ? 0 : ((settings["screenshotDelay"] as? NSNumber)?.doubleValue ?? 1000) / 1000
-        // The same line again (growing as it's drawn, read by OCR after the WebSocket, or read a little differently).
-        if let last = shots.indices.last,
-           shots[last].texts.contains(where: { text.hasPrefix($0) || $0.hasPrefix(text) || SentenceAudioController.isSameLine(text, $0) }) {
-            let grew = text.count > shots[last].texts.map(\.count).max() ?? 0
-            if !shots[last].texts.contains(text) { shots[last].texts.append(text) }
+        switch shots.note(text, info: { Shot(settled: settled) }) {
+        case .again(let index, let grew):
             // Its screenshot is taken again while it may still be being drawn: it grew, or OCR saw it settle for the
             // first time. Not when it's read again later (e.g. it moved, or the game goes on behind it while a card is
             // added): the game may have moved on by then.
-            if grew || (settled && !shots[last].settled) {
-                if settled { shots[last].settled = true }
-                schedule(last, after: delay)
+            if grew || (settled && !shots[index].info.settled) {
+                if settled { shots[index].info.settled = true }
+                schedule(index, after: delay)
             }
-            return
+        case .new(let index):
+            // If the previous line is still waiting for its screenshot, it's taken now, before much of this line is drawn.
+            if index > 0, shots[index - 1].info.pending != nil { schedule(index - 1, after: 0) }
+            schedule(index, after: delay)
+            if shots.count > count {
+                shots.prefix(shots.count - count).forEach { $0.info.pending?.cancel() }
+                shots.removeFirst(shots.count - count)
+            }
         }
-        // If the previous line is still waiting for its screenshot, it's taken now, before much of this line is drawn.
-        if let last = shots.indices.last, shots[last].pending != nil { schedule(last, after: 0) }
-        shots.append(Shot(id: nextID, texts: [text], settled: settled))
-        nextID += 1
-        if shots.count > count {
-            shots.prefix(shots.count - count).forEach { $0.pending?.cancel() }
-            shots.removeFirst(shots.count - count)
-        }
-        schedule(shots.count - 1, after: delay)
     }
 
     /// The screenshot of the newest line that a card's sentence comes from, if it was taken in `format`.
     func screenshot(for sentence: String, format: Format) -> Data? {
         guard count > 0 else { return nil }
-        let sentence = sentence.components(separatedBy: .whitespacesAndNewlines).joined()
-        guard let shot = shots.last(where: { $0.texts.contains { SentenceAudioController.isSameLine(sentence, $0) } }),
-              shot.format == format else { return nil }
-        return shot.data
+        guard let index = shots.lastIndex(of: sentence), shots[index].info.format == format else { return nil }
+        return shots[index].info.data
     }
 
     private func clear() {
-        shots.forEach { $0.pending?.cancel() }
-        shots = []
+        shots.forEach { $0.info.pending?.cancel() }
+        shots.removeAll()
     }
 
     private func schedule(_ index: Int, after delay: Double) {
-        shots[index].pending?.cancel()
-        shots[index].generation += 1
-        let id = shots[index].id, generation = shots[index].generation
+        shots[index].info.pending?.cancel()
+        shots[index].info.generation += 1
+        let id = shots[index].id, generation = shots[index].info.generation
         let settings = settings
         let format = Format(
             format: settings["screenshotFormat"] as? String == "png" ? "png" : "jpeg",
             quality: (settings["screenshotQuality"] as? NSNumber)?.doubleValue ?? 92,
             fullResolution: settings["screenshotResolution"] as? String == "full"
         )
-        shots[index].pending = Task { [weak self, capture] in
+        shots[index].info.pending = Task { [weak self, capture] in
             if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
             guard !Task.isCancelled else { return }
             self?.finished(id, generation)
@@ -111,15 +101,15 @@ final class ScreenshotHistory {
             } catch {
                 return
             }
-            guard let self, let index = shots.firstIndex(where: { $0.id == id }), shots[index].generation == generation else { return }
-            shots[index].data = data
-            shots[index].format = format
+            guard let self, let index = shots.firstIndex(where: { $0.id == id }), shots[index].info.generation == generation else { return }
+            shots[index].info.data = data
+            shots[index].info.format = format
         }
     }
 
     /// Marks a line's capture as no longer waiting, since it's being taken now.
     private func finished(_ id: Int, _ generation: Int) {
-        guard let index = shots.firstIndex(where: { $0.id == id }), shots[index].generation == generation else { return }
-        shots[index].pending = nil
+        guard let index = shots.firstIndex(where: { $0.id == id }), shots[index].info.generation == generation else { return }
+        shots[index].info.pending = nil
     }
 }
