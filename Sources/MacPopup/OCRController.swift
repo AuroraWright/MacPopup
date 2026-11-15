@@ -206,6 +206,11 @@ final class OCRController {
     private var readingScale: CGFloat?
     private var lastCoverCheck = Date.distantPast
     private var isCursorCovered = false
+    /// The apps whose windows cover what's read of the window: it's not read until it can be seen (see coveringApps).
+    /// Nil when it's not covered.
+    private var coveredBy: [String]?
+    /// The window that was last checked for that, and when.
+    private var coverageCheck: (window: CGWindowID, time: Date)?
     private var lastRefind = Date.distantPast
     /// The last reading, sent again when the page reloads.
     private var lastResult: [String: Any]?
@@ -586,6 +591,7 @@ final class OCRController {
         var bounds: CGRect
         var layer: Int
         var isOnScreen: Bool
+        var alpha: Double
     }
 
     static func windowInfo(_ dictionary: [String: Any]) -> WindowInfo? {
@@ -599,7 +605,8 @@ final class OCRController {
             title: dictionary[kCGWindowName as String] as? String ?? "",
             bounds: bounds,
             layer: dictionary[kCGWindowLayer as String] as? Int ?? 0,
-            isOnScreen: dictionary[kCGWindowIsOnscreen as String] as? Bool ?? false
+            isOnScreen: dictionary[kCGWindowIsOnscreen as String] as? Bool ?? false,
+            alpha: dictionary[kCGWindowAlpha as String] as? Double ?? 1
         )
     }
 
@@ -711,10 +718,16 @@ final class OCRController {
             boundsChangedAt = Date()
         }
         let onDisplay = NSScreen.screens.contains { Self.globalFrame(of: $0).intersects(info.bounds) }
-        let available = info.isOnScreen && onDisplay && Date().timeIntervalSince(boundsChangedAt) >= 0.3
+        if !info.isOnScreen {
+            coveredBy = nil
+        } else if coverageCheck?.window != target.windowID || Date().timeIntervalSince(coverageCheck?.time ?? .distantPast) > 0.3 {
+            coverageCheck = (target.windowID, Date())
+            coveredBy = coveringApps(info.bounds)
+        }
+        let available = info.isOnScreen && onDisplay && coveredBy == nil && Date().timeIntervalSince(boundsChangedAt) >= 0.3
         if !available, isWindowAvailable {
             let reasons = [info.isOnScreen ? nil : "not on screen (e.g. another space, minimized)", onDisplay ? nil : "off the displays",
-                           Date().timeIntervalSince(boundsChangedAt) < 0.3 ? "moving" : nil]
+                           coveredBy.map { "covered by other windows (\($0.joined(separator: ", ")))" }, Date().timeIntervalSince(boundsChangedAt) < 0.3 ? "moving" : nil]
             log("window unavailable: \(reasons.compactMap { $0 }.joined(separator: ", "))")
         }
         if available, !isWindowAvailable, lastResult != nil {
@@ -796,8 +809,41 @@ final class OCRController {
         // trip to the window server).
         guard Date().timeIntervalSince(lastCoverCheck) > (moved ? 0.1 : 0.5) else { return }
         lastCoverCheck = Date()
-        let inFront = Self.windows([.optionOnScreenAboveWindow, .excludeDesktopElements], relativeTo: target.windowID)
-        setCursorCovered(inFront.contains { $0.bounds.contains(point) })
+        setCursorCovered(Self.windows(inFrontOf: target.windowID).contains { $0.bounds.contains(point) })
+    }
+
+    /// Other apps' windows in front of the window, except ones that are entirely transparent.
+    private static func windows(inFrontOf window: CGWindowID) -> [WindowInfo] {
+        windows([.optionOnScreenAboveWindow, .excludeDesktopElements], relativeTo: window).filter { $0.alpha > 0 }
+    }
+
+    /// When other windows cover all but a sliver of the window's part that's read (its areas), so it can't be seen,
+    /// their apps: it's then not read until it can, as when it's in another space. Its text can't be hovered meanwhile
+    /// anyway, and covered by a window for another app, it would be read for nothing.
+    private func coveringApps(_ windowBounds: CGRect) -> [String]? {
+        guard let target else { return nil }
+        let part = capturedPart
+        let read = CGRect(x: windowBounds.minX + part.minX * windowBounds.width, y: windowBounds.minY + part.minY * windowBounds.height,
+                          width: part.width * windowBounds.width, height: part.height * windowBounds.height)
+        guard read.width > 0, read.height > 0 else { return nil }
+        let covering = Self.windows(inFrontOf: target.windowID).filter { !$0.bounds.intersection(read).isEmpty }
+        guard !covering.isEmpty,
+              Self.uncoveredArea(of: read, by: covering.map { $0.bounds.intersection(read) }) < read.width * read.height * 0.05 else { return nil }
+        return covering.reduce(into: []) { apps, window in if !apps.contains(window.ownerName) { apps.append(window.ownerName) } }
+    }
+
+    /// The area of `rect` outside all of `covers` (each within it).
+    static func uncoveredArea(of rect: CGRect, by covers: [CGRect]) -> CGFloat {
+        let xs = Set(covers.flatMap { [$0.minX, $0.maxX] } + [rect.minX, rect.maxX]).sorted()
+        let ys = Set(covers.flatMap { [$0.minY, $0.maxY] } + [rect.minY, rect.maxY]).sorted()
+        var area: CGFloat = 0
+        for (x0, x1) in zip(xs, xs.dropFirst()) {
+            for (y0, y1) in zip(ys, ys.dropFirst()) {
+                let center = CGPoint(x: (x0 + x1) / 2, y: (y0 + y1) / 2)
+                if !covers.contains(where: { $0.contains(center) }) { area += (x1 - x0) * (y1 - y0) }
+            }
+        }
+        return area
     }
 
     private func setCursorCovered(_ covered: Bool) {
