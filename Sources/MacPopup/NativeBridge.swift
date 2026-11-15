@@ -62,6 +62,11 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         do {
             return (try await handle(cmd, body), nil)
         } catch {
+            // (A request the page cancelled isn't a failure.)
+            if !(error is CancellationError), (error as? URLError)?.code != .cancelled {
+                let url = cmd == "http" ? (body["url"] as? String).flatMap(URL.init(string:)).map { " \($0.host ?? ""):\($0.port ?? 0)\($0.path)" } ?? "" : ""
+                DebugLog.note("\(cmd)\(url) failed: \(error.localizedDescription)")
+            }
             return (nil, error.localizedDescription)
         }
     }
@@ -98,15 +103,18 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             let fullResolution = body["resolution"] as? String == "full"
             // Of a popup (for a card from a popup inside it, see snapshotPopup in overlay.js).
             if let values = body["rect"] as? [NSNumber], values.count == 4, let host {
+                DebugLog.note("screenshot: of the popup the card is from")
                 let rect = CGRect(x: values[0].doubleValue, y: values[1].doubleValue, width: values[2].doubleValue, height: values[3].doubleValue)
                 let image = try await host.snapshotOverlay(rect: rect, fullResolution: fullResolution)
                 return try ScreenCapture.encode(image, format: format, quality: quality).base64EncodedString()
             }
             // Prefers the screenshot taken when the card's line was shown (Settings → Anki Screenshot).
-            if let line = (body["line"] as? NSNumber)?.intValue,
-               let data = host?.bufferedScreenshot(line: line, format: format, quality: quality, fullResolution: fullResolution) {
+            let line = (body["line"] as? NSNumber)?.intValue
+            if let line, let data = host?.bufferedScreenshot(line: line, format: format, quality: quality, fullResolution: fullResolution) {
+                DebugLog.note("screenshot: line \(line)'s, kept since it was shown")
                 return data.base64EncodedString()
             }
+            DebugLog.note("screenshot: taken now (\(line.map { "none kept for line \($0)" } ?? "the card's line isn't known"))")
             // With the OCR overlay, only the window being read; otherwise the display the overlay is on.
             if let image = try await host?.ocrWindowScreenshot(fullResolution: fullResolution) {
                 return try ScreenCapture.encode(image, format: format, quality: quality).base64EncodedString()
@@ -123,6 +131,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "mediaFrame":
             guard let source = body["source"] as? [String: Any], let time = (body["time"] as? NSNumber)?.doubleValue
             else { throw AppError("Missing source or time") }
+            DebugLog.note("screenshot: the video's frame at \(String(format: "%.2f", time)) s")
             let video = try MediaClip.Source(source, socket: body["socket"] as? String)
             let png = body["format"] as? String == "png"
             let quality = (body["quality"] as? NSNumber)?.doubleValue ?? 92
@@ -236,9 +245,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "log":
             FileHandle.standardError.write("[web] \(body["message"] ?? "")\n".data(using: .utf8)!)
             return nil
-        case "ocrDebugLog":
+        case "debugLog":
             // (Not once the setting is off: the log was deleted then.)
-            if let json = body["json"] as? String, OCRDebugLog.isOn { OCRDebugLog.append(json) }
+            if let json = body["json"] as? String, DebugLog.isOn { DebugLog.append(json) }
             return nil
         default:
             throw AppError("Unknown command \(cmd)")

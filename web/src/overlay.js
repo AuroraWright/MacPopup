@@ -3,6 +3,7 @@
 // and makes the window click-through everywhere except the rects reported via setHitRects.
 import { mdiClipboardOffOutline, mdiClipboardTextOutline, mdiCog, mdiConnection, mdiDeleteSweep, mdiEyeOff, mdiPause, mdiPlay, mdiTextRecognition } from '@mdi/js';
 import { log, nativeCall } from './lib/native.js';
+import { logDebug, logEvent } from './lib/debug-log.js';
 import { getPopupPosition } from './lib/popup-position.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
 import { getTextSourceFromPoint, searchTextSource, setHighlight, textSourceAt } from './lib/scanner.js';
@@ -56,6 +57,7 @@ function reportHitRects() {
 let toastTimer = null;
 
 function showToast(message) {
+	logEvent('message shown', { message });
 	const toast = getSettings().ocrMode ? $('#ocr-toast') : $('#toast');
 	toast.textContent = message;
 	toast.hidden = false;
@@ -729,6 +731,7 @@ class PopupManager {
 			height: `${position.height}px`,
 		});
 		popup.sourceRects = sourceRects;
+		logEvent('popup shown', { depth, lookup: content?.type, query: content?.query, entries: content?.dictionaryEntries?.length });
 		const contentPromise = popup.api.setContent(content, 'clear');
 		iframe.style.visibility = 'visible';
 		popup.visible = true;
@@ -777,6 +780,7 @@ class PopupManager {
 		this.closes[depth] = (this.closes[depth] ?? 0) + 1;
 		const popup = this.popups[depth];
 		if (!popup?.visible) return;
+		logEvent('popup closed', { depth });
 		popup.visible = false;
 		popup.iframe.style.visibility = '';
 		popup.api?.stopAudio();
@@ -868,12 +872,13 @@ window.__macpopupUpdateHotkeys = () => {
 };
 
 window.__macpopupHotkey = (index) => {
-	if (activeHotkeys[index]) runHotkey(activeHotkeys[index]);
+	if (activeHotkeys[index]) runHotkey(activeHotkeys[index], 'keyboard');
 };
 
-/** Runs a popup shortcut's action (pressed on the keyboard, or on a controller). */
-function runHotkey(hotkey) {
+/** Runs a popup shortcut's action, pressed on the keyboard or on a controller (`from`). */
+function runHotkey(hotkey, from) {
 	const argument = typeof hotkey.argument === 'string' ? hotkey.argument : '';
+	logEvent('popup shortcut', { action: hotkey.action, argument, from, popups: popupManager.visiblePopups().length });
 	// The popup on top gets it, as the focused popup would in Yomitan.
 	popupManager.visiblePopups().at(-1)?.api?.runHotkey(hotkey.action, argument);
 }
@@ -1232,12 +1237,12 @@ async function readOcrNow() {
 	if (!(await nativeCall('ocr', { action: 'readNow' }).catch(() => false))) {
 		ocr.onReading = ocr.onReading.filter((callback) => callback !== done);
 		clearTimeout(timer);
-		logOcrEvent('reading as it is: not taken (no window to read)');
+		logEvent('reading as it is: not taken (no window to read)');
 		return;
 	}
 	const taken = await read;
 	clearTimeout(timer);
-	if (!taken) logOcrEvent('reading as it is: none within 10 s');
+	if (!taken) logEvent('reading as it is: none within 10 s');
 }
 
 function readingDone() {
@@ -1291,7 +1296,7 @@ function applyDeferredOcr() {
 	const deferred = ocr.deferred;
 	if (!deferred) return;
 	ocr.deferred = null;
-	logOcrEvent(deferred.clear ? 'held-back clearing applied' : 'held-back reading shown');
+	logEvent(deferred.clear ? 'held-back clearing applied' : 'held-back reading shown');
 	if (deferred.clear) clearOcrText();
 	else renderOcrResult(deferred);
 }
@@ -1397,21 +1402,6 @@ function matchSummary(result) {
 	return { quality: Math.round(result.quality * 1000) / 1000, missingEnd: result.missingEnd, partial: !!result.partial };
 }
 
-/**
- * With Settings → OCR → Debug on, writes `record` to the OCR debug log (ocr-debug.jsonl in
- * Application Support/MacPopup; see OCRDebugLog.swift): each reading, what was done with it, and each
- * WebSocket line.
- */
-function logOcrDebug(record) {
-	if (!getSettings().ocrShowBoxes) return;
-	nativeCall('ocrDebugLog', { json: JSON.stringify({ time: new Date().toISOString(), ...record }) }).catch(() => {});
-}
-
-/** What happens around the readings (controller focus, the pause and scan shortcut, held-back readings). */
-function logOcrEvent(event, fields = {}) {
-	logOcrDebug({ type: 'event', event, ...fields });
-}
-
 /** Why the shown text may not be offered (see controllerLines). */
 function ocrTextState() {
 	return {
@@ -1468,7 +1458,7 @@ function showOcrResult(message) {
 			// With a cloud engine, its reading of the dialogue is shown instead, once it answers.
 			const cloud = getSettings().ocrCloudEngine;
 			if (cloud && cloud !== 'none') {
-				logOcrDebug({ ...debug, match: matchSummary(result), outcome: 'taken, for the cloud engine' });
+				logDebug({ ...debug, match: matchSummary(result), outcome: 'taken, for the cloud engine' });
 				return;
 			}
 		}
@@ -1506,10 +1496,10 @@ function showOcrResult(message) {
 	if (!getSettings().ocrMode) {
 		if (notes) noteOcrReading(dialogue, message.roundAge, toBox);
 		const shown = dialogue.map((line) => ({ text: lineText(line), area: line.area, matched: !!line.matched }));
-		logOcrDebug({ ...debug, shown, outcome: toBox ? 'for the text box' : notes ? 'noted' : 'not noted' });
+		logDebug({ ...debug, shown, outcome: toBox ? 'for the text box' : notes ? 'noted' : 'not noted' });
 		return;
 	}
-	// Outlined in red with Settings → OCR → Debug on.
+	// Outlined in red with Settings → General → Debug on.
 	if (unsettled) dialogue = dialogue.map((line) => ({ ...line, provisional: true }));
 	const lines = [...dialogue, ...others];
 	const size = { width: message.width, height: message.height };
@@ -1520,7 +1510,7 @@ function showOcrResult(message) {
 	if (key === ocr.key && $('#ocr-text').childElementCount > 0) {
 		ocr.deferred = null;
 		ocr.held = null;
-		logOcrDebug({ ...debug, shown, outcome: 'unchanged' });
+		logDebug({ ...debug, shown, outcome: 'unchanged' });
 		return;
 	}
 	// On screen from now on, even if it's shown once the popups close (for Anki Audio and Screenshot).
@@ -1531,16 +1521,16 @@ function showOcrResult(message) {
 	if (highlighted && (unsettled || hasCharsInPlace(lines, size, highlighted))) {
 		ocr.held = null;
 		ocr.deferred = { lines, size, key };
-		logOcrDebug({ ...debug, shown, outcome: 'shown once the popups close' });
+		logDebug({ ...debug, shown, outcome: 'shown once the popups close' });
 		return;
 	}
 	ocr.deferred = null;
 	if (unsettled && aimingAtOcrText()) {
-		logOcrDebug({ ...debug, shown, outcome: 'shown once the hovering ends' });
+		logDebug({ ...debug, shown, outcome: 'shown once the hovering ends' });
 		holdOcrResult({ lines, size, key });
 		return;
 	}
-	logOcrDebug({ ...debug, shown, outcome: unsettled ? 'shown while changing' : 'shown' });
+	logDebug({ ...debug, shown, outcome: unsettled ? 'shown while changing' : 'shown' });
 	ocr.held = null;
 	renderOcrResult({ lines, size, key });
 }
@@ -1565,7 +1555,7 @@ function holdOcrResult(reading) {
 		ocr.held = null;
 		if (highlightedOcrChars()) {
 			ocr.deferred = held;
-			logOcrEvent('held reading waits for the popups to close');
+			logEvent('held reading waits for the popups to close');
 			return;
 		}
 		renderOcrResult(held);
@@ -1580,7 +1570,7 @@ function renderOcrResult({ lines, size, key }) {
 	renderLines($('#ocr-text'), lines);
 	applyOcrScale();
 	const kept = moveOcrScan(scanned);
-	if (scanned) logOcrEvent(kept ? `hovered word ${kept === 'moved' ? 'found where it moved' : 'kept'}` : 'hovered word gone', { place: scanned });
+	if (scanned) logEvent(kept ? `hovered word ${kept === 'moved' ? 'found where it moved' : 'kept'}` : 'hovered word gone', { place: scanned });
 	if (!kept) clearMainScan();
 }
 
@@ -1732,7 +1722,7 @@ function ocrWebsocketLine(rawText, shown) {
 	if (state.paused) return;
 	const text = ocrLineText(rawText);
 	if (text === null) return;
-	logOcrDebug({ type: 'line', text, received: rawText });
+	logDebug({ type: 'line', text, received: rawText });
 	if (ocr.line !== null) ocr.earlierLines = [...ocr.earlierLines, ocr.line].slice(-Math.max(1, settings.ocrEarlierLines));
 	ocr.line = { text, shown };
 	if (!matchesWebsocketLines(settings)) return;
@@ -1869,10 +1859,16 @@ window.__macpopupGamepad = (held) => {
 		if (scanButtons.length > 0 && sameButtons(combo, scanButtons)) {
 			setControllerFocus(!gamepad.focus);
 		} else if (sentenceAudioButtons.length > 0 && sameButtons(combo, sentenceAudioButtons)) {
+			logEvent('controller: the Anki Audio buttons', { buttons: combo });
 			nativeCall('pressSentenceAudio').catch(() => {});
 		} else if (popupManager.visiblePopups().length > 0) {
 			const hotkey = controllerHotkeys().find((hotkey) => sameButtons(combo, hotkey.buttons));
-			if (hotkey) runHotkey(hotkey);
+			if (hotkey) {
+				runHotkey(hotkey, 'controller');
+			} else {
+				// (Without a popup, the buttons are the game's.)
+				logEvent('controller: no popup shortcut for these buttons', { buttons: combo });
+			}
 		}
 	}
 	const directions = held.map(moveDirection).filter(Boolean);
@@ -1887,7 +1883,7 @@ window.__macpopupGamepad = (held) => {
  * is held (see Gamepads.swift): closes the popups and gives the controller back.
  */
 window.__macpopupReleaseForGame = () => {
-	logOcrEvent('popups closed and the controller let go, for the game (another app, or Anki Audio)');
+	logEvent('popups closed and the controller let go, for the game (another app, or Anki Audio)');
 	if (gamepad.focus) {
 		setControllerFocus(false);
 	} else {
@@ -1899,7 +1895,7 @@ window.__macpopupReleaseForGame = () => {
 
 function setControllerFocus(focus) {
 	if (focus === gamepad.focus) return;
-	logOcrEvent(focus ? 'controller focus' : 'controller focus ended');
+	logEvent(focus ? 'controller focus' : 'controller focus ended');
 	// A move still under way is left to finish on its own (see moveWord).
 	gamepad.focusChanges++;
 	gamepad.moving = false;
@@ -1929,7 +1925,7 @@ function setControllerFocus(focus) {
 /** Whether there's text for the controller to move in, telling the user when there isn't. */
 function hasControllerText() {
 	if (controllerChars().length > 0) return true;
-	logOcrEvent('no text to look up', ocrTextState());
+	logEvent('no text to look up', ocrTextState());
 	showToast('No text to look up');
 	return false;
 }
@@ -1969,7 +1965,7 @@ async function focusPaused() {
  */
 async function togglePausedScan() {
 	if (pausedScan.on) {
-		logOcrEvent('pause and scan off');
+		logEvent('pause and scan off');
 		pausedScan.on = false;
 		popupManager.closeAll();
 		clearMainScan();
@@ -1977,7 +1973,7 @@ async function togglePausedScan() {
 		return;
 	}
 	if (!getSettings().gamePause) return;
-	logOcrEvent('pause and scan on');
+	logEvent('pause and scan on');
 	pausedScan.on = true;
 	updateGamepadHold();
 	await updateGamePause();
@@ -1987,7 +1983,7 @@ async function togglePausedScan() {
 window.__macpopupPauseShortcut = () => void togglePausedScan();
 window.__macpopupEndPausedScan = () => {
 	if (!pausedScan.on) return;
-	logOcrEvent('pause and scan ending: switched to another app');
+	logEvent('pause and scan ending: switched to another app');
 	void togglePausedScan();
 };
 
@@ -2378,7 +2374,7 @@ function applySettings(settings) {
 	// Without the scan key's buttons, or in the other mode, the text no longer has controller focus.
 	if (gamepad.focus && ((settings.gamepadScanButtons ?? []).length === 0 || !!settings.ocrMode !== gamepad.ocrMode)) setControllerFocus(false);
 	if (pausedScan.on && !settings.gamePause) {
-		logOcrEvent('pause and scan off: Pause the game was turned off');
+		logEvent('pause and scan off: Pause the game was turned off');
 		pausedScan.on = false;
 		updateGamepadHold();
 	}

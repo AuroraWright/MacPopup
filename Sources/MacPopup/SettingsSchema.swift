@@ -83,12 +83,14 @@ struct SettingsField: Identifiable {
     var showIf: (([String: Any]) -> Bool)?
     /// A problem with the settings, shown in red under the field, if any.
     var warning: (([String: Any]) -> String?)?
+    /// What Option-clicking the label or hint does, if anything.
+    var optionClick: (@MainActor () -> Void)?
 
     var id: String { key }
 
     init(
         _ key: String, _ label: String, _ kind: Kind, hint: String? = nil, showIf: (([String: Any]) -> Bool)? = nil,
-        warning: (([String: Any]) -> String?)? = nil
+        warning: (([String: Any]) -> String?)? = nil, optionClick: (@MainActor () -> Void)? = nil
     ) {
         self.key = key
         self.label = label
@@ -96,6 +98,7 @@ struct SettingsField: Identifiable {
         self.hint = hint
         self.showIf = showIf
         self.warning = warning
+        self.optionClick = optionClick
     }
 
     /// Shown across the whole width, below its label.
@@ -215,6 +218,11 @@ enum SettingsSchema {
                 SettingsField(
                     "replacements", "Text replacements", .replacements,
                     hint: "Find-and-replace rules applied in order to each new line before it appears. Supports regular expressions ($1 inserts the first capture group, \\n adds a line break, and \\t adds a tab). With the OCR overlay, they only apply to WebSocket lines, before they’re matched with the recognized text."
+                ),
+                SettingsField(
+                    "ocrShowBoxes", "Debug", .checkbox,
+                    hint: "For troubleshooting. Keeps a log of what MacPopup does to send with a bug report: lines and OCR readings, popups, shortcuts, cards added, Anki Audio and Anki Screenshot, the controller and game pauses, along with your settings and MacPopup’s version. It’s saved to ~/Library/Application Support/MacPopup/debug.jsonl (Option-click here to show it in Finder) and deleted when this is turned off. Also outlines the text the OCR overlay recognized: red while it’s still changing, orange for local OCR, gold for cloud OCR, and green for lines corrected with WebSocket text (darker with cloud OCR).",
+                    optionClick: { DebugLog.reveal() }
                 ),
             ]),
             SettingsSection(title: "WebSockets", symbol: "network", fields: [
@@ -371,10 +379,6 @@ enum SettingsSchema {
                     SettingsField(
                         "ocrMaxWait", "Show reading anyway after (ms)", .number(min: 100),
                         hint: "If text keeps changing continuously (such as very slow typewriter text), use the latest reading after this time limit and keep updating as more text appears."
-                    ),
-                    SettingsField(
-                        "ocrShowBoxes", "Debug", .checkbox,
-                        hint: "For troubleshooting. Outlines the text the OCR overlay recognized: red while it’s still changing, orange for local OCR, gold for cloud OCR, and green for lines corrected with WebSocket text (darker with cloud OCR). Also logs each scan, what started it and what happened around it (the window, game pauses, the controller), along with your OCR settings and MacPopup version, to ~/Library/Application Support/MacPopup/ocr-debug.jsonl, which is deleted when this is turned off."
                     ),
                 ]
             ),

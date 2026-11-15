@@ -35,7 +35,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
             self?.settingsWindow.mouseButtonEvent(button: button, isDown: isDown)
         }
 
+        // First, so the log starts with its session record.
+        DebugLog.start()
         ocr = OCRController(overlay: overlay)
+        DebugLog.onSession = { [weak self] in self?.ocr.logWindow() }
         clipboardMonitor = ClipboardMonitor(overlay: overlay)
         sentenceAudio = SentenceAudioController(overlay: overlay)
         screenshots = ScreenshotHistory { [weak self] fullResolution in try await self?.ocr.windowScreenshot(fullResolution: fullResolution) }
@@ -46,7 +49,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         }
         GamepadController.shared.onToast = { [weak self] message in self?.overlay.showToast(message) }
         GamePause.shared.onToast = { [weak self] message in self?.overlay.showToast(message) }
-        OCRDebugLog.start()
         GamePause.shared.onResume = { [weak self] in self?.ocr.gameResumed() }
         GamePause.shared.onShortcut = { [weak self] in self?.overlay.evaluate("window.__macpopupPauseShortcut?.()") }
         GamePause.shared.onSwitchAway = { [weak self] in self?.overlay.evaluate("window.__macpopupEndPausedScan?.()") }
@@ -248,6 +250,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
             lines[noted.index].info = false
             reply["replacesOCR"] = true
         }
+        DebugLog.note(
+            "line \(line.id) \(noted.isNew ? "new" : noted.grew ? "grew" : "again"), \(fromOCR ? "read with OCR" : "sent")"
+                + (fromOCR && noted.starts.count > 1 ? ", lines from \(noted.starts.map { "\($0.id) at \($0.start)" }.joined(separator: ", "))" : "")
+                + (reply["replacesOCR"] != nil ? ", in place of the OCR line" : "") + ": \(line.text)"
+        )
         return reply
     }
 

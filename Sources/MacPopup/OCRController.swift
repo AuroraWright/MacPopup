@@ -181,7 +181,7 @@ final class OCRController {
 
     /// The window state last sent to the page, so that it's only sent when it changes.
     private var lastSentWindowState = ""
-    /// Whether the overlay was last logged as shown over the window (nil: not yet, it's in the session record).
+    /// Whether the overlay was last logged as shown over the window (nil: not yet, it's in the window's record, see logWindow).
     private var loggedVisible: Bool?
 
     private var trackTimer: Timer?
@@ -257,7 +257,6 @@ final class OCRController {
     }
 
     private func applySettings() {
-        if isEnabled { logSettingsChanges() }
         let overlayMode = settings["ocrMode"] as? Bool ?? false
         let enabled = overlayMode || settings["floatingWindowOCR"] as? Bool ?? false
         let switched = enabled && isEnabled && overlayMode != showsOverlay
@@ -368,8 +367,7 @@ final class OCRController {
         trackTimer = timer
         loggedVisible = nil
         trackWindow()
-        logSession()
-        loggedSettings = OCRDebugLog.ocrSettings.mapValues(Self.json)
+        logWindow()
         startedEngine = engine
         startedLanguage = language
         startedStripsFurigana = stripsFurigana
@@ -523,39 +521,17 @@ final class OCRController {
     // MARK: Messages from the page
 
     private func log(_ message: @autoclosure () -> String) {
-        OCRDebugLog.note(message())
+        DebugLog.note(message())
     }
 
-    /// The settings OCRDebugLog keeps, as last logged (each as JSON, to compare): changes are logged as they're made.
-    private var loggedSettings: [String: String] = [:]
-
-    private func logSettingsChanges() {
-        let current = OCRDebugLog.ocrSettings.mapValues(Self.json)
-        defer { loggedSettings = current }
-        guard OCRDebugLog.isOn, !loggedSettings.isEmpty else { return }
-        // Just turned on: a new log starts (the last was deleted as it was turned off).
-        if current["ocrShowBoxes"] != loggedSettings["ocrShowBoxes"] {
-            logSession()
-            return
-        }
-        let changed = Set(current.keys).union(loggedSettings.keys).filter { current[$0] != loggedSettings[$0] }
-        guard !changed.isEmpty else { return }
-        OCRDebugLog.record(["type": "settings", "changed": Dictionary(uniqueKeysWithValues: changed.map { ($0, OCRDebugLog.ocrSettings[$0] ?? NSNull()) })])
+    /// The window read, in the debug log: as OCR starts, and after each session record (see DebugLog.onSession).
+    func logWindow() {
+        guard isEnabled, DebugLog.isOn, var window = windowForLog else { return }
+        window["overlayShown"] = loggedVisible
+        DebugLog.record(["type": "ocr", "window": window])
     }
 
-    private static func json(_ value: Any) -> String {
-        guard JSONSerialization.isValidJSONObject([value]),
-              let data = try? JSONSerialization.data(withJSONObject: [value], options: [.sortedKeys]) else { return "\(value)" }
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    private func logSession() {
-        var window = windowForLog
-        window?["overlayShown"] = loggedVisible
-        OCRDebugLog.session(window: window)
-    }
-
-    /// The window read (or the screen), for the debug log's session record.
+    /// The window read (or the screen), for the debug log.
     private var windowForLog: [String: Any]? {
         var window: [String: Any] = readsScreen ? ["screen": true] : [:]
         if let target { window.merge(["owner": target.ownerName, "title": target.title]) { $1 } }
@@ -1272,7 +1248,7 @@ final class OCRController {
                 let cloud = self.lines(from: items, in: crop, area: 0, bounds: bounds, ordered: false, exactBoxes: true)
                 // It may miss text the local engine read, but not all of it.
                 if !cloud.lines.isEmpty {
-                    // Marked for the overlay's outlines (shown with Settings → OCR → Debug on).
+                    // Marked for the overlay's outlines (shown with Settings → General → Debug on).
                     let cloudLines = cloud.lines.map { line in line.merging(["cloud": true]) { $1 } }
                     (lines, removed) = (Self.adding(local, to: cloudLines), cloud.removed)
                     self.cloudReading = (engine, localTexts, bounds, lines, removed)
@@ -1477,7 +1453,7 @@ final class OCRController {
         }
         let gray = GrayImage(crop)
         let size = CGSize(width: crop.width, height: crop.height)
-        // The lines left out, for the page's debug log (with Settings → OCR → Debug on).
+        // The lines left out, for the page's debug log (with Settings → General → Debug on).
         let recordsRemoved = settings["ocrShowBoxes"] as? Bool ?? false
         var removed: [[String: Any]] = []
         let box = { (box: CGRect) in [box.minX, box.minY, box.width, box.height] }

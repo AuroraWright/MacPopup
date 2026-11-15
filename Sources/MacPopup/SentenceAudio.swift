@@ -143,7 +143,7 @@ final class SentenceAudioController {
             lines[index].shown = min(lines[index].shown, shown)
             lines[index].start = min(lines[index].start, start)
         } else {
-            sentenceAudioLog(String(format: "line shown %.2f s ago: %@", now - shown, text))
+            sentenceAudioLog(String(format: "line shown %.2f s ago (line %d): %@", now - shown, id, text))
             lines.append(LineTimes(id: id, shown: shown, start: start))
             lines.removeAll { $0.shown < now - minutes * 60 - 60 }
         }
@@ -156,7 +156,11 @@ final class SentenceAudioController {
         addedCards.removeAll { $0.note == note }
         addedCards.append(AddedCard(note: note, line: line, nested: nested))
         if addedCards.count > 100 { addedCards.removeFirst(addedCards.count - 100) }
-        if withAudio, !nested, Self.isEnabled(settings) { shortcutPressed(note: note) }
+        let enabled = Self.isEnabled(settings)
+        let voice = !withAudio ? "no voice asked for" : nested ? "no voice, from a popup inside a popup"
+            : !enabled ? "no voice, Anki Audio is off" : "its line's voice asked for"
+        sentenceAudioLog("card \(note) added, line \(line.map(String.init) ?? "unknown")\(nested ? " (in a popup inside a popup)" : ""): \(voice)")
+        if withAudio, !nested, enabled { shortcutPressed(note: note) }
     }
 
     /// Takes the voice of the cards' line from the audio history and adds it to them. Returns nil on success, or the
@@ -232,12 +236,15 @@ final class SentenceAudioController {
     func shortcutPressed(note: Int64? = nil) {
         switch state {
         case .idle:
+            if note == nil { sentenceAudioLog("shortcut pressed") }
             self.note = note
             state = .starting
             Task { await start() }
         case let .recording(recording):
+            sentenceAudioLog(note.map { "card \($0) waits for the recording in progress" } ?? "shortcut pressed: the recording stops")
             if let note { queued.append(note) } else { recording.stop(reason: .shortcut) }
         case .starting, .finishing:
+            sentenceAudioLog(note.map { "card \($0) waits its turn" } ?? "shortcut pressed while busy: nothing to do")
             if let note { queued.append(note) }
         }
     }
@@ -514,15 +521,16 @@ final class SentenceAudioController {
     }
 
     private func showToast(_ message: String) {
-        sentenceAudioLog("message: \(message)")
+        // (Not to the debug log: the page logs the messages it shows.)
+        FileHandle.standardError.write("[sentence audio] message: \(message)\n".data(using: .utf8)!)
         overlay.showToast(message)
     }
 }
 
-/// Logged to stderr, like the page's log messages, and to the OCR debug log when it's on (see OCRDebugLog).
+/// Logged to stderr, like the page's log messages, and to the debug log when it's on (see DebugLog).
 func sentenceAudioLog(_ message: String) {
     FileHandle.standardError.write("[sentence audio] \(message)\n".data(using: .utf8)!)
-    Task { @MainActor in OCRDebugLog.note("anki audio: \(message)") }
+    Task { @MainActor in DebugLog.note("anki audio: \(message)") }
 }
 
 /// One recording of an app's audio (or, for tests, a sound file played at its own pace), and the voice

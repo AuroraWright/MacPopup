@@ -6,6 +6,7 @@ import { createFuriganaHtml, createFuriganaPlain } from '../../../vendor/yomitan
 import { distributeFuriganaInflected } from '../../../vendor/yomitan/ext/js/language/ja/japanese.js';
 import { ankiInvoke, getRootDeckName } from './anki-connect.js';
 import { ankiReadingMode, renderFields, shouldRenderLocally } from './anki-templates.js';
+import { logEvent } from './debug-log.js';
 import { log, nativeCall } from './native.js';
 import { getSettings } from './settings.js';
 import { ankiFields, tokenize } from './yomitan-api.js';
@@ -193,6 +194,7 @@ async function takeScreenshot(line, format, settings) {
 			return await line.screenshot(options);
 		} catch (e) {
 			log('The popup’s screenshot failed', e);
+			logEvent('screenshot of the popup failed', { error: e instanceof Error ? e.message : `${e}` });
 		}
 	}
 	const player = line?.player;
@@ -202,6 +204,7 @@ async function takeScreenshot(line, format, settings) {
 			return await nativeCall('mediaFrame', { source: player.video, socket: player.socket, time, format, quality: settings.screenshotQuality });
 		} catch (e) {
 			log('The line’s screenshot failed', e);
+			logEvent('screenshot of the video failed', { error: e instanceof Error ? e.message : `${e}` });
 		}
 	}
 	return nativeCall('screenshot', { ...options, line: line?.id ?? null });

@@ -694,7 +694,7 @@ export function renderLines(container, lines) {
 
 	// Stretch each glyph along the line to the width of its box (letter-spacing counts as part of the
 	// character's rect). Measured all at once so layout happens only once. The spacing goes after the
-	// glyph, so where the text is shown (with Settings → OCR → Debug on), it's drawn shifted to the middle.
+	// glyph, so where the text is shown (with Settings → General → Debug on), it's drawn shifted to the middle.
 	// Measured unscaled: the container may still be scaled to the window since its last reading (the
 	// rects include that), until the caller scales it for these lines.
 	const transform = container.style.transform;

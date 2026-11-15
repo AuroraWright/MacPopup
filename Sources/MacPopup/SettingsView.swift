@@ -110,11 +110,18 @@ private struct FieldLabel: View {
     let field: SettingsField
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let label = VStack(alignment: .leading, spacing: 2) {
             Text(field.label)
             if let hint = field.hint {
                 Text(hint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
+        }
+        if let optionClick = field.optionClick {
+            label
+                .contentShape(Rectangle())
+                .gesture(TapGesture().modifiers(.option).onEnded { optionClick() })
+        } else {
+            label
         }
     }
 }

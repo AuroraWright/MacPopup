@@ -74,7 +74,7 @@ final class GamePause {
 
     private func appActivated(_ pid: pid_t?) {
         guard frozen, let pid, pid != ProcessInfo.processInfo.processIdentifier, !frozenPIDs.contains(pid) else { return }
-        OCRDebugLog.note("switched to \(NSRunningApplication(processIdentifier: pid)?.localizedName ?? "another app") while the game was paused")
+        DebugLog.note("switched to \(NSRunningApplication(processIdentifier: pid)?.localizedName ?? "another app") while the game was paused")
         onSwitchAway?()
     }
 
@@ -91,7 +91,7 @@ final class GamePause {
         guard freeze != frozen else { return }
         if freeze {
             guard Self.service.status == .enabled else {
-                OCRDebugLog.note("game not paused: the pause helper isn't allowed")
+                DebugLog.note("game not paused: the pause helper isn't allowed")
                 if !toldAboutHelper {
                     toldAboutHelper = true
                     onToast?("Pausing the game needs MacPopup’s helper: allow it in Settings → Permissions")
@@ -99,10 +99,10 @@ final class GamePause {
                 return
             }
             guard let (app, pids) = Self.gameProcesses(), !pids.isEmpty else {
-                OCRDebugLog.note("game not paused: no game found")
+                DebugLog.note("game not paused: no game found")
                 return
             }
-            OCRDebugLog.note("game paused: \(NSRunningApplication(processIdentifier: app)?.localizedName ?? "pid \(app)"), \(pids.count) process\(pids.count == 1 ? "" : "es")")
+            DebugLog.note("game paused: \(NSRunningApplication(processIdentifier: app)?.localizedName ?? "pid \(app)"), \(pids.count) process\(pids.count == 1 ? "" : "es")")
             frozen = true
             frozenPIDs = pids + [app]
             GameClock.freeze()
@@ -123,7 +123,7 @@ final class GamePause {
             helper.freeze(pids.map { NSNumber(value: $0) }) { stopped in
                 if stopped.count < pids.count {
                     NSLog("MacPopup: the pause helper stopped \(stopped.count) of \(pids.count) processes")
-                    Task { @MainActor in OCRDebugLog.note("the pause helper stopped \(stopped.count) of \(pids.count) processes") }
+                    Task { @MainActor in DebugLog.note("the pause helper stopped \(stopped.count) of \(pids.count) processes") }
                 }
                 reply.finish()
             }
@@ -151,7 +151,7 @@ final class GamePause {
         }
         return connection?.remoteObjectProxyWithErrorHandler { error in
             NSLog("MacPopup: the pause helper didn't answer: \(error.localizedDescription)")
-            Task { @MainActor in OCRDebugLog.note("the pause helper didn't answer: \(error.localizedDescription)") }
+            Task { @MainActor in DebugLog.note("the pause helper didn't answer: \(error.localizedDescription)") }
             onError?()
         } as? PauseHelperProtocol
     }

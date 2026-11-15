@@ -11,6 +11,7 @@ import { addScopeToCss } from '../../vendor/yomitan/ext/js/core/utilities.js';
 import { ankiInvoke, findNoteIds, getNoteInfos, suspendCardsForNote } from './lib/anki-connect.js';
 import { buildFirstFieldNotes, buildNote, overwriteNote, storeMedia } from './lib/anki-notes.js';
 import { log, nativeCall } from './lib/native.js';
+import { logEvent } from './lib/debug-log.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
 import { adaptCssForWebKit } from './lib/webkit-css.js';
 import { getTextSourceFromPoint, searchTextSource, setHighlight, wrapRubyBases } from './lib/scanner.js';
@@ -575,6 +576,7 @@ class Popup {
 	}
 
 	showErrorNotification(errors) {
+		logEvent('error shown in a popup', { depth: this.depth, errors: errors.map((e) => (e instanceof Error ? e.message : `${e}`)) });
 		this.notifications.error ??= this.createNotification(false);
 		const content = this.generator.createAnkiNoteErrorsNotificationContent(errors);
 		for (const link of content.querySelectorAll('.anki-note-error-log-link')) {
@@ -1197,12 +1199,16 @@ class Popup {
 		this.notifications.error?.close(true);
 		this.setProgress(true);
 		const line = this.cardLine();
-		// The card saved, and whether it may get the line's voice (withAudio).
+		// The card saved, and whether it may get the line's voice (withAudio), or else why not.
 		let saved = null;
 		let takesAudio = true;
+		let noVoice = withAudio ? null : 'not asked for';
 		try {
 			const { note, media, hasPlayerAudio } = await this.createNote(entryIndex, cardFormatIndex, line);
-			if (hasPlayerAudio) withAudio = false;
+			if (hasPlayerAudio && withAudio) {
+				withAudio = false;
+				noVoice = 'it has the line’s audio from the video';
+			}
 			await storeMedia(media);
 			if (button.dataset.overwrite) {
 				const fields = await overwriteNote(detail.noteIds[0], note, cardFormat);
@@ -1210,6 +1216,7 @@ class Popup {
 				// Existing sentence audio is only replaced if Settings → Anki Audio allows it.
 				const audio = fields[settings.sentenceAudioField?.trim()] ?? '';
 				takesAudio = settings.sentenceAudioOverwrite || !audio.trim();
+				if (withAudio && !takesAudio) noVoice = 'it has sentence audio already';
 			} else {
 				const noteId = await ankiInvoke('addNote', { note });
 				if (noteId === null) throw new Error('Note could not be added');
@@ -1233,6 +1240,16 @@ class Popup {
 		}
 		if (errors.length > 0) this.showErrorNotification(errors);
 		if (saved !== null) {
+			logEvent('card added', {
+				note: saved,
+				format: cardFormat.name,
+				overwritten: !!button.dataset.overwrite,
+				depth: this.depth,
+				query: content.query,
+				line: line.id,
+				nested: !!line.nested,
+				voice: noVoice === null ? 'asked for' : `none: ${noVoice}`,
+			});
 			const card = { note: saved, line: line.id, nested: !!line.nested, withAudio: withAudio && takesAudio };
 			nativeCall('cardAdded', card).catch(() => {});
 		}
