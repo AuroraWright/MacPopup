@@ -35,10 +35,10 @@ final class OCRController {
     }
 
     private let overlay: OverlayController
-    /// Text is read: for the OCR overlay, or for the Floating Window's text box ("Read text from OCR").
+    /// Whether text is being read, for the OCR overlay or for the Floating Window's "Read text from OCR".
     private(set) var isEnabled = false
-    /// For the OCR overlay (else for the Floating Window, which only takes the dialogue's settled readings as lines,
-    /// like a text hooker's: the window is read whether or not it can be seen, and all the time).
+    /// Whether text is read for the OCR overlay. Otherwise it's for the Floating Window, which only uses the dialogue's
+    /// settled readings as lines (like a text hooker) and reads the window all the time, even when it isn't visible.
     private var showsOverlay = false
     private var target: Target?
     /// No window is set: the whole screen is read.
@@ -263,7 +263,8 @@ final class OCRController {
         }
         guard isEnabled, !isPicking else { return }
         if switched {
-            // Between the overlay and the Floating Window: what the window can be read for changed (see trackWindow).
+            // Switched between the overlay and the Floating Window, which differ in when the window can be read (see
+            // trackWindow).
             log(showsOverlay ? "for the OCR overlay" : "for the Floating Window")
             coveredBy = nil
             readAgain()
@@ -552,7 +553,8 @@ final class OCRController {
         log("page: \(body["action"] ?? "")\(body["connected"].map { " \($0)" } ?? "")")
         switch body["action"] as? String {
         case "readNow":
-            // The game was paused: a reading on its way stops, and the window is read as it is (for the overlay).
+            // The game was paused (only with the overlay): stop any reading in progress and read the window as it is
+            // now.
             guard isEnabled, showsOverlay, !isPicking, hasSource, bounds != nil, isWindowAvailable else { return false }
             pendingCue = .now
             dropCloudRequest()
@@ -737,8 +739,8 @@ final class OCRController {
             coverageCheck = (target.windowID, Date())
             coveredBy = coveringApps(info.bounds)
         }
-        // For the Floating Window, also while it can't be seen: a window covered or in another space is still drawn, and
-        // read, by most apps; one minimized or hidden isn't, and then nothing changes (its readings time out).
+        // The Floating Window reads the window even when it isn't visible. Most apps keep drawing a window that's
+        // covered or in another space; a minimized or hidden one doesn't update, so its readings just time out.
         let canBeRead = !showsOverlay || (info.isOnScreen && onDisplay && coveredBy == nil)
         let available = canBeRead && Date().timeIntervalSince(boundsChangedAt) >= 0.3
         if !available, isWindowAvailable {
@@ -1062,7 +1064,7 @@ final class OCRController {
             nearTextBlocks.formUnion(textBlocks(areaLines.first ?? [], goingOn: true))
             unlearnAnimatedBlocks(covered)
             let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
-            // Rows of only dots or an icon (read as a row of their own at times) don't count.
+            // Rows that are only dots or an icon (sometimes read as a separate row) are ignored.
             let keys = texts.map(Self.settleKey).filter { !$0.isEmpty }, length = texts.joined().count
             if previous?.keys != keys {
                 previous = (keys, started, length)
@@ -1102,10 +1104,11 @@ final class OCRController {
         }
     }
 
-    /// A line's text as compared to tell whether it's still changing: engines read a dash (a thin line) as any of several
-    /// characters, or not at all, from one reading to the next, so a run of them counts as one, and a run at the end of
-    /// the line as none. Dots are read in any number, or not at all, so they don't count. Nor does a symbol at the end
-    /// (a page's "next" icon, which often blinks: ▷, ■).
+    /// A line's text as compared to tell whether it's still changing, leaving out what OCR reads inconsistently:
+    /// - A dash (a thin line) is read as any of several characters, or missed, so a run of them counts as one, and a
+    ///   run at the end of the line is dropped.
+    /// - Dots are read in varying numbers, or missed, so they're dropped.
+    /// - A symbol at the end is usually the page's "next" icon, which often blinks (▷, ■), so it's dropped too.
     nonisolated static func settleKey(_ text: String) -> String {
         var key = ""
         var last: Character?
@@ -1123,8 +1126,8 @@ final class OCRController {
         return key
     }
 
-    /// Whether a character is a symbol (Unicode's So and Sm: shapes, arrows, icons), which text that's read doesn't end
-    /// with but a page's "next" icon is read as.
+    /// Whether a character is a symbol (Unicode's So and Sm: shapes, arrows, icons). A page's "next" icon is read as
+    /// one, while dialogue text rarely ends with one.
     nonisolated static func isSymbol(_ character: Character) -> Bool {
         guard let category = character.unicodeScalars.first?.properties.generalCategory else { return false }
         return category == .otherSymbol || category == .mathSymbol
@@ -1253,7 +1256,7 @@ final class OCRController {
                 let cloud = self.lines(from: items, in: crop, area: 0, bounds: bounds, ordered: false, exactBoxes: true)
                 // It may miss text the local engine read, but not all of it.
                 if !cloud.lines.isEmpty {
-                    // Marked for the overlay's outlines (with Settings → OCR → Debug on).
+                    // Marked for the overlay's outlines (shown with Settings → OCR → Debug on).
                     let cloudLines = cloud.lines.map { line in line.merging(["cloud": true]) { $1 } }
                     (lines, removed) = (Self.adding(local, to: cloudLines), cloud.removed)
                     self.cloudReading = (engine, localTexts, bounds, lines, removed)
@@ -1739,7 +1742,8 @@ final class OCRController {
             // A single failure can happen while windows change (e.g. switching spaces); report it
             // only if it keeps failing.
             captureFailures += 1
-            // Not for the Floating Window, which reads the window also while it can't be captured (e.g. minimized).
+            // Not reported for the Floating Window, which keeps reading even when the window can't be captured (e.g.
+            // while minimized).
             if captureFailures == 3, showsOverlay {
                 send(["type": "error", "message": "Screen capture failed: \(error.localizedDescription)"])
             }
@@ -2117,7 +2121,7 @@ final class OCRController {
         let rects = lines.compactMap { line -> CGRect? in
             let decoded = Self.decode(line)
             var box = decoded.box
-            // Not a symbol at the end (a page's "next" icon): where it blinks can be learned as animated.
+            // Leave out a symbol at the end (the page's "next" icon), so its blinking can be learned as animation.
             let chars = decoded.chars
             let kept = chars.reversed().drop { $0.text.allSatisfy { $0.isWhitespace || Self.isSymbol($0) } }
             if !chars.isEmpty, kept.count < chars.count {

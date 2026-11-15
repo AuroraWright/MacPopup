@@ -128,7 +128,7 @@ final class SentenceAudioController {
         history.record(processes, minutes: minutes)
     }
 
-    /// A line was shown in the text box or read by OCR, `age` seconds ago. `page` and `breaks`: see ShownLines.note.
+    /// A line was shown in the text box or read by OCR, `age` seconds ago. For `page` and `breaks`, see ShownLines.note.
     func noteLine(_ text: String, age: Double, page: Bool, breaks: Set<Int>) {
         let minutes = historyMinutes
         guard minutes > 0 else { return }

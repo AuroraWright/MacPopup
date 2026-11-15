@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var clipboardMonitor: ClipboardMonitor!
     private var sentenceAudio: SentenceAudioController!
     private var screenshots: ScreenshotHistory!
-    /// The Floating Window's lines, for "Read text from OCR": whether each was read by OCR.
+    /// The Floating Window's text box lines, for "Read text from OCR". `Info` is whether OCR read the line.
     private var textBoxLines = ShownLines<Bool>()
     private var connectedWebsockets: [String] = []
     private var yomitanAPI: YomitanAPIStatus!
@@ -198,11 +198,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         screenshots.noteLine(text, settled: settled, breaks: breaks)
     }
 
-    /// With "Read text from OCR", what the Floating Window's text box does with a line, as Anki Audio and Screenshot
-    /// take lines (ShownLines): OCR's settled reading of the dialogue (the part not matched with a WebSocket line) is a
-    /// new line ("add"), the last OCR line grown ("replace", for the box's last line), or one already there (nothing).
-    /// A line from a WebSocket or the clipboard that the last OCR line already showed replaces it ("replacesOCR": the
-    /// box removes its last line before adding it).
+    /// For "Read text from OCR": tells the Floating Window's text box what to do with a line, splitting lines the same
+    /// way as Anki Audio and Screenshot (ShownLines).
+    /// - A settled OCR reading of the dialogue (minus anything matched to a WebSocket line) either adds a new line
+    ///   ("add"), updates the last OCR line because it grew ("replace"), or does nothing because it's already there.
+    /// - A WebSocket or clipboard line with the same text as the last OCR line takes its place ("replacesOCR": the box
+    ///   removes its last line before adding the new one).
     func noteTextBoxLine(_ text: String, fromOCR: Bool, breaks: Set<Int>) -> [String: Any] {
         if textBoxLines.count >= 100 { textBoxLines.removeFirst(textBoxLines.count - 99) }
         let noted = textBoxLines.note(text, page: fromOCR, breaks: breaks) { fromOCR }

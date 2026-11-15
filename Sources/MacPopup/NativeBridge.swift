@@ -19,9 +19,9 @@ protocol BridgeHost: AnyObject {
     /// the recording goes to that card only, replacing its sentence audio.
     func pressSentenceAudioShortcut(note: Int64?)
     /// Tells Anki Audio and Anki Screenshot that a line was shown `age` seconds ago. `settled` means OCR read it after
-    /// its text stopped changing (a page, with paragraph `breaks`: see ShownLines.note).
+    /// its text stopped changing; it's then a whole page, and `breaks` are its paragraph starts (see ShownLines.note).
     func noteSentenceLine(_ text: String, age: Double, settled: Bool, breaks: Set<Int>)
-    /// What the Floating Window's text box does with a line (see AppDelegate.noteTextBoxLine).
+    /// Tells the Floating Window's text box what to do with a line (see AppDelegate.noteTextBoxLine).
     func noteTextBoxLine(_ text: String, fromOCR: Bool, breaks: Set<Int>) -> [String: Any]
     /// The screenshot taken when a card's sentence was shown, if there is one (see ScreenshotHistory).
     func bufferedScreenshot(sentence: String, format: String, quality: Double, fullResolution: Bool) -> Data?

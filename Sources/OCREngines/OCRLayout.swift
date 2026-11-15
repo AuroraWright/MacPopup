@@ -176,8 +176,8 @@ public enum OCRLayout {
         return ordered
     }
 
-    /// Whether `next` starts where `line` ends, on the same row and at about the same size: after a gap of up to two
-    /// characters (Japanese puts a full-width space after ！ and ？, which the engine may split a line at).
+    /// Whether `next` continues `line` on the same row, at about the same size, with a gap of at most two characters.
+    /// The gap allows for the full-width space Japanese puts after ！ and ？, where engines sometimes split a line.
     private static func continues(_ next: Line, _ line: Line) -> Bool {
         guard next.vertical == line.vertical else { return false }
         let vertical = line.vertical

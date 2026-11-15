@@ -516,7 +516,7 @@ function continuesParagraph(previous, next) {
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
-/** The number of characters in `text` without its whitespace, as ShownLines.swift counts them. */
+/** The number of non-whitespace characters in `text`, counted the way ShownLines.swift counts them. */
 function characterCount(text) {
 	return [...graphemes.segment(text.replace(/\s/g, ''))].length;
 }
@@ -534,9 +534,10 @@ function rowSize(line) {
 }
 
 /**
- * How far wrapped rows reach in `lines` (a reading's rows, in reading order), horizontal and vertical, at least as far
- * as `reach` (the same, from the readings before). A wrapped row is one the next row continues, starting where it did:
- * how far those reach is how far the text goes before it wraps (a short page's rows may all end before that).
+ * How far wrapped rows reach in `lines` (a reading's rows, in reading order), for horizontal and vertical text, and at
+ * least as far as `reach` (learned from earlier readings). A row wrapped when the next row continues it from the same
+ * starting point, so its end shows where the text wraps. This is learned over time because on a short page every row
+ * may end before that point.
  */
 export function wrappedReach(lines, reach = { horizontal: 0, vertical: 0 }) {
 	const result = { ...reach };
@@ -554,10 +555,10 @@ export function wrappedReach(lines, reach = { horizontal: 0, vertical: 0 }) {
 }
 
 /**
- * Where paragraphs start in `lines` (a reading's rows, in reading order) after the first, in characters of their text
- * without whitespace (see ShownLines.note): at a row that doesn't continue the one before (see continuesParagraph), or
- * after one that ends with room for the next row's first word (a character, in text written without spaces) before
- * where the rows reach: this reading's, or `reach`, wrapped rows' (see wrappedReach).
+ * Where new paragraphs start in `lines` (a reading's rows, in reading order), counted in non-whitespace characters
+ * (see ShownLines.note). A paragraph starts at a row that doesn't continue the one before (see continuesParagraph),
+ * or after a row that ends early: with room left for the next row's first word before where rows wrap (the farthest
+ * row in this reading, or `reach`; see wrappedReach). In text written without spaces, the first word is one character.
  */
 export function paragraphBreaks(lines, reach = { horizontal: 0, vertical: 0 }) {
 	const ends = lines.map(rowEnd);
@@ -580,7 +581,7 @@ export function paragraphBreaks(lines, reach = { horizontal: 0, vertical: 0 }) {
 	return breaks;
 }
 
-/** The size of a row's first word along it: up to its first space in text written with spaces, else its first character. */
+/** The length of a row's first word: up to its first space, or its first character in text written without spaces. */
 function firstWordSize(line, spaced) {
 	const start = line.chars.findIndex((char) => !SPACE.test(char.text));
 	let end = start + 1;
@@ -589,7 +590,7 @@ function firstWordSize(line, spaced) {
 	return line.vertical ? box.height : box.width;
 }
 
-/** A reading's rows as one text: with a space between them in text that has spaces of its own (a language written with them). */
+/** Joins a reading's rows into one text, with spaces between them if the text itself uses spaces. */
 export function joinLines(lines) {
 	const texts = lines.map(lineText);
 	return texts.join(texts.some((text) => /\S\s+\S/.test(text)) ? ' ' : '');
@@ -701,7 +702,7 @@ export function renderLines(container, lines) {
 
 	// Stretch each glyph along the line to the width of its box (letter-spacing counts as part of the
 	// character's rect). Measured all at once so layout happens only once. The spacing goes after the
-	// glyph, so where the text is shown (Settings → OCR → Debug), it's drawn shifted to the middle.
+	// glyph, so where the text is shown (with Settings → OCR → Debug on), it's drawn shifted to the middle.
 	// Measured unscaled: the container may still be scaled to the window since its last reading (the
 	// rects include that), until the caller scales it for these lines.
 	const transform = container.style.transform;

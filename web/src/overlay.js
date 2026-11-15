@@ -122,8 +122,8 @@ function scrollToEnd() {
 
 /**
  * Tells Anki Audio (SentenceAudio.swift) and Anki Screenshot (ScreenshotHistory.swift) that a line was shown `age`
- * seconds ago. `settled` means OCR read it after its text stopped changing (then with the reading's paragraph `breaks`,
- * see ShownLines.note).
+ * seconds ago. `settled` means OCR read it after its text stopped changing; it's then a whole page, and `breaks` are
+ * its paragraph starts (see ShownLines.note).
  */
 function noteSentenceLine(text, age = 0, settled = false, breaks = []) {
 	const settings = getSettings();
@@ -133,9 +133,9 @@ function noteSentenceLine(text, age = 0, settled = false, breaks = []) {
 }
 
 /**
- * OCR's settled reading of the dialogue, for Anki Audio and Screenshot. Not the lines that match earlier WebSocket lines
- * (still on screen, e.g. a page of lines): they were noted when they appeared, and noted again with this reading's
- * text, they'd count as shown now (Anki Audio would take a later voice).
+ * Passes OCR's settled reading of the dialogue to Anki Audio and Screenshot. Lines matching earlier WebSocket lines
+ * (still on screen, e.g. on a page of lines) are left out: they were noted when they arrived, and noting them again
+ * would make them count as shown now, so Anki Audio would pick a later voice clip.
  */
 function noteOcrDialogue(dialogue, age = 0) {
 	const lines = withoutNextIcon(dialogue.filter((line) => !(line.match > 0)));
@@ -143,8 +143,8 @@ function noteOcrDialogue(dialogue, age = 0) {
 }
 
 /**
- * The dialogue's rows without symbols at the end (a page's "next" icon, read as ▷ or ■, which blinks): they aren't
- * part of its text.
+ * The dialogue's rows without the symbols at the end, which are the page's "next" icon (read as ▷ or ■, and often
+ * blinking) rather than part of the text.
  */
 function withoutNextIcon(lines) {
 	const last = lines.at(-1);
@@ -155,7 +155,7 @@ function withoutNextIcon(lines) {
 	return chars.length === last.chars.length ? lines : [...lines.slice(0, -1), { ...last, chars }];
 }
 
-/** Learns how far the dialogue's wrapped rows reach from a settled reading of it (see wrappedReach). */
+/** Learns from a settled reading how far the dialogue's rows reach before wrapping (see wrappedReach). */
 function learnReach(dialogue, message) {
 	const settings = getSettings();
 	const key = JSON.stringify([settings.ocrWindow, settings.ocrRegions?.[0] ?? null, message.width, message.height]);
@@ -163,19 +163,19 @@ function learnReach(dialogue, message) {
 	ocr.reach = { key, horizontal: reach.horizontal, vertical: reach.vertical };
 }
 
-/** Whether OCR reads the window: for the overlay, or for the Floating Window's text box ("Read text from OCR"). */
+/** Whether OCR reads the window, for the overlay or for the Floating Window's "Read text from OCR". */
 function readsOcr(settings = getSettings()) {
 	return !!settings.ocrMode || !!settings.floatingWindowOCR;
 }
 
-/** Whether OCR's readings are lines for the text box ("Read text from OCR"). */
+/** Whether OCR readings are added to the text box ("Read text from OCR"). */
 function readsOcrIntoBox(settings = getSettings()) {
 	return !!settings.floatingWindowOCR;
 }
 
 /**
- * A line from a WebSocket or the clipboard. With "Read text from OCR", one that OCR already read replaces the OCR line
- * (see noteTextBoxLine in AppDelegate.swift).
+ * Adds a line from a WebSocket or the clipboard. With "Read text from OCR", if OCR already added the same line, this
+ * one takes its place (see noteTextBoxLine in AppDelegate.swift).
  */
 function addLine(rawText) {
 	if (state.paused || typeof rawText !== 'string') return;
@@ -194,8 +194,8 @@ function addLine(rawText) {
 }
 
 /**
- * "Read text from OCR": the dialogue's settled reading (its rows) for the text box, as a new line, or the last OCR line
- * grown, or nothing when it's already there (see noteTextBoxLine in AppDelegate.swift).
+ * For "Read text from OCR": adds the dialogue's settled reading (its rows) to the text box as a new line, updates the
+ * last OCR line if it grew, or does nothing if it's already there (see noteTextBoxLine in AppDelegate.swift).
  */
 function addOcrLines(dialogue) {
 	const lines = withoutNextIcon(dialogue);
@@ -214,7 +214,7 @@ function addOcrLines(dialogue) {
 		});
 }
 
-/** Adds a line to the text box. `ocr`: OCR read it (and noted it for Anki Audio and Screenshot already). */
+/** Adds a line to the text box. `ocr` means OCR read it, so it was already passed to Anki Audio and Screenshot. */
 function pushLine(rawText, { ocr = false } = {}) {
 	const text = transformLine(rawText);
 	if (text === undefined) return;
@@ -517,9 +517,9 @@ function findPlayerLine(sentence) {
 }
 
 /**
- * While OCR reads text with WebSocket lines (the OCR overlay, or "Read text from OCR"), WebSockets always reconnect:
- * the readings are matched with their lines (and with the overlay, the box with their icons, which reconnect when
- * clicked, isn't shown).
+ * When OCR is matched with WebSocket lines (in the OCR overlay or with "Read text from OCR"), WebSockets always
+ * reconnect, since the readings depend on their lines. The overlay also hides the WebSocket icons that reconnect when
+ * clicked.
  */
 function alwaysReconnects(settings) {
 	return readsOcr(settings) && !!settings.ocrUseWebsocket;
@@ -553,8 +553,8 @@ function syncSockets() {
 		}
 		socket.render();
 		container.append(socket.element);
-		// Not connected and not about to retry (e.g. disconnected by hand in the Floating Window): with the OCR overlay,
-		// which hides the buttons to connect it again.
+		// Not connected and not about to retry (e.g. disconnected by hand in the Floating Window). Only in the OCR
+		// overlay, which hides the buttons for reconnecting.
 		const settings = getSettings();
 		if (settings.ocrMode && alwaysReconnects(settings) && socket.state === 3 && socket.retryTimer === null) socket.connect();
 	}
@@ -1145,8 +1145,8 @@ const ocr = {
 	websocketConnected: null,
 	key: null,
 	size: null,
-	// How far the dialogue's wrapped rows reach, for where its paragraphs end (see wrappedReach), with the window,
-	// area and size of the readings it's from.
+	// How far the dialogue's rows reach before wrapping, used to find where paragraphs end (see wrappedReach). Kept
+	// with the window, area and size it was learned for.
 	reach: null,
 	// What replaces the text once the popups are closed ({clear: true}, or a reading's {lines, size, key}): a
 	// reading with the popup's word still where it was, or of text that's still changing, waits, so the word's
@@ -1333,7 +1333,7 @@ function markMatch(lines, match) {
 	return lines.map((line) => (line.matched && line.match === undefined ? { ...line, match } : line));
 }
 
-/** The letters and digits in `text`, as correctWithText's quality counts them. */
+/** The number of letters and digits in `text`, counted the way correctWithText's quality counts them. */
 function letterCount(text) {
 	return (text.match(/[\p{L}\p{N}]/gu) ?? []).length;
 }
@@ -1344,7 +1344,7 @@ function matchSummary(result) {
 }
 
 /**
- * With "Debug" (Settings → OCR) on, writes `record` to the OCR debug log (ocr-debug.jsonl in
+ * With Settings → OCR → Debug on, writes `record` to the OCR debug log (ocr-debug.jsonl in
  * Application Support/MacPopup; see OCRDebugLog.swift): each reading, what was done with it, and each
  * WebSocket line.
  */
@@ -1416,7 +1416,7 @@ function showOcrResult(message) {
 			}
 		}
 	}
-	// The WebSocket line is still being drawn: all that's read of the dialogue is its start.
+	// Whether the WebSocket line is still being drawn, so the reading only has its start.
 	let drawsLine = false;
 	if (usesLine) {
 		const first = matchBetterEarlierLines(dialogue, minQuality);
@@ -1435,21 +1435,21 @@ function showOcrResult(message) {
 		// What's shown is what's on screen now (see ocr.stale).
 		ocr.stale = false;
 	}
-	// "Read text from OCR": the dialogue's settled readings are the text box's lines, as a text hook's are, with the
-	// OCR overlay too (WebSocket lines still go to the box then). Only one that matches no WebSocket line, since those
-	// are in the box already (the rest of a reading that matched one is mostly a name or the game's buttons), and not
-	// the start of one that's still being drawn.
+	// "Read text from OCR": settled readings of the dialogue become text box lines, like a text hooker's, also while
+	// the OCR overlay is in use. Readings that match a WebSocket line are skipped, since that line is in the box
+	// already (the rest of such a reading is mostly a name or the game's buttons), and so are readings of a WebSocket
+	// line that's still being drawn.
 	if (readsDialogue && !unsettled && getSettings().floatingWindowOCR && !drawsLine && !dialogue.some((line) => line.matched)) {
 		addOcrLines(dialogue);
 	}
-	// In the Floating Window, they're Anki Audio's and Screenshot's lines too, and nothing is shown.
+	// In the Floating Window, readings also go to Anki Audio and Screenshot, and nothing is drawn over the window.
 	if (!getSettings().ocrMode) {
 		if (readsDialogue && !unsettled) noteOcrDialogue(dialogue, message.roundAge);
 		const shown = dialogue.map((line) => ({ text: lineText(line), area: line.area, matched: !!line.matched }));
 		logOcrDebug({ ...debug, shown, outcome: !readsDialogue || unsettled ? 'not for the text box' : 'for the text box' });
 		return;
 	}
-	// Outlined in red with "Debug" (Settings → OCR).
+	// Outlined in red with Settings → OCR → Debug on.
 	if (unsettled) dialogue = dialogue.map((line) => ({ ...line, provisional: true }));
 	const lines = [...dialogue, ...others];
 	const size = { width: message.width, height: message.height };

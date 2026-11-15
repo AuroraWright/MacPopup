@@ -224,7 +224,7 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "continuousReconnect", "Automatically reconnect", .checkbox,
-                    hint: "Keep trying to reconnect if a WebSocket disconnects. (While OCR reads text, with the OCR overlay or “Read text from OCR”, and “Match and fix OCR with WebSocket text” is enabled, MacPopup always reconnects automatically.)"
+                    hint: "Keep trying to reconnect if a WebSocket disconnects. (When OCR is in use and “Match and fix OCR with WebSocket text” is on, MacPopup always reconnects.)"
                 ),
                 SettingsField("showConnectionErrors", "Show connection error messages", .checkbox),
             ]),
@@ -241,7 +241,7 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "floatingWindowOCR", "Read text from OCR", .checkbox,
-                    hint: "Adds the text OCR reads in the captured window’s dialogue area (Settings → General → Captured window) to the text box, as a text hook would, once it stops changing. As a page of text grows, each sentence or paragraph added becomes a line of its own. While WebSockets send lines, only readings that match none of them are added, and a line that arrives after the same text was read replaces it. Without a dialogue area, the whole window counts as dialogue, menus and all. The window is read while it’s covered or in another space, but some apps stop drawing then: a virtual machine (such as Parallels) is only read while part of its window can be seen, and web pages aren’t. Minimized or hidden windows can’t be read. With the OCR overlay, its readings are added too (it reads the window only while it can be seen). Uses the OCR settings, and requires Screen Recording permission."
+                    hint: "Reads the game’s text with OCR and adds it to the text box, like a text hooker. Only the dialogue area of the captured window is read (Settings → General → Captured window), or the whole window if there’s none. When a page fills up over time, each new sentence or paragraph becomes its own line. Lines already received over WebSocket aren’t added twice. A window might not be readable while it isn’t visible. Uses the settings in OCR, and requires Screen Recording permission."
                 ),
                 SettingsField("fontSize", "Font size (px)", .number(min: 1)),
                 SettingsField("linePadding", "Line spacing", .number(min: 0, step: 0.1)),
@@ -272,27 +272,27 @@ enum SettingsSchema {
             ]),
             SettingsSection(
                 title: "OCR Overlay", symbol: "square.on.square.dashed",
-                description: "The OCR overlay hides the floating text box and reads the captured window (or anywhere on screen if no window is selected), so you can hover directly over the game’s own text. The window is only read while it can be seen. How the text is read is set in OCR. Requires Screen Recording permission.",
+                description: "The OCR overlay hides the floating text box so you can hover directly over the text in the captured window (or anywhere on screen if no window is selected). The window is only read while it’s visible. How text is read is set in OCR. Requires Screen Recording permission.",
                 fields: [
                     SettingsField(
                         "ocrMouseWatch", "Only check for changes after input activity", .checkbox,
-                        hint: "Saves CPU by checking for new text only briefly after you use the mouse, keyboard or a controller (for example, when clicking or pressing a button to advance dialogue). Controllers count once they’re set up in Settings → Controllers. (“Read text from OCR” in the Floating Window always checks.)"
+                        hint: "Saves CPU by checking for new text only briefly after you use the mouse, keyboard or a controller (for example, when clicking or pressing a button to advance dialogue). Controllers count once they’re set up in Settings → Controllers. (“Read text from OCR” in the Floating Window always checks for changes.)"
                     ),
                     SettingsField(
                         "ocrMouseWatchTime", "Keep checking after activity for (ms)", .number(min: 0),
-                        hint: "How long to keep watching for screen changes after using the mouse, keyboard or a controller, or after new dialogue arrives. Increase this if your game has long transitions before dialogue appears. Keep this value well above Settings → OCR → Check for screen changes every.",
+                        hint: "How long to keep watching for screen changes after using the mouse, keyboard or a controller, or after new dialogue arrives. Increase this if your game has long transitions before dialogue appears. Keep this value well above “Check for screen changes every” in Settings → OCR.",
                         showIf: { $0["ocrMouseWatch"] as? Bool ?? true }
                     ),
                     SettingsField(
                         "gamepadOcrStart", "Controller OCR starting position",
                         .select([SettingsOption("bottom", "Bottom"), SettingsOption("top", "Top")]),
-                        hint: "Where the controller starts in the OCR overlay’s text: the bottom or top sentence of the dialogue area (in vertical text, the leftmost or rightmost). When the text matches lines received over WebSocket, it starts at the most recent one instead."
+                        hint: "Where the controller starts in the OCR overlay: the bottom or top sentence of the dialogue area (in vertical text, the leftmost or rightmost). When the text matches lines received over WebSocket, it starts at the most recent one instead."
                     ),
                 ]
             ),
             SettingsSection(
                 title: "OCR", symbol: "text.viewfinder",
-                description: "How text is read from the captured window (or anywhere on screen if no window is selected), for the OCR overlay and for “Read text from OCR” in the Floating Window. Requires Screen Recording permission.",
+                description: "How text is read from the captured window (or anywhere on screen if no window is selected). Used by the OCR overlay and by “Read text from OCR” in the Floating Window. Requires Screen Recording permission.",
                 fields: [
                     SettingsField(
                         "ocrEngine", "Text recognition engine",
@@ -339,7 +339,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "ocrUseWebsocket", "Match and fix OCR with WebSocket text", .checkbox,
-                        hint: "When connected to a WebSocket, scans the window whenever a new line arrives and replaces matching on-screen OCR text with the exact text from the WebSocket. With “Read text from OCR” in the Floating Window, text that matches a WebSocket line isn’t added to the text box again, so turning this off adds hooked lines twice."
+                        hint: "When connected to a WebSocket, scans the window whenever a new line arrives and replaces matching on-screen OCR text with the exact text from the WebSocket. With “Read text from OCR”, this also keeps lines from being added to the text box twice."
                     ),
                     SettingsField(
                         "ocrMatchThreshold", "Minimum WebSocket match (%)", .number(min: 1, max: 100),
@@ -374,7 +374,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "ocrShowBoxes", "Debug", .checkbox,
-                        hint: "For troubleshooting. Highlights the text the OCR overlay recognized with colored outlines: red while the text is still changing, orange for local OCR, gold for cloud OCR, and green for WebSocket-corrected lines (darker with cloud OCR boxes). Also logs each scan, what triggered it, and what happened around it (the window, game pauses, the controller), with your OCR settings and MacPopup version, to ~/Library/Application Support/MacPopup/ocr-debug.jsonl, which is deleted when this is turned off."
+                        hint: "For troubleshooting. Outlines the text the OCR overlay recognized: red while it’s still changing, orange for local OCR, gold for cloud OCR, and green for lines corrected with WebSocket text (darker with cloud OCR). Also logs each scan, what started it and what happened around it (the window, game pauses, the controller), along with your OCR settings and MacPopup version, to ~/Library/Application Support/MacPopup/ocr-debug.jsonl, which is deleted when this is turned off."
                     ),
                 ]
             ),

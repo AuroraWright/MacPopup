@@ -37,8 +37,8 @@ final class ScreenshotHistory {
 
     private var count: Int { (settings["screenshotHistory"] as? NSNumber)?.intValue ?? 20 }
 
-    /// A line was shown in the text box or read by OCR. `settled` means OCR saw its text stop changing (it's then a
-    /// page, with `breaks`: see ShownLines.note).
+    /// A line was shown in the text box or read by OCR. `settled` means OCR read it after its text stopped changing;
+    /// it's then a whole page, and `breaks` are its paragraph starts (see ShownLines.note).
     func noteLine(_ text: String, settled: Bool, breaks: Set<Int>) {
         let count = count
         // Only with Anki integration on: the screenshots are for its cards.

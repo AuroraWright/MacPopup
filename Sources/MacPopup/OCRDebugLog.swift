@@ -1,6 +1,6 @@
 import Foundation
 
-/// With "Debug" (Settings → OCR) on, the page writes each OCR reading and WebSocket line here, one JSON object per
+/// With Settings → OCR → Debug on, the page writes each OCR reading and WebSocket line here, one JSON object per
 /// line (see logOcrDebug in web/src/overlay.js), what happens around them (controller focus, the pause and scan
 /// shortcut), and OCRController and GamePause what they do (what triggers readings, how long they take, the window, the
 /// game being paused), after a session record with the settings: Application Support/MacPopup/ocr-debug.jsonl, or the

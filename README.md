@@ -68,15 +68,12 @@ In the Floating Window, MacPopup listens to every WebSocket URL listed in **Sett
   to automatically add text copied in any other app to the text box (passwords from password
   managers are ignored).
 - **Read text from OCR**: Turn on **Read text from OCR** (*Settings → Floating Window*, or the
-  **OCR** button next to **Clipboard** in the header) to add the game's text to the text box by reading
-  its window (see [OCR overlay](#ocr-overlay) for selecting it). Only the dialogue area (the first
-  one, or the whole window when there are none) is read. A page of text that grows, as in visual
-  novels, is split into lines where a sentence or paragraph ends. Text a WebSocket line already
-  added isn't added again, and a WebSocket line that arrives after OCR read it replaces the OCR
-  line. The window is still read while other windows cover it or it's in another Space, but not
-  while it's minimized or hidden. Games in a virtual machine (Parallels) need part of their
-  window visible, and web pages aren't redrawn while they're covered. While you use the OCR
-  overlay, what it reads is added too, so the text box keeps every line when you switch back.
+  **OCR** button in the header) to read the game's text with OCR and add it to the text box, like a
+  text hooker. Only the dialogue area is read, or the whole window if there's none (see
+  [OCR overlay](#ocr-overlay) to select them). When a page fills up over time, as in visual novels,
+  each new sentence or paragraph becomes its own line. Lines already received over WebSocket aren't
+  added twice. A window might not be readable while it isn't visible. What the OCR overlay reads is
+  added too, so the lines are there when you switch back.
 - **Furigana & Formatting**: Display furigana above words (in Hiragana, Katakana, Romaji, or
   dictionary reading), add spaces between parsed words, display text vertically, or filter out
   duplicate and non-CJK lines.
@@ -145,9 +142,9 @@ Controller, Xbox controllers and others), without putting it down.
 ## OCR overlay
 
 Switch to the OCR overlay from the menu bar icon (**OCR Overlay**) or **Settings → General → Overlay type**. The floating text box
-hides, allowing you to hover directly over text inside your game or app window. *Settings → OCR Overlay* has what
-only applies to the overlay; *Settings → OCR* sets how text is read, also for **Read text from OCR**. (Requires **Screen
-Recording** permission in *System Settings → Privacy & Security*.)
+hides, allowing you to hover directly over text inside your game or app window. Overlay options are in
+*Settings → OCR Overlay*, and how text is read (also used by **Read text from OCR**) is in *Settings → OCR*.
+(Requires **Screen Recording** permission in *System Settings → Privacy & Security*.)
 
 ### Selecting a Window and Capture Areas
 
