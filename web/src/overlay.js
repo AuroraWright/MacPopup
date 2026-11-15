@@ -1348,8 +1348,12 @@ function showOcrResult(message) {
 		logOcrDebug({ ...debug, shown, outcome: 'unchanged' });
 		return;
 	}
-	// On screen from now on, even if it's shown once the popups close (for Anki Audio and Screenshot).
-	if (readsDialogue && !unsettled) noteSentenceLine(dialogue.map(lineText).join(''), message.roundAge ?? 0, true);
+	// On screen from now on, even if it's shown once the popups close (for Anki Audio and Screenshot). Not the lines
+	// that match earlier WebSocket lines (still on screen, e.g. a page of lines): they were noted when they appeared,
+	// and noted again with this reading's text, they'd count as shown now (Anki Audio would take a later voice).
+	if (readsDialogue && !unsettled) {
+		noteSentenceLine(dialogue.filter((line) => !(line.match > 0)).map(lineText).join(''), message.roundAge ?? 0, true);
+	}
 	// A popup's word stays highlighted while it's still there, and while the text is still changing (e.g. it
 	// moves): the reading is shown once the popups close.
 	const highlighted = highlightedOcrChars();

@@ -149,18 +149,21 @@ final class SentenceAudioController {
             lines[lines.count - 1] = last
             return
         }
+        sentenceAudioLog(String(format: "line shown %.2f s ago: %@", now - shown, text))
         lines.append(ShownLine(id: nextLineID, texts: [text], shown: shown, start: start))
         nextLineID += 1
         lines.removeAll { $0.shown < now - minutes * 60 - 60 }
     }
 
     /// Whether a card's sentence comes from a line shown with `text`: one must contain the other (a sentence is often
-    /// part of a line), allowing a few characters to differ, since OCR may misread some.
+    /// part of a line; a short one, only that way round), allowing a few characters to differ, since OCR may misread
+    /// some.
     static func isSameLine(_ sentence: String, _ text: String) -> Bool {
         let a = Array(sentence.precomposedStringWithCompatibilityMapping), b = Array(text.precomposedStringWithCompatibilityMapping)
         guard !a.isEmpty, !b.isEmpty else { return false }
-        // Short text could match almost any line, so it has to match exactly.
-        if min(a.count, b.count) < 6 { return String(a).contains(String(b)) || String(b).contains(String(a)) }
+        // Short text could match almost any line, so it has to match exactly: a short sentence may be part of its line,
+        // but a short line (e.g. a stray character OCR read on its own) isn't the line of every sentence it's part of.
+        if min(a.count, b.count) < 6 { return String(b).contains(String(a)) }
         // Longest common subsequence.
         var row = [Int](repeating: 0, count: b.count + 1)
         for x in a {
@@ -187,16 +190,22 @@ final class SentenceAudioController {
             return nil
         }
         guard let id = lines.last(where: { line in line.texts.contains { Self.isSameLine(cards.sentence, $0) } })?.id else {
+            sentenceAudioLog("history: \(cards.sentence) isn't one of the last \(lines.count) lines")
             return "Couldn’t find this card’s sentence among the recent lines"
         }
+        sentenceAudioLog("history: the line of \(note.map { "card \($0)" } ?? "the newest cards"), \(cards.sentence)")
         let pause = number("sentenceAudioPause", 3000) / 1000
         let maxLength = number("sentenceAudioMaxLength", 60)
         var waiting = false
         /// Whether the voice was still going at the last check.
         var speaking = false
-        // While it waits, the game goes on even with a popup open (see GamePause), or the voice would never end.
-        defer { if waiting { GamePause.shared.letRun(false) } }
         while true {
+            // While the game is paused (see GamePause), its voice can't go on nor its silence last: the wait goes on
+            // once the game does (the popup closed), rather than the game being let run with the popup open.
+            if waiting, GameClock.isFrozen {
+                try? await Task.sleep(for: .milliseconds(200))
+                continue
+            }
             guard let index = lines.firstIndex(where: { $0.id == id }) else { return "This card’s line is older than the kept audio" }
             let now = GameClock.now
             let start = max(lines[index].start, index > 0 ? lines[index - 1].shown : 0)
@@ -236,8 +245,8 @@ final class SentenceAudioController {
             speaking = voice != nil
             if !waiting {
                 waiting = true
-                GamePause.shared.letRun(true)
-                showToast("Waiting for the voice to end…")
+                sentenceAudioLog(String(format: "history: waiting for the voice to end%@ (%@)", GameClock.isFrozen ? ", once the game resumes" : "", span))
+                showToast(GameClock.isFrozen ? "The audio will be added when the game resumes" : "Waiting for the voice to end…")
             }
             try? await Task.sleep(for: .milliseconds(500))
         }
@@ -554,13 +563,15 @@ final class SentenceAudioController {
     }
 
     private func showToast(_ message: String) {
+        sentenceAudioLog("message: \(message)")
         overlay.showToast(message)
     }
 }
 
-/// Logged to stderr, like the page's log messages.
+/// Logged to stderr, like the page's log messages, and to the OCR debug log when it's on (see OCRDebugLog).
 func sentenceAudioLog(_ message: String) {
     FileHandle.standardError.write("[sentence audio] \(message)\n".data(using: .utf8)!)
+    Task { @MainActor in OCRDebugLog.note("anki audio: \(message)") }
 }
 
 /// One recording of an app's audio (or, for tests, a sound file played at its own pace), and the voice

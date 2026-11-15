@@ -16,8 +16,6 @@ final class GamePause {
     private var connection: NSXPCConnection?
     /// Whether the overlay asked for the game to be paused.
     private var requested = false
-    /// How many asked for the game to go on meanwhile (Anki Audio, waiting for a voice to end).
-    private var runRequests = 0
     /// Whether the game is (being) frozen.
     private var frozen = false
     /// The game's processes while it's frozen, with its app's (for a Windows game in Parallels, the app's process isn't
@@ -94,14 +92,8 @@ final class GamePause {
         if paused { await freezing?.value }
     }
 
-    /// While `run` is on, the game goes on even with a popup open (for Anki Audio, which waits for the voice to end).
-    func letRun(_ run: Bool) {
-        runRequests += run ? 1 : -1
-        apply()
-    }
-
     private func apply() {
-        let freeze = requested && runRequests <= 0 && settings["gamePause"] as? Bool == true
+        let freeze = requested && settings["gamePause"] as? Bool == true
         guard freeze != frozen else { return }
         if freeze {
             guard Self.service.status == .enabled else {
