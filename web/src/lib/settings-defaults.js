@@ -8,8 +8,6 @@ export const themes = [
 	'luxury', 'dracula', 'cmyk', 'autumn', 'business', 'acid', 'lemonade', 'night', 'coffee', 'winter',
 ];
 
-export const onlineFonts = ['Off', 'Noto Serif JP', 'Klee One', 'Shippori Mincho', 'Ackaisyo', 'CineCaption226'];
-
 // Yomitan's default `sentenceParsing.terminationCharacters`.
 function defaultTerminationCharacters() {
 	const quotes = [['「', '」'], ['『', '』'], ['"', '"'], ["'", "'"]];
@@ -60,8 +58,14 @@ export const defaultSettings = {
 	// Lines (texthooker-ui)
 	theme: 'business',
 	fontSize: 24,
-	linePadding: 1,
-	onlineFont: 'Off',
+	// Pixels above and below each line (beside it in vertical text).
+	linePadding: 16,
+	// The text box's font from the Fonts panel (Settings → Floating Window → Font): its PostScript name, or '' for
+	// the system's.
+	boxFontFamily: '',
+	// The Fonts panel's effects, over the theme's: color, backgroundColor, underlineColor and strikethroughColor
+	// ('#rrggbbaa'), underline and strikethrough ('single' or 'double'), shadow ({x, y, blur, color}, y down).
+	boxFontEffects: {},
 	maxLines: 0,
 	preventLastDuplicate: 0,
 	preventGlobalDuplicate: false,

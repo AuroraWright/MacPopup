@@ -58,6 +58,9 @@ struct SettingsField: Identifiable {
         /// A global keyboard shortcut (as `shortcut`) with controller buttons for the same (as `gamepadCombo`, in the
         /// setting `buttons`), one above the other.
         case shortcutAndButtons(buttons: String)
+        /// A font chosen in the Fonts panel, by its PostScript name ("" for the system font), with its size in pixels in the
+        /// setting `size` and the panel's effects in the setting `effects` (see web/src/lib/settings-defaults.js).
+        case font(size: String, effects: String)
         /// The connected game controllers, and learning them (gamepadLayouts; see GamepadLearning.swift).
         case gamepads
         /// Keys pressed in turn, [{key, modifiers}].
@@ -272,9 +275,11 @@ enum SettingsSchema {
                     "floatingWindowOCR", "Read text from OCR", .checkbox,
                     hint: "Reads the game’s text with OCR and adds it to the text box, like a text hooker. Only the dialogue area of the captured window is read (Settings → General → Captured window), or the whole window if there’s none. When a page fills up over time, each new sentence or paragraph becomes its own line. Lines already received over WebSocket aren’t added twice. A window might not be readable while it isn’t visible. Uses the settings in OCR, and requires Screen Recording permission."
                 ),
-                SettingsField("fontSize", "Font size (px)", .number(min: 1)),
-                SettingsField("linePadding", "Line spacing", .number(min: 0, step: 0.1)),
-                SettingsField("onlineFont", "Web font", .select(support.onlineFonts.map { SettingsOption($0) })),
+                SettingsField("linePadding", "Line spacing (px)", .number(min: 0), hint: "Space above and below each line in the text box (beside it in vertical text)."),
+                SettingsField(
+                    "boxFontFamily", "Font", .font(size: "fontSize", effects: "boxFontEffects"),
+                    hint: "Select the font family/size/display properties from the macOS selector. A custom color picked here will override the theme’s color."
+                ),
                 SettingsField(
                     "preventLastDuplicate", "Skip duplicates within last N lines", .number(min: 0),
                     hint: "Ignores a new line if it matches any of the last N lines shown (0 = off)."

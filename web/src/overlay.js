@@ -344,11 +344,11 @@ function createLineElement(line, animate) {
 	const vertical = settings.displayVertical;
 	p.classList.add(vertical ? 'py-2' : 'px-2');
 	if (vertical) {
-		p.style.paddingLeft = `${settings.linePadding}rem`;
-		p.style.paddingRight = `${settings.linePadding}rem`;
+		p.style.paddingLeft = `${settings.linePadding}px`;
+		p.style.paddingRight = `${settings.linePadding}px`;
 	} else {
-		p.style.paddingTop = `${settings.linePadding}rem`;
-		p.style.paddingBottom = `${settings.linePadding}rem`;
+		p.style.paddingTop = `${settings.linePadding}px`;
+		p.style.paddingBottom = `${settings.linePadding}px`;
 	}
 	if (settings.preserveWhitespace) p.classList.add('whitespace-pre-wrap');
 	if (settings.showLinePoints) p.classList.add('show-bullet');
@@ -2331,6 +2331,23 @@ async function lookUpCursor() {
 
 // Settings
 
+/** The Fonts panel's effects (settings.boxFontEffects), over the theme's. */
+function applyFontEffects(effects) {
+	linesElement.style.color = effects.color ?? '';
+	$('#box-background').style.backgroundColor = effects.backgroundColor ?? '';
+	const { shadow } = effects;
+	linesElement.style.textShadow = shadow ? `${shadow.x}px ${shadow.y}px ${shadow.blur}px ${shadow.color}` : '';
+	// The underline on each line (app.css) and the strikethrough on all of them, as each has its own style and color.
+	// (WebKit's text-decoration shorthand takes only the line.)
+	const decorate = (prefix, line, style, color) => {
+		linesElement.style.setProperty(`${prefix}line`, style ? line : 'none');
+		linesElement.style.setProperty(`${prefix}style`, style === 'double' ? 'double' : 'solid');
+		linesElement.style.setProperty(`${prefix}color`, color ?? 'currentcolor');
+	};
+	decorate('--underline-', 'underline', effects.underline, effects.underlineColor);
+	decorate('text-decoration-', 'line-through', effects.strikethrough, effects.strikethroughColor);
+}
+
 function applySettings(settings) {
 	document.documentElement.dataset.theme = settings.theme;
 	// For the fonts' glyph shapes, e.g. Chinese or Japanese forms of the same character.
@@ -2345,7 +2362,8 @@ function applySettings(settings) {
 	if (!settings.ocrMode) setOcrWindow({ visible: false });
 	box.style.setProperty('--box-opacity', `${settings.boxOpacity}`);
 	linesElement.style.fontSize = `${settings.fontSize}px`;
-	linesElement.style.fontFamily = settings.onlineFont !== 'Off' ? `'${settings.onlineFont}'` : '';
+	linesElement.style.fontFamily = settings.boxFontFamily ? JSON.stringify(settings.boxFontFamily) : '';
+	applyFontEffects(settings.boxFontEffects ?? {});
 	linesElement.style.writingMode = settings.displayVertical ? 'vertical-rl' : 'horizontal-tb';
 	$('#user-css').textContent = settings.customCSS;
 	$('#popup-outer-custom-css').textContent = settings.customPopupOuterCss;

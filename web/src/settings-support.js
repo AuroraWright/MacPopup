@@ -3,13 +3,13 @@
 // Values cross over as JSON strings.
 
 import defaultFieldTemplates from '../../vendor/yomitan/ext/data/templates/default-anki-field-templates.handlebars';
-import { defaultSettings, onlineFonts, themes } from './lib/settings-defaults.js';
+import { defaultSettings, themes } from './lib/settings-defaults.js';
 import { languageSummaries } from './lib/languages.js';
 import { applyReplacements, patternError } from './lib/replacements.js';
 import { importTexthookerSettings } from './lib/texthooker-import.js';
 import { convertYomitanProfile, parseYomitanExport } from './lib/yomitan-import.js';
 
-export { defaultFieldTemplates, onlineFonts, themes };
+export { defaultFieldTemplates, themes };
 
 /** Yomitan's languages for the Language menu: [{iso, name}]. */
 export const languages = languageSummaries.map(({ iso, name }) => ({ iso, name }));

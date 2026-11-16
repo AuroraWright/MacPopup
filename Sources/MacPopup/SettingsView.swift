@@ -235,6 +235,29 @@ private struct FieldRow: View {
             } label: {
                 FieldLabel(field: field)
             }
+        case let .font(sizeKey, effectsKey):
+            let keys = [field.key, sizeKey, effectsKey]
+            let defaults = SettingsSupport.shared.defaults
+            let name = value as? String ?? ""
+            let size = (model[sizeKey] as? NSNumber)?.doubleValue ?? 16
+            let effects = model[effectsKey] as? [String: Any] ?? [:]
+            // The font is shown below the buttons, so it doesn't change the room for the label and its hint.
+            VStack(alignment: .trailing, spacing: 6) {
+                LabeledContent {
+                    FontControl(
+                        name: name, size: size, effects: effects,
+                        isDefault: keys.allSatisfy { (model[$0] as? NSObject)?.isEqual(defaults[$0]) ?? (defaults[$0] == nil) }
+                    ) { name, size, effects in
+                        model.merge([field.key: name, sizeKey: storedNumber(size), effectsKey: effects])
+                    } clear: {
+                        model.merge(Dictionary(uniqueKeysWithValues: keys.map { ($0, defaults[$0] ?? NSNull()) }))
+                    }
+                } label: {
+                    FieldLabel(field: field)
+                }
+                FontPreview(name: name, size: size, effects: effects)
+                    .fixedSize()
+            }
         case .keySequence:
             KeySequenceControl(items: (value as? [Any] ?? []).compactMap { $0 as? [String: Any] }) { model.set(field.key, $0) } label: {
                 FieldLabel(field: field)
@@ -614,6 +637,199 @@ private struct ShortcutControl: View {
             .disabled(value == nil && !isActive)
         }
         .onDisappear { recorder.cancel() }
+    }
+}
+
+/// The buttons for a font, size and effects (FontEffects): Choose… opens the Fonts panel, Clear goes back to the
+/// defaults.
+private struct FontControl: View {
+    /// A PostScript name (or, as WebKit also takes, a family name), "" for the system font.
+    let name: String
+    let size: Double
+    let effects: [String: Any]
+    let isDefault: Bool
+    let commit: (String, Double, [String: Any]) -> Void
+    let clear: () -> Void
+    @StateObject private var panel = FontPanelTarget()
+
+    var body: some View {
+        HStack {
+            Button("Choose…") { panel.show(name: name, size: size, effects: effects, commit: commit) }
+            Button("Clear", action: clear)
+                .disabled(isDefault)
+        }
+        .onChange(of: [name, "\(size)", SettingsSupport.encode(effects)]) { panel.update(name: name, size: size, effects: effects) }
+        .onDisappear { panel.close() }
+    }
+}
+
+/// The font's name and size, in that font (at the usual size) with its effects.
+private struct FontPreview: NSViewRepresentable {
+    let name: String
+    let size: Double
+    let effects: [String: Any]
+
+    func makeNSView(context: Context) -> NSTextField {
+        NSTextField(labelWithString: "")
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        let font = name.isEmpty ? nil : FontPanelTarget.font(name, size: NSFont.systemFontSize)
+        var attributes = FontEffects.attributes(effects)
+        attributes[NSAttributedString.Key.font.rawValue] = font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let text = "\(name.isEmpty ? "System font" : font?.displayName ?? name), \(size.formatted()) px"
+        field.attributedStringValue = NSAttributedString(
+            string: text, attributes: Dictionary(uniqueKeysWithValues: attributes.map { (NSAttributedString.Key($0.key), $0.value) })
+        )
+        field.backgroundColor = FontEffects.color(effects["backgroundColor"])
+        field.drawsBackground = field.backgroundColor != nil
+    }
+}
+
+/// The Fonts panel's effects as boxFontEffects stores them (see web/src/lib/settings-defaults.js), to and from the
+/// text attributes the panel uses.
+private enum FontEffects {
+    /// The underline and strikethrough: their names in boxFontEffects, and their attributes.
+    private static let lines: [(name: String, style: NSAttributedString.Key, color: NSAttributedString.Key)] = [
+        ("underline", .underlineStyle, .underlineColor), ("strikethrough", .strikethroughStyle, .strikethroughColor),
+    ]
+
+    /// The attributes, by their raw keys as NSFontManager takes them.
+    static func attributes(_ effects: [String: Any]) -> [String: Any] {
+        var attributes: [NSAttributedString.Key: Any] = [:]
+        attributes[.foregroundColor] = color(effects["color"])
+        for line in lines {
+            if let style = effects[line.name] as? String {
+                attributes[line.style] = (style == "double" ? NSUnderlineStyle.double : .single).rawValue
+            }
+            attributes[line.color] = color(effects[line.name + "Color"])
+        }
+        if let shadow = effects["shadow"] as? [String: Any] {
+            let value = { (key: String) in (shadow[key] as? NSNumber)?.doubleValue ?? 0 }
+            let nsShadow = NSShadow()
+            // Up in AppKit, down in CSS.
+            nsShadow.shadowOffset = NSSize(width: value("x"), height: -value("y"))
+            nsShadow.shadowBlurRadius = value("blur")
+            nsShadow.shadowColor = color(shadow["color"])
+            attributes[.shadow] = nsShadow
+        }
+        return Dictionary(uniqueKeysWithValues: attributes.map { ($0.key.rawValue, $0.value) })
+    }
+
+    static func effects(_ attributes: [String: Any], backgroundColor: NSColor?) -> [String: Any] {
+        let attribute = { (key: NSAttributedString.Key) in attributes[key.rawValue] }
+        var effects: [String: Any] = [:]
+        effects["color"] = (attribute(.foregroundColor) as? NSColor).map(css)
+        for line in lines {
+            // The panel keeps a line's color after the line is removed.
+            guard let style = (attribute(line.style) as? NSNumber)?.intValue, style != 0 else { continue }
+            effects[line.name] = style & 0xF == NSUnderlineStyle.double.rawValue ? "double" : "single"
+            effects[line.name + "Color"] = (attribute(line.color) as? NSColor).map(css)
+        }
+        if let shadow = attribute(.shadow) as? NSShadow {
+            let rounded = { (value: CGFloat) -> Any in storedNumber(Double((value * 10).rounded() / 10)) }
+            effects["shadow"] = [
+                "x": rounded(shadow.shadowOffset.width), "y": rounded(-shadow.shadowOffset.height),
+                "blur": rounded(shadow.shadowBlurRadius), "color": css(shadow.shadowColor ?? NSColor.black.withAlphaComponent(1.0 / 3)),
+            ]
+        }
+        effects["backgroundColor"] = backgroundColor.map(css)
+        return effects
+    }
+
+    /// "#rrggbbaa", in sRGB.
+    static func css(_ color: NSColor) -> String {
+        guard let color = color.usingColorSpace(.sRGB) else { return "#000000ff" }
+        let components = [color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent]
+        return "#" + components.map { String(format: "%02x", min(max(Int(($0 * 255).rounded()), 0), 255)) }.joined()
+    }
+
+    /// The color of a "#rrggbbaa" or "#rrggbb" value.
+    static func color(_ value: Any?) -> NSColor? {
+        guard let text = value as? String, text.hasPrefix("#"), [7, 9].contains(text.count),
+              let number = UInt32(text.dropFirst(), radix: 16) else { return nil }
+        let rgba = text.count == 9 ? number : number << 8 | 0xFF
+        let component = { (shift: UInt32) in CGFloat((rgba >> shift) & 0xFF) / 255 }
+        return NSColor(srgbRed: component(24), green: component(16), blue: component(8), alpha: component(0))
+    }
+}
+
+/// Receives the Fonts panel's changes for a FontControl: the typeface and size (changeFont) and the effects
+/// (changeAttributes) as NSFontManager's target, and the background color (changeDocumentBackgroundColor), which
+/// goes to the key window's responder chain, from right after the window.
+@MainActor
+private final class FontPanelTarget: NSResponder, ObservableObject, NSFontChanging {
+    private var font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+    private var attributes: [String: Any] = [:]
+    private var backgroundColor: NSColor?
+    private weak var window: NSWindow?
+    private var commit: ((String, Double, [String: Any]) -> Void)?
+
+    /// The font with that PostScript or family name.
+    static func font(_ name: String, size: Double) -> NSFont? {
+        NSFont(name: name, size: size) ?? NSFontManager.shared.font(withFamily: name, traits: [], weight: 5, size: size)
+    }
+
+    func show(name: String, size: Double, effects: [String: Any], commit: @escaping (String, Double, [String: Any]) -> Void) {
+        self.commit = commit
+        NSFontManager.shared.target = self
+        // The Settings window, even when it isn't key (e.g. pressed by accessibility).
+        if window == nil, let window = NSApp.windows.first(where: { $0.delegate is SettingsWindowController }) {
+            nextResponder = window.nextResponder
+            window.nextResponder = self
+            self.window = window
+        }
+        // Otherwise a text field being edited would take the background color.
+        window?.makeFirstResponder(nil)
+        NSFontManager.shared.orderFrontFontPanel(nil)
+        // Settings is above the overlay (SettingsWindowController), where the panel would be behind it. (Once it's
+        // shown, as showing it sets its own level.)
+        if let window { NSFontPanel.shared.level = window.level }
+        // Active, instead of Settings. (The background color still reaches this through Settings, the main window.)
+        NSFontPanel.shared.makeKey()
+        // After it's shown, as the panel doesn't take a shadow before.
+        update(name: name, size: size, effects: effects)
+    }
+
+    /// Shows the settings in the panel while this is its target, e.g. after Clear.
+    func update(name: String, size: Double, effects: [String: Any]) {
+        font = (name.isEmpty ? nil : Self.font(name, size: size)) ?? NSFont.systemFont(ofSize: size)
+        attributes = FontEffects.attributes(effects)
+        backgroundColor = FontEffects.color(effects["backgroundColor"])
+        guard NSFontManager.shared.target === self else { return }
+        NSFontManager.shared.setSelectedFont(font, isMultiple: false)
+        NSFontManager.shared.setSelectedAttributes(attributes, isMultiple: false)
+    }
+
+    func close() {
+        if let window, window.nextResponder === self { window.nextResponder = nextResponder }
+        window = nil
+        guard NSFontManager.shared.target === self else { return }
+        NSFontManager.shared.target = nil
+        NSFontPanel.shared.orderOut(nil)
+    }
+
+    func changeFont(_ sender: NSFontManager?) {
+        guard let sender else { return }
+        font = sender.convert(font)
+        save()
+    }
+
+    @objc func changeAttributes(_ sender: Any?) {
+        // Sent by the panel's effects, which convert the attributes like NSFontManager.
+        attributes = (sender as AnyObject?)?.convertAttributes?(attributes) ?? attributes
+        save()
+    }
+
+    @objc func changeDocumentBackgroundColor(_ sender: Any?) {
+        backgroundColor = (sender as? NSColorWell)?.color ?? (sender as? NSColorPanel)?.color ?? backgroundColor
+        save()
+    }
+
+    private func save() {
+        // The system font's names are hidden (".SFNS-Regular"): it's stored as "".
+        let name = font.fontName.hasPrefix(".") ? "" : font.fontName
+        commit?(name, (font.pointSize * 10).rounded() / 10, FontEffects.effects(attributes, backgroundColor: backgroundColor))
     }
 }
 

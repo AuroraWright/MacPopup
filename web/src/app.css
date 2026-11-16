@@ -2,19 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Same online fonts as texthooker-ui. */
-@font-face {
-	font-family: 'Ackaisyo';
-	src: local(''), url('https://renji-xd.github.io/texthooker-ui/assets/fonts/ackaisyo.ttf') format('truetype');
-	font-display: swap;
-}
-
-@font-face {
-	font-family: 'CineCaption226';
-	src: local(''), url('https://renji-xd.github.io/texthooker-ui/assets/fonts/cinecaption226.ttf') format('truetype');
-	font-display: swap;
-}
-
 /* Overlay page: transparent, covering the whole display. Only #box and popups take the mouse. */
 html,
 body {
@@ -79,12 +66,25 @@ body {
 	padding-bottom: 12px;
 }
 
+/* The Fonts panel's underline (see applyFontEffects in overlay.js). */
+#lines > p {
+	text-decoration-line: var(--underline-line, none);
+	text-decoration-style: var(--underline-style, solid);
+	text-decoration-color: var(--underline-color, currentcolor);
+}
+
 #lines::-webkit-scrollbar {
 	display: none;
 }
 
 #lines .show-bullet::before {
 	content: '• ';
+	/* Not underlined or struck through with the line (Settings → Floating Window → Font), keeping its space. With no
+	   height of its own: in its fallback font it would make the line taller than its text, and WebKit would then
+	   leave part of a highlight on screen when it's removed. */
+	display: inline-block;
+	white-space: pre;
+	line-height: 0;
 	opacity: 0.1;
 	transition: opacity 0.3s;
 }

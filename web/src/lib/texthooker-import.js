@@ -20,6 +20,8 @@ export function importTexthookerSettings(json, currentSettings) {
 			result[key] = value;
 		}
 	}
+	// texthooker-ui's line padding is in rem (16 pixels).
+	if (result.linePadding !== undefined) result.linePadding *= 16;
 	const urls = [source.websocketUrl$, source.secondaryWebsocketUrl$].filter((url) => typeof url === 'string' && url.length > 0);
 	if (urls.length > 0) result.websocketUrls = urls;
 	return result;

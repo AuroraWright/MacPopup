@@ -12,7 +12,6 @@ final class SettingsSupport {
 
     let defaults: [String: Any]
     let themes: [String]
-    let onlineFonts: [String]
     /// Yomitan's languages: ISO code and name.
     let languages: [(iso: String, name: String)]
     let defaultFieldTemplates: String
@@ -26,7 +25,6 @@ final class SettingsSupport {
         defaults = support?.invokeMethod("defaultsJSON", withArguments: [])?.toString()
             .flatMap(Self.decode) ?? [:]
         themes = support?.objectForKeyedSubscript("themes")?.toArray() as? [String] ?? []
-        onlineFonts = support?.objectForKeyedSubscript("onlineFonts")?.toArray() as? [String] ?? []
         languages = (support?.objectForKeyedSubscript("languages")?.toArray() as? [[String: String]] ?? []).compactMap {
             guard let iso = $0["iso"], let name = $0["name"] else { return nil }
             return (iso, name)
