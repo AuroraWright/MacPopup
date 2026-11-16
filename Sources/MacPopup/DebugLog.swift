@@ -90,7 +90,7 @@ enum DebugLog {
 
     /// A record (its type and fields), with the time.
     static func record(_ fields: [String: Any]) {
-        let record = fields.merging(["time": timeFormat.string(from: Date())]) { $1 }
+        let record = fields.merging(["time": timeFormat.string(from: OCRClock.now)]) { $1 }
         guard let data = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return }
         append(json)
@@ -169,6 +169,11 @@ enum DebugLog {
         format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return format
     }()
+
+    /// Waits for the records so far to be written (before quitting).
+    static func flush() {
+        queue.sync {}
+    }
 
     static func append(_ json: String) {
         guard let data = (json + "\n").data(using: .utf8) else { return }
