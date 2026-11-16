@@ -86,7 +86,8 @@ if [[ -x "$FFMPEG/ffmpeg" ]]; then
     cp "$FFMPEG"/COPYING.* "$FFMPEG"/LICENSE.md "$FFMPEG"/SOURCE.txt "$APP/Contents/Resources/Licenses/ffmpeg/"
 fi
 # The IINA plugin (iina-plugin/), packaged for IINA to install when it's opened.
-(cd iina-plugin && zip -q -r -X "../$APP/Contents/Resources/MacPopup.iinaplgz" Info.json main.js global.js preferences.html)
+PLUGIN="${APP:A}/Contents/Resources/MacPopup.iinaplgz"
+(cd iina-plugin && zip -q -r -X "$PLUGIN" Info.json main.js global.js preferences.html)
 # meikiocr's and PP-OCRv6_manga's models (see vendor/meikiocr and vendor/ppocr-manga), compiled for Core ML.
 mkdir -p "$APP/Contents/Resources/Models"
 for model in vendor/meikiocr/*.mlpackage vendor/ppocr-manga/*.mlpackage; do
