@@ -46,7 +46,10 @@ struct SettingsView: View {
                     .id(section.title)
             }
         }
-        .onChange(of: selection) { recorder.cancel() }
+        .onChange(of: selection) {
+            recorder.cancel()
+            FontPanelTarget.shared.close()
+        }
     }
 }
 
@@ -650,7 +653,7 @@ private struct FontControl: View {
     let isDefault: Bool
     let commit: (String, Double, [String: Any]) -> Void
     let clear: () -> Void
-    @StateObject private var panel = FontPanelTarget()
+    private let panel = FontPanelTarget.shared
 
     var body: some View {
         HStack {
@@ -659,7 +662,6 @@ private struct FontControl: View {
                 .disabled(isDefault)
         }
         .onChange(of: [name, "\(size)", SettingsSupport.encode(effects)]) { panel.update(name: name, size: size, effects: effects) }
-        .onDisappear { panel.close() }
     }
 }
 
@@ -758,7 +760,12 @@ private enum FontEffects {
 /// (changeAttributes) as NSFontManager's target, and the background color (changeDocumentBackgroundColor), which
 /// goes to the key window's responder chain, from right after the window.
 @MainActor
-private final class FontPanelTarget: NSResponder, ObservableObject, NSFontChanging {
+/// One for the Settings window, closed with it or when another section is shown: not with the Font row, which the form
+/// unloads when it's scrolled out of view. (Never freed, as the Settings window's responder chain points to it while
+/// the panel is open.)
+final class FontPanelTarget: NSResponder, NSFontChanging {
+    static let shared = FontPanelTarget()
+
     private var font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
     private var attributes: [String: Any] = [:]
     private var backgroundColor: NSColor?

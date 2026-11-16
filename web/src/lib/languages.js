@@ -110,9 +110,10 @@ const languageCharacters = (() => {
  * Whether `text` may be in `language` (an ISO code of Yomitan's), as OCR decides which lines it keeps
  * (OCRLanguage.contains in Sources/OCREngines/OCRLanguage.swift, which this matches): some of it is in the language's
  * characters (Japanese's and Chinese's as in Yomitan's isTextLookupWorthy, otherwise the language's script), or it has
- * no letters (e.g. "……"). Unknown languages and "Any" take everything.
+ * no letters (e.g. "……"; letters as Swift's Character.isLetter counts them, also e.g. "Ⅲ"). Unknown languages and
+ * "Any" take everything.
  */
 export function isInLanguage(text, language) {
-	if (!/\p{L}/u.test(text)) return true;
+	if (!/\p{Alphabetic}/u.test(text)) return true;
 	return languageCharacters[language]?.test(text) ?? true;
 }

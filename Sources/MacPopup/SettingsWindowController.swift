@@ -59,6 +59,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         recorder.cancel()
+        FontPanelTarget.shared.close()
         // Saves a field that's still being edited.
         window?.makeFirstResponder(nil)
         window = nil

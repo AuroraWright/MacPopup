@@ -1117,6 +1117,7 @@ final class OCRController {
                 let same = fullest.map { OCRText.isLongAndSame($0.key, key) || OCRText.sharesMost($0.key, key) } ?? true
                 otherReadings = same ? 0 : otherReadings + 1
                 if otherReadings == 1 { otherSince = started }
+                var since = started
                 if let gone = fullest, otherReadings >= 2 {
                     // It's gone without having settled, though it was on screen long enough to: the fullest reading of it
                     // is taken. Not when it's mostly the text read before the round going away (text that goes on from
@@ -1131,9 +1132,11 @@ final class OCRController {
                     }
                     fullest = nil
                     otherReadings = 0
+                    // The new text is there since its first reading.
+                    since = otherSince
                 }
                 if otherReadings == 0, key.count >= fullest?.key.count ?? 0 {
-                    fullest = (key, areaLines.first ?? [], areaRemoved.first ?? [], image, readFrame, started, fullest?.since ?? started)
+                    fullest = (key, areaLines.first ?? [], areaRemoved.first ?? [], image, readFrame, started, fullest?.since ?? since)
                 }
             }
             // Preferably on a reading with all the dashes and dots read meanwhile (the next one is taken right away), but
@@ -1457,7 +1460,7 @@ final class OCRController {
                     CGImageDestinationAddImage(destination, crop, nil)
                     CGImageDestinationFinalize(destination)
                 }
-                log("\(savesDebugPictures ? "saved" : "read") \(url.lastPathComponent)")
+                log(savesDebugPictures ? "saved \(url.lastPathComponent)" : "read read-\(debugReadings)-area\(index)")
             }
             let items: [RecognizedLine]
             let recognizeStarted = OCRClock.now
