@@ -232,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
             repeats: (settings["preventLastDuplicate"] as? NSNumber)?.intValue ?? 0 > 0 || settings["preventGlobalDuplicate"] as? Bool == true,
             grows: settings["mergeEqualLineStarts"] as? Bool == true
         )
-        guard let noted = lines.note(text, page: fromOCR, breaks: breaks, sent: sent, info: { fromOCR }) else { return [:] }
+        guard let noted = lines.note(text, page: fromOCR, breaks: breaks, rows: rows, sent: sent, info: { fromOCR }) else { return [:] }
         let line = lines[noted.index]
         sentenceAudio.noteLine(id: line.id, isNew: noted.isNew, text: line.text, age: age)
         screenshots.noteLine(id: line.id, isNew: noted.isNew, grew: noted.grew, settled: fromOCR)

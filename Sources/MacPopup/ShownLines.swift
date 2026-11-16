@@ -51,10 +51,9 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
 
     private var lines: [Line] = []
     private var nextID = 0
-    /// The last reading of a page (see note), normalized and as shown, and where its lines start in it.
-    private var page: (text: String, shown: String, starts: [Start])?
-    /// Text shorter than this could be part of almost any line (see isLongAndSame).
-    private static var shortLength: Int { 6 }
+    /// The last reading of a page (see note), normalized and as shown, where its lines start in it, and where its rows
+    /// start (in characters of the normalized text).
+    private var page: (text: String, shown: String, starts: [Start], rows: [Int])?
 
     var startIndex: Int { lines.startIndex }
     var endIndex: Int { lines.endIndex }
@@ -83,42 +82,51 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     /// paragraph does. `breaks` lists where the reading's rows start a paragraph, in characters of the normalized
     /// text; a row ending in a comma doesn't count, since games also wrap rows after commas. Otherwise the last line
     /// grew. Text that appears all at once stays one line, because the voice of each line would start at the same time.
+    /// A page whose first rows went out at the top as more came in below (a text box that scrolls) is matched by the
+    /// rest of it, so `rows` (the reading's rows of text) are needed for that.
     mutating func note(
-        _ shown: String, page isPage: Bool = false, breaks: Set<Int> = [], sent sentLines: SentLines = .init(), info: () -> Info
+        _ shown: String, page isPage: Bool = false, breaks: Set<Int> = [], rows: [String] = [], sent sentLines: SentLines = .init(),
+        info: () -> Info
     ) -> Noted? {
         let text = Self.normalized(shown)
         guard !text.isEmpty else { return nil }
+        let rowLengths = rows.map { Self.normalized($0).count }
+        let rowStarts = rowLengths.reduce(0, +) == text.count ? Array(rowLengths.reduce(into: [0]) { $0.append($0.last! + $1) }.dropLast()) : []
         if isPage, let page, let last = lines.indices.last {
-            // The same page, or part of it, read again. Dots are ignored because OCR reads a different number of them
-            // each time.
+            // The same page, or the start of it, read again. Dots are ignored because OCR reads a different number of
+            // them each time.
             let key = Self.undotted(text), pageKey = Self.undotted(page.text)
-            if pageKey.hasPrefix(key) || (text.count <= page.text.count && Self.isLongAndSame(text, page.text)) {
+            if pageKey.hasPrefix(key) {
                 return Noted(index: last, isNew: false, grew: false, starts: Self.moved(page.starts, from: page.text, to: text))
             }
-            // The page with more text added. The old part may be read a little differently or gain a mark or two
-            // (e.g. a dash before a line), so it's aligned with the new reading, and its lines' starts with it.
-            let before = String(text.prefix(page.text.count))
-            let exact = before == page.text
-            let (end, edits) = exact ? (page.text.count, 0) : Self.ends(of: page.text, in: text, at: [page.text.count])[0]
-            let inserted = edits == 0 || (edits <= 2 && edits == end - page.text.count)
-            if key.count > pageKey.count, exact || inserted || Self.isLongAndSame(before, page.text) {
-                var starts = Self.moved(page.starts, from: page.text, to: text)
-                let paragraphEnds = breaks.contains(end) && !Self.continuesSentence(text, before: end)
-                if end < text.count, paragraphEnds || Self.sentenceEnds(in: shown, after: end) {
-                    let index = append(Self.shown(shown, after: end), info: info)
-                    starts.append((lines[index].id, end))
-                    self.page = (text, shown, starts)
-                    return Noted(index: index, isNew: true, grew: false, starts: starts)
+            // The page from one of its rows on, with more text added: the rows before it scrolled out at the top. At least
+            // two rows and a line's start are left, as after a scroll (a new page that starts like the old one's last row
+            // isn't taken for it), and the new reading starts much as the page does from there (checked first: aligning
+            // takes longer).
+            let opening = String(key.prefix(8)), pageCharacters = Array(page.text)
+            let cuts = page.rows.dropFirst().dropLast().filter { cut in
+                guard pageCharacters.count - cut >= OCRText.shortLength, page.starts.contains(where: { $0.start >= cut }) else { return false }
+                let from = String(pageCharacters[cut...].lazy.filter { !OCRText.isDot($0) }.prefix(8))
+                return OCRText.commonLength(from, opening) >= 6
+            }
+            for cut in cuts {
+                let old = String(page.text.dropFirst(cut))
+                if let noted = noteAdded(shown, text, rows: rowStarts, to: old, starts: Self.scrolled(page.starts, by: cut), last: last, breaks: breaks, info: info) {
+                    return noted
                 }
-                self.page = (text, shown, starts)
-                lines[last].text = Self.shown(shown, after: starts.last?.start ?? 0)
-                let normalized = Self.normalized(lines[last].text)
-                if !lines[last].texts.contains(normalized) { lines[last].texts.append(normalized) }
-                return Noted(index: last, isNew: false, grew: true, starts: starts)
+            }
+            // The same page read a little differently (a scrolled page with a little added would pass for it too, so
+            // that's checked before).
+            if text.count <= page.text.count && OCRText.isLongAndSame(text, page.text) {
+                return Noted(index: last, isNew: false, grew: false, starts: Self.moved(page.starts, from: page.text, to: text))
+            }
+            // The page with more text added.
+            if let noted = noteAdded(shown, text, rows: rowStarts, to: page.text, starts: page.starts, last: last, breaks: breaks, info: info) {
+                return noted
             }
         }
         let noted: Noted
-        let isAgain = { (seen: String) in text.hasPrefix(seen) || seen.hasPrefix(text) || Self.isLongAndSame(text, seen) }
+        let isAgain = { (seen: String) in text.hasPrefix(seen) || seen.hasPrefix(text) || OCRText.isLongAndSame(text, seen) }
         let last = lines.indices.last
         let isSame: Bool
         if !isPage, let last, let sent = lines[last].sent {
@@ -139,11 +147,49 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         // A page read anew is a single line. A different line (e.g. from a WebSocket) ends the page; the last line
         // coming in again (e.g. from a WebSocket after OCR read it) doesn't.
         if isPage {
-            page = (text, shown, noted.starts)
+            page = (text, shown, noted.starts, rowStarts)
         } else if noted.isNew {
             page = nil
         }
         return noted
+    }
+
+    /// Notes a page's reading (`text` normalized) as the earlier reading `old` (with its lines' `starts`) with more text
+    /// added, if it is: the added text becomes a new line or the last line grew (see note). Nil if it isn't. The old
+    /// part may be read a little differently or gain a mark or two (e.g. a dash before a line), so it's aligned with the
+    /// new reading, and its lines' starts with it.
+    private mutating func noteAdded(
+        _ shown: String, _ text: String, rows: [Int], to old: String, starts oldStarts: [Start], last: Int, breaks: Set<Int>,
+        info: () -> Info
+    ) -> Noted? {
+        let before = String(text.prefix(old.count))
+        let exact = before == old
+        let (end, edits) = exact ? (old.count, 0) : Self.ends(of: old, in: text, at: [old.count])[0]
+        // Only a mark or two inserted (dots aside: there may be more or fewer of them).
+        let inserted = edits == 0 || (edits <= 2 && edits == Self.undotted(String(text.prefix(end))).count - Self.undotted(old).count)
+        guard Self.undotted(text).count > Self.undotted(old).count, exact || inserted || OCRText.isLongAndSame(before, old) else { return nil }
+        var starts = Self.moved(oldStarts, from: old, to: text)
+        let paragraphEnds = breaks.contains(end) && !Self.continuesSentence(text, before: end)
+        if end < text.count, paragraphEnds || Self.sentenceEnds(in: shown, after: end) {
+            let index = append(Self.shown(shown, after: end), info: info)
+            starts.append((lines[index].id, end))
+            page = (text, shown, starts, rows)
+            return Noted(index: index, isNew: true, grew: false, starts: starts)
+        }
+        page = (text, shown, starts, rows)
+        lines[last].text = Self.shown(shown, after: starts.last?.start ?? 0)
+        let normalized = Self.normalized(lines[last].text)
+        if !lines[last].texts.contains(normalized) { lines[last].texts.append(normalized) }
+        return Noted(index: last, isNew: false, grew: true, starts: starts)
+    }
+
+    /// The starts of lines in a page's reading, for the reading from character `cut` on: those before it are gone,
+    /// except the line it's in, which now starts at 0.
+    private static func scrolled(_ starts: [Start], by cut: Int) -> [Start] {
+        guard cut > 0 else { return starts }
+        var kept = starts.filter { $0.start >= cut }.map { ($0.id, $0.start - cut) }
+        if kept.first?.1 != 0, let cutInto = starts.last(where: { $0.start < cut }) { kept.insert((cutInto.id, 0), at: 0) }
+        return kept
     }
 
     /// Where a line's text starts in a page's reading, as (row, offset in the row's UTF-16 code units). `rows` are the
@@ -168,46 +214,6 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         guard !new.hasPrefix(old), !old.hasPrefix(new) else { return starts }
         let ends = ends(of: old, in: new, at: starts.map(\.start))
         return zip(starts, ends).map { ($0.id, $1.end) }
-    }
-
-    /// Whether two readings are of the same line: both are long enough to be matched loosely, and one contains the
-    /// other, allowing a few characters to differ, since OCR may misread some.
-    private static func isLongAndSame(_ a: String, _ b: String) -> Bool {
-        let (whole, wholeB) = numbered(a.precomposedStringWithCompatibilityMapping, b.precomposedStringWithCompatibilityMapping)
-        let shorter = Swift.min(whole.count, wholeB.count)
-        guard shorter >= shortLength else { return false }
-        // Longest common subsequence: the start and end they share, and that of what's between (in a table).
-        let start = zip(whole, wholeB).prefix { $0 == $1 }.count
-        let end = zip(whole[start...].reversed(), wholeB[start...].reversed()).prefix { $0 == $1 }.count
-        let a = whole[start..<(whole.count - end)], b = Array(wholeB[start..<(wholeB.count - end)])
-        var row = [Int](repeating: 0, count: b.count + 1)
-        if !b.isEmpty {
-            for x in a {
-                var diagonal = 0
-                for j in 1...b.count {
-                    let above = row[j]
-                    row[j] = x == b[j - 1] ? diagonal + 1 : Swift.max(row[j], row[j - 1])
-                    diagonal = above
-                }
-            }
-        }
-        return Double(start + row[b.count] + end) >= 0.85 * Double(shorter)
-    }
-
-    /// The characters of `a` and `b` as numbers, the same for equal characters. The tables in isLongAndSame and ends
-    /// compare every character of one text with every character of the other, and comparing Characters is slow (it
-    /// takes Unicode's canonical equivalence into account): on a page of 1,500 characters, numbers made noting a
-    /// reading 8 times faster.
-    private static func numbered(_ a: String, _ b: String) -> ([Int], [Int]) {
-        var numbers: [Character: Int] = [:]
-        func number(_ text: String) -> [Int] {
-            text.map { character in
-                if let number = numbers[character] { return number }
-                numbers[character] = numbers.count
-                return numbers.count - 1
-            }
-        }
-        return (number(a), number(b))
     }
 
     /// The index after the first `count` non-whitespace characters of `shown`, skipping any whitespace that follows.
@@ -239,7 +245,7 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     /// how it was read. For each, that's the end of the shortest start of `new` with the fewest edits from that part of
     /// `old`, returned with the edit count. Dots that were added, dropped or read as other dots cost nothing.
     private static func ends(of old: String, in new: String, at counts: [Int]) -> [(end: Int, edits: Int)] {
-        let (a, b) = numbered(old, new)
+        let (a, b) = OCRText.numbered(old, new)
         guard !b.isEmpty else { return counts.map { (0, $0) } }
         let aDots = old.map(OCRText.isDot), bDots = new.map(OCRText.isDot)
         // Levenshtein distance between `old` and every start of `new`, one character of `old` at a time.
