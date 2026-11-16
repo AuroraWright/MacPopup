@@ -6,6 +6,8 @@ import Foundation
 /// the web side's requests stop or start working (see `reportRequest`).
 @MainActor
 final class YomitanAPIStatus: ObservableObject {
+    static let shared = YomitanAPIStatus()
+
     enum State: Equatable {
         case unknown
         case reachable(version: String)
@@ -15,6 +17,11 @@ final class YomitanAPIStatus: ObservableObject {
     @Published private(set) var state = State.unknown {
         didSet { if state != oldValue { onChange?() } }
     }
+    /// Whether it gives the Yomitan profile's display options and dictionaries (AnkiConnect.yomitanGivesProfile), which
+    /// Settings shows instead of MacPopup's.
+    @Published private(set) var givesProfile = false
+    /// The URL and version that givesProfile was asked of.
+    private var profileAskedFor: String?
 
     var onChange: (() -> Void)?
     private var timer: Timer?
@@ -23,7 +30,7 @@ final class YomitanAPIStatus: ObservableObject {
     private var checkAgain = false
     private var url: String?
 
-    init() {
+    private init() {
         url = SettingsStore.shared.string("yomitanApiUrl")
         SettingsStore.shared.observe { [weak self] _ in
             Task { @MainActor in self?.settingsChanged() }
@@ -41,7 +48,16 @@ final class YomitanAPIStatus: ObservableObject {
         }
         checking = true
         Task {
-            let version = try? await AnkiConnect.yomitanVersion(settings: SettingsStore.shared.dictionary)
+            let settings = SettingsStore.shared.dictionary
+            let version = try? await AnkiConnect.yomitanVersion(settings: settings)
+            // Asked again only when it's back, at another URL or another version, so an older Yomitan isn't asked
+            // every time.
+            let profileKey = version.map { "\(settings["yomitanApiUrl"] ?? "") \($0)" }
+            if profileKey != profileAskedFor {
+                profileAskedFor = profileKey
+                let givesProfile = profileKey != nil ? await AnkiConnect.yomitanGivesProfile(settings: settings) : false
+                if givesProfile != self.givesProfile { self.givesProfile = givesProfile }
+            }
             state = version.map { .reachable(version: $0) } ?? .unreachable
             checking = false
             if checkAgain {

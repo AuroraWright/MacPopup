@@ -58,12 +58,16 @@ private struct SectionForm: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var recorder: ScanInputRecorder
     let actions: SettingsActions
+    @ObservedObject private var yomitan = YomitanAPIStatus.shared
 
     var body: some View {
         Form {
             Section {
                 ForEach(section.fields.filter { $0.showIf?(model.values) ?? true }) { field in
+                    let fromYomitan = isFromYomitan(field)
                     FieldRow(field: field, model: model, recorder: recorder, actions: actions)
+                        .disabled(fromYomitan)
+                        .environment(\.settingsFieldNote, fromYomitan ? "Controlled by your Yomitan settings." : nil)
                 }
             } header: {
                 VStack(alignment: .leading, spacing: 4) {
@@ -76,6 +80,25 @@ private struct SectionForm: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// A setting the Yomitan profile gives (see SettingsSchema.yomitanDisplayKeys).
+    private func isFromYomitan(_ field: SettingsField) -> Bool {
+        guard yomitan.givesProfile else { return false }
+        return SettingsSchema.yomitanDictionaryKeys.contains(field.key)
+            || (model.values["useYomitanDisplay"] as? Bool == true && SettingsSchema.yomitanDisplayKeys.contains(field.key))
+    }
+}
+
+/// A line under a field's hint, if any.
+private struct SettingsFieldNoteKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    fileprivate var settingsFieldNote: String? {
+        get { self[SettingsFieldNoteKey.self] }
+        set { self[SettingsFieldNoteKey.self] = newValue }
     }
 }
 
@@ -111,12 +134,16 @@ struct HeaderDescription: NSViewRepresentable {
 
 private struct FieldLabel: View {
     let field: SettingsField
+    @Environment(\.settingsFieldNote) private var note
 
     var body: some View {
         let label = VStack(alignment: .leading, spacing: 2) {
             Text(field.label)
             if let hint = field.hint {
                 Text(hint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if let note {
+                Text(note).font(.caption.italic()).foregroundStyle(.secondary)
             }
         }
         if let optionClick = field.optionClick {

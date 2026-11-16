@@ -56,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
             self?.ocr.inputUsed()
             if !GamepadController.shared.isHeld { self?.ocr.gameInput() }
         }
-        yomitanAPI = YomitanAPIStatus()
+        yomitanAPI = .shared
         yomitanAPI.onChange = { [weak self] in self?.updateStatusIcon() }
 
         setUpStatusItem()

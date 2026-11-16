@@ -15,6 +15,7 @@ import { cursorAt } from './lib/cursor.js';
 import { Tooltip } from './lib/tooltip.js';
 import { getSettings, loadSettings, onSettingsChanged, resolveTheme, saveSettings } from './lib/settings.js';
 import { ankiCardFormats, kanjiEntries, termEntries, tokenize, YomitanAPITimeout } from './lib/yomitan-api.js';
+import { refreshYomitanProfile, watchYomitanProfile, yomitanProfileAsked } from './lib/yomitan-profile.js';
 import { convertHiraganaToKatakana, convertKatakanaToHiragana } from '../../vendor/yomitan/ext/js/language/ja/japanese.js';
 import { convertToRomaji } from '../../vendor/yomitan/ext/js/language/ja/japanese-wanakana.js';
 
@@ -726,6 +727,10 @@ class PopupManager {
 	async show(depth, content, sourceRects, verticalText = false) {
 		this.closeAbove(depth);
 		const closes = this.closes[depth] ?? 0;
+		// The Yomitan profile's display options, read again in the background. Until the API was first asked for them,
+		// a popup waits a moment for them, instead of changing look once they come.
+		const profile = refreshYomitanProfile();
+		if (!yomitanProfileAsked()) await Promise.race([profile, new Promise((resolve) => setTimeout(resolve, 1000))]);
 		const popup = await this.get(depth);
 		const settings = getSettings();
 		const scale = settings.popupScalingFactor;
@@ -2448,6 +2453,11 @@ function renderPauseButton() {
 async function main() {
 	const settings = await loadSettings();
 	onSettingsChanged(applySettings);
+	watchYomitanProfile(() => {
+		popupManager.applySettings();
+		$('#popup-outer-custom-css').textContent = getSettings().customPopupOuterCss;
+	});
+	void refreshYomitanProfile();
 	// Right-button scan inputs shouldn't open the context menu or select the word.
 	preventRightClickSelection(document, getSettings);
 

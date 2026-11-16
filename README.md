@@ -51,6 +51,13 @@ You don't need to configure MacPopup from scratch. At the bottom of the Settings
   Settings*). If your backup has multiple profiles, you'll be prompted to choose one. This imports
   your language, popup theme and size, custom CSS, dictionary styles and collapse rules, scanning
   preferences, audio sources, popup keyboard shortcuts, Anki settings, and card templates.
+
+If your Yomitan can share its settings through its API (the `displayOptions`, `dictionaryInfo` and
+`dictionaryMedia` paths, not in a Yomitan release yet), you don't need to import anything: popups match your Yomitan
+setup and stay in sync when you change it there. That includes how popups look (turn off *Use Yomitan's display
+settings* in *Settings → Yomitan Popup* to use MacPopup's own), your dictionaries' styles and collapse rules, and a
+dictionary's details when you click its tag. Dictionary images also load faster. With an older Yomitan, MacPopup
+uses its own settings and whatever you imported.
 - **texthooker-ui Settings…**: Select a texthooker-ui export to bring over your text box theme, font
   size, line rules, and regex text replacements.
 

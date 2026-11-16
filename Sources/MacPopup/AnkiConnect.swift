@@ -43,6 +43,12 @@ enum AnkiConnect {
         return ((response as? [String: Any])?["version"]).map { "\($0)" } ?? "?"
     }
 
+    /// Whether the Yomitan API has the paths displayOptions and dictionaryInfo (yomitan-api-endpoints.patch, see
+    /// web/src/lib/yomitan-profile.js): an older Yomitan answers 400.
+    static func yomitanGivesProfile(settings: [String: Any]) async -> Bool {
+        (try? await yomitan("displayOptions", settings: settings, timeout: 5)) != nil
+    }
+
     /// Calls the Yomitan API at the address in the settings.
     private static func yomitan(_ path: String, settings: [String: Any], timeout: TimeInterval) async throws -> Any {
         var base = settings["yomitanApiUrl"] as? String ?? "http://127.0.0.1:19633"

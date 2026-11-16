@@ -135,6 +135,16 @@ enum SettingsSchema {
         + "Add a minus sign (-) to ignore lookups while a key or button is held (e.g. “shift -mouse0” looks up with Shift, unless the left mouse button is pressed). "
         + "Add “terms” or “kanji” to restrict lookups to words or individual kanji (e.g. “alt kanji”)."
 
+    /// The rows a Yomitan whose API has displayOptions and dictionaryInfo gives (see web/src/lib/yomitan-profile.js),
+    /// shown greyed out then: these with useYomitanDisplay on, and `yomitanDictionaryKeys` always.
+    static let yomitanDisplayKeys: Set = [
+        "popupThemes", "popupScalingFactor", "popupDisplayMode", "fontFamily", "popupFontSize", "lineHeight", "glossaryLayoutMode",
+        "compactTags", "showSearchTags", "averageFrequency", "frequencyDisplayMode", "termDisplayMode",
+        "showPitchAccentDownstepNotation", "showPitchAccentPositionNotation", "showPitchAccentGraph", "popupCurrentIndicatorMode",
+        "popupActionBarVisibility", "popupActionBarLocation", "customPopupCss", "customPopupOuterCss",
+    ]
+    static let yomitanDictionaryKeys: Set = ["definitionsCollapsible", "dictionaryCollapsible", "dictionaryStyles"]
+
     private static let scanModifierOptions = [
         SettingsOption("none", "No key"),
         SettingsOption("alt", "Option (⌥)"),
@@ -509,6 +519,10 @@ enum SettingsSchema {
             SettingsSection(
                 title: "Yomitan Popup", symbol: "rectangle.on.rectangle",
                 fields: [
+                    SettingsField(
+                        "useYomitanDisplay", "Use Yomitan’s display settings", .checkbox,
+                        hint: "Make popups look the way your Yomitan is set up (theme, scale, fonts, layout, tags, frequencies, pitch accents and custom CSS) and stay in sync when you change it there. The settings Yomitan controls are greyed out below. This needs a Yomitan that shares its settings through its API; with an older one, the settings below are used."
+                    ),
                     SettingsField(
                         "popupThemes", "Theme", .group([
                             SettingsField("popupTheme", "Body", .select(themeOptions)),

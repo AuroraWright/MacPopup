@@ -204,6 +204,9 @@ export const defaultSettings = {
 	popupHorizontalTextPosition: 'below',
 	popupVerticalTextPosition: 'before',
 	popupScalingFactor: 1,
+	// With a Yomitan whose API has displayOptions (see lib/yomitan-profile.js), popups take its profile's display
+	// options instead of the settings below that it has.
+	useYomitanDisplay: true,
 	popupDisplayMode: 'default',
 	// Where full-width popups go: 'top', 'bottom' or 'above-cursor'.
 	popupFullWidthPosition: 'bottom',
@@ -224,7 +227,9 @@ export const defaultSettings = {
 	popupActionBarVisibility: 'auto',
 	popupActionBarLocation: 'top',
 	definitionsCollapsible: 'not-collapsible',
-	// Each dictionary's collapse mode from Import Yomitan, [{name, mode}]; others use definitionsCollapsible.
+	// Each dictionary's collapse mode from Import Yomitan, [{name, mode}]; others use definitionsCollapsible. (A Yomitan
+	// whose API has dictionaryInfo gives its own, as it does the styles and yomitanAnkiTemplates' dictionaries and
+	// resultOutputMode below, and the dictionaries' summaries as yomitanDictionaryInfo.)
 	dictionaryCollapsible: [],
 	customPopupCss: '',
 	customPopupOuterCss: '',

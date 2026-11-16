@@ -33,13 +33,14 @@ export function shouldRenderLocally() {
 	return getSettings().ankiRenderTemplatesLocally;
 }
 
-// Like YomitanApi._getAnkiTemplate. Every dictionary gets its single-dictionary markers, since the
-// term and frequency counts that Yomitan checks aren't known here. The entry's own dictionaries are
-// included for templates set up without an import.
+// Like YomitanApi._getAnkiTemplate. The term and frequency counts that Yomitan checks for single-dictionary markers
+// come from a Yomitan whose API has dictionaryInfo; otherwise every dictionary gets them. The entry's own dictionaries
+// are included for templates set up without an import.
 function getTemplate({ fieldTemplates, dictionaries: importedDictionaries }, dictionaryEntry) {
 	const dictionaries = [...new Set([...importedDictionaries, ...getEntryDictionaries(dictionaryEntry)])];
 	const options = { dictionaries: dictionaries.map((name) => ({ name, enabled: true })) };
-	const dictionaryInfo = dictionaries.map((title) => ({ title, counts: { terms: { total: 1 }, termMeta: { freq: 1 } } }));
+	const known = new Map((getSettings().yomitanDictionaryInfo ?? []).map((info) => [info.title, info]));
+	const dictionaryInfo = dictionaries.map((title) => known.get(title) ?? { title, counts: { terms: { total: 1 }, termMeta: { freq: 1 } } });
 	return `${fieldTemplates ?? defaultFieldTemplates}\n${getDynamicTemplates(options, dictionaryInfo)}`;
 }
 

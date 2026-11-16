@@ -181,14 +181,8 @@ function getProfileIndexForDepth(options, chosenIndex, depth) {
 	return options.profileCurrent ?? 0;
 }
 
-/**
- * @param {object} options The `options` returned by parseYomitanExport.
- * @param {number} profileIndex
- * @param {object} currentSettings Used to skip values MacPopup doesn't know.
- * @returns {object} The MacPopup settings to save.
- */
-export function convertYomitanProfile(options, profileIndex, currentSettings) {
-	const profileOptions = options.profiles[profileIndex]?.options ?? {};
+/** The profile's options in directOptions, as MacPopup settings (`currentSettings` for their types). */
+function convertDirectOptions(profileOptions, currentSettings) {
 	const result = {};
 	for (const [section, mapping] of Object.entries(directOptions)) {
 		const source = profileOptions[section];
@@ -202,6 +196,63 @@ export function convertYomitanProfile(options, profileIndex, currentSettings) {
 			result[to] = value;
 		}
 	}
+	return result;
+}
+
+/**
+ * The enabled dictionaries' collapse modes and styles, from the profile's dictionaries ([{name, enabled,
+ * definitionsCollapsible, styles}]).
+ */
+function convertDictionaries(dictionaries) {
+	return {
+		dictionaryCollapsible: dictionaries
+			.filter(({ name, enabled, definitionsCollapsible }) => enabled && typeof name === 'string' && typeof definitionsCollapsible === 'string')
+			.map(({ name, definitionsCollapsible }) => ({ name, mode: definitionsCollapsible })),
+		dictionaryStyles: dictionaries
+			.filter(({ name, enabled, styles }) => enabled && typeof name === 'string' && typeof styles === 'string' && styles.trim() !== '')
+			.map(({ name, styles }) => ({ name, styles })),
+	};
+}
+
+/**
+ * The settings a Yomitan with the API paths displayOptions and dictionaryInfo gives (see lib/yomitan-profile.js):
+ * `always` what MacPopup only has from it (its dictionaries, and how it groups lookup results), and `display` what
+ * its Yomitan Popup settings also set.
+ * @param {{general: object, scanning: object}} displayOptions
+ * @param {object[]} dictionaryInfo The dictionaries' summaries, each with its `options` in the profile or null.
+ * @param {object} currentSettings Used to skip values MacPopup doesn't know.
+ */
+export function convertYomitanApiProfile(displayOptions, dictionaryInfo, currentSettings) {
+	const dictionaries = dictionaryInfo.map(({ title, styles, options }) => ({
+		name: title,
+		enabled: options?.enabled === true,
+		definitionsCollapsible: options?.definitionsCollapsible,
+		styles,
+	}));
+	const resultOutputMode = displayOptions.general?.resultOutputMode ?? 'group';
+	return {
+		always: {
+			...convertDictionaries(dictionaries),
+			// Over the stored yomitanAnkiTemplates, keeping its field templates (see settings.js).
+			yomitanAnkiTemplates: {
+				dictionaries: dictionaries.filter(({ enabled }) => enabled).map(({ name }) => name),
+				resultOutputMode,
+			},
+			yomitanDictionaryInfo: dictionaryInfo,
+		},
+		display: convertDirectOptions({ general: displayOptions.general, scanning: displayOptions.scanning }, currentSettings),
+	};
+}
+
+/**
+ * @param {object} options The `options` returned by parseYomitanExport.
+ * @param {number} profileIndex
+ * @param {object} currentSettings Used to skip values MacPopup doesn't know.
+ * @returns {object} The MacPopup settings to save.
+ */
+export function convertYomitanProfile(options, profileIndex, currentSettings) {
+	const profileOptions = options.profiles[profileIndex]?.options ?? {};
+	const result = convertDirectOptions(profileOptions, currentSettings);
 
 	const anki = profileOptions.anki ?? {};
 	if (Array.isArray(anki.tags)) result.ankiTags = anki.tags.join(' ');
@@ -231,15 +282,8 @@ export function convertYomitanProfile(options, profileIndex, currentSettings) {
 			}));
 	}
 
-	// Dictionary styles and collapse modes are only stored in Yomitan's settings; the API doesn't provide them.
-	if (Array.isArray(profileOptions.dictionaries)) {
-		result.dictionaryCollapsible = profileOptions.dictionaries
-			.filter(({ name, enabled, definitionsCollapsible }) => enabled && typeof name === 'string' && typeof definitionsCollapsible === 'string')
-			.map(({ name, definitionsCollapsible }) => ({ name, mode: definitionsCollapsible }));
-		result.dictionaryStyles = profileOptions.dictionaries
-			.filter(({ name, enabled, styles }) => enabled && typeof name === 'string' && typeof styles === 'string' && styles.trim() !== '')
-			.map(({ name, styles }) => ({ name, styles }));
-	}
+	// Dictionary styles and collapse modes, which only a Yomitan with the API path dictionaryInfo gives otherwise.
+	if (Array.isArray(profileOptions.dictionaries)) Object.assign(result, convertDictionaries(profileOptions.dictionaries));
 
 	if (typeof profileOptions.anki === 'object' && profileOptions.anki !== null) {
 		const fieldTemplates = profileOptions.anki.fieldTemplates;

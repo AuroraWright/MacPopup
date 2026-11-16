@@ -1,24 +1,37 @@
 import { defaultSettings } from './settings-defaults.js';
 import { nativeCall } from './native.js';
 
-let current = { ...defaultSettings };
+// The stored settings, and those over them that the Yomitan profile gives (see setYomitanSettings): getSettings has
+// both, and saveSettings saves only the first.
+let stored = { ...defaultSettings };
+let fromYomitan = { always: {}, display: {} };
+let current = stored;
 const listeners = new Set();
 
-function merge(stored) {
-	return { ...defaultSettings, ...(stored || {}) };
+function merge(settings) {
+	return { ...defaultSettings, ...(settings || {}) };
+}
+
+function update(settings) {
+	stored = settings;
+	current = { ...stored, ...fromYomitan.always, ...(stored.useYomitanDisplay ? fromYomitan.display : {}) };
+	// The profile's dictionaries and grouping, with the field templates set in MacPopup.
+	if (fromYomitan.always.yomitanAnkiTemplates) {
+		current.yomitanAnkiTemplates = { fieldTemplates: null, ...stored.yomitanAnkiTemplates, ...fromYomitan.always.yomitanAnkiTemplates };
+	}
 }
 
 export async function loadSettings() {
 	// Called by the host whenever any window saves settings. Installed first so no update is missed.
 	let updated = false;
-	window.__macpopupSettingsChanged = (stored) => {
+	window.__macpopupSettingsChanged = (settings) => {
 		updated = true;
-		current = merge(stored);
+		update(merge(settings));
 		for (const listener of listeners) listener(current);
 	};
 	try {
-		const stored = merge(JSON.parse((await nativeCall('getSettings')) || '{}'));
-		if (!updated) current = stored;
+		const settings = merge(JSON.parse((await nativeCall('getSettings')) || '{}'));
+		if (!updated) update(settings);
 	} catch (_) {
 		// Keep the defaults.
 	}
@@ -29,10 +42,19 @@ export function getSettings() {
 	return current;
 }
 
-/** Popups receive settings from the overlay instead of the host. */
+/** Popups receive settings from the overlay instead of the host (with Yomitan's, and never save them). */
 export function setLocalSettings(settings) {
-	current = merge(settings);
+	update(merge(settings));
 	for (const listener of listeners) listener(current);
+}
+
+/**
+ * Settings the Yomitan profile gives through its API (see lib/yomitan-profile.js), over the stored ones: `always`,
+ * and `display` with "Use Yomitan's display settings" on. Listeners aren't told.
+ */
+export function setYomitanSettings({ always = {}, display = {} } = {}) {
+	fromYomitan = { always, display };
+	update(stored);
 }
 
 export function onSettingsChanged(listener) {
@@ -48,6 +70,6 @@ export function resolveTheme(theme, siteTheme) {
 }
 
 export async function saveSettings(partial) {
-	current = { ...current, ...partial };
-	await nativeCall('setSettings', { json: JSON.stringify(current) });
+	update({ ...stored, ...partial });
+	await nativeCall('setSettings', { json: JSON.stringify(stored) });
 }

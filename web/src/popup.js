@@ -16,7 +16,7 @@ import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js
 import { adaptCssForWebKit } from './lib/webkit-css.js';
 import { getTextSourceFromPoint, searchTextSource, setHighlight, wrapRubyBases } from './lib/scanner.js';
 import { getSettings, resolveTheme, setLocalSettings } from './lib/settings.js';
-import { ankiFields, kanjiEntries } from './lib/yomitan-api.js';
+import { ankiFields, dictionaryMedia, kanjiEntries } from './lib/yomitan-api.js';
 import { getAudio, getAudioSources, getLoadedInfoList, startAudio } from './lib/audio-sources.js';
 import { cursorAt } from './lib/cursor.js';
 import { Tooltip } from './lib/tooltip.js';
@@ -61,7 +61,7 @@ class PopupContentManager extends DisplayContentManager {
 	async getMedia(targets) {
 		let media;
 		try {
-			media = await this._popup.getDictionaryMedia();
+			media = await this._popup.getDictionaryMedia(targets);
 		} catch (e) {
 			log('Failed to load dictionary media', e);
 			return [];
@@ -261,7 +261,7 @@ class Popup {
 		data.ankiEnabled = `${settings.ankiEnabled}`;
 		data.language = settings.language;
 		this.generator.updateLanguage(settings.language);
-		// The API returns entries grouped as the Yomitan profile says; Import Yomitan copies that mode.
+		// The API returns entries grouped as the Yomitan profile says, which its API or Import Yomitan gives.
 		data.resultOutputMode = settings.yomitanAnkiTemplates?.resultOutputMode ?? 'group';
 		data.glossaryLayoutMode = settings.glossaryLayoutMode;
 		data.compactTags = `${settings.compactTags}`;
@@ -347,6 +347,9 @@ class Popup {
 		this.dictionaryMediaPromise = null;
 
 		const { dictionaryEntries } = content;
+		// The dictionaries' summaries, for their tags' details and the frequencies' dictionary sizes, from a Yomitan whose
+		// API has dictionaryInfo.
+		const dictionaryInfo = settings.yomitanDictionaryInfo ?? [];
 		document.querySelector('#no-results').hidden = dictionaryEntries.length > 0;
 		document.querySelector('#error-api').hidden = true;
 		this.updateNavigation();
@@ -359,7 +362,7 @@ class Popup {
 				dictionaries.add(entry.dictionary);
 			}
 		}
-		// Each dictionary's mode from Yomitan (see Import), or the one for all others.
+		// Each dictionary's mode from Yomitan (its API, or Import), or the one for all others.
 		const collapsible = new Map((settings.dictionaryCollapsible ?? []).map(({ name, mode }) => [name, mode]));
 		this.overflowController.setOptions({
 			dictionaries: [...dictionaries].map((name) => ({ name, definitionsCollapsible: collapsible.get(name) ?? settings.definitionsCollapsible })),
@@ -392,8 +395,8 @@ class Popup {
 			}
 			const dictionaryEntry = dictionaryEntries[i];
 			const entry = dictionaryEntry.type === 'term'
-				? this.generator.createTermEntry(dictionaryEntry, [])
-				: this.generator.createKanjiEntry(dictionaryEntry, []);
+				? this.generator.createTermEntry(dictionaryEntry, dictionaryInfo)
+				: this.generator.createKanjiEntry(dictionaryEntry, dictionaryInfo);
 			entry.dataset.index = `${i}`;
 			wrapRubyBases(entry);
 			this.addEntryEventListeners(entry);
@@ -527,7 +530,18 @@ class Popup {
 		}
 	}
 
-	getDictionaryMedia() {
+	/** The media files of the dictionaries that `targets` name, or all the content's. */
+	async getDictionaryMedia(targets) {
+		// With a Yomitan whose API has dictionaryInfo (see lib/yomitan-profile.js), and so dictionaryMedia: only these.
+		if (Array.isArray(getSettings().yomitanDictionaryInfo) && !this.noDictionaryMediaPath) {
+			try {
+				return await dictionaryMedia(targets);
+			} catch (e) {
+				if (e?.status !== 400) throw e;
+				this.noDictionaryMediaPath = true;
+			}
+		}
+		// Otherwise all the media of the content's entries, in Anki fields made for them.
 		if (this.dictionaryMediaPromise === null) {
 			const content = this.content;
 			this.dictionaryMediaPromise = ankiFields({
