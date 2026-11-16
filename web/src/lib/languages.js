@@ -69,3 +69,50 @@ export const languageSummaries = [
 export function getLanguageSummary(iso) {
 	return languageSummaries.find((language) => language.iso === iso) ?? languageSummaries.find((language) => language.iso === 'ja');
 }
+
+// Yomitan's CJK_IDEOGRAPH_RANGES, CJK_PUNCTUATION_RANGE and FULLWIDTH_CHARACTER_RANGES (js/language/CJK-util.js), and
+// the ranges its Japanese and Chinese add (JAPANESE_RANGES, CHINESE_RANGES).
+const cjkRanges = [
+	[0x4e00, 0x9fff], [0x3400, 0x4dbf], [0x20000, 0x2a6df], [0x2a700, 0x2b73f], [0x2b740, 0x2b81f], [0x2b820, 0x2ceaf],
+	[0x2ceb0, 0x2ebef], [0x30000, 0x3134f], [0x31350, 0x323af], [0x2ebf0, 0x2ee5f], [0x323b0, 0x3347f], [0xf900, 0xfaff],
+	[0x2f800, 0x2fa1f],
+	[0x3000, 0x303f],
+	[0xff10, 0xff19], [0xff21, 0xff3a], [0xff41, 0xff5a], [0xff01, 0xff0f], [0xff1a, 0xff1f], [0xff3b, 0xff3f],
+	[0xff5b, 0xff60], [0xffe0, 0xffee],
+];
+const japaneseRanges = [...cjkRanges, [0x3040, 0x309f], [0x30a0, 0x30ff], [0xff66, 0xff9f], [0xff61, 0xff65]];
+const chineseRanges = [...cjkRanges, [0x3100, 0x312f], [0x31a0, 0x31bf], [0x16fe0, 0x16fff], [0xfe50, 0xfe6f], [0xfe10, 0xfe1f]];
+const inRanges = (ranges) => new RegExp(`[${ranges.map(([from, to]) => `\\u{${from.toString(16)}}-\\u{${to.toString(16)}}`).join('')}]`, 'u');
+const inScripts = (...scripts) => new RegExp(scripts.map((script) => `\\p{Script=${script}}`).join('|'), 'u');
+
+// What each language's text has some of (see isInLanguage).
+const languageCharacters = (() => {
+	const chinese = inRanges(chineseRanges);
+	const patterns = {
+		ja: inRanges(japaneseRanges), zh: chinese, yue: chinese,
+		aii: inScripts('Syriac'), ar: inScripts('Arabic'), arz: inScripts('Arabic'), fa: inScripts('Arabic'),
+		be: inScripts('Cyrillic'), bg: inScripts('Cyrillic'), mn: inScripts('Cyrillic'), ru: inScripts('Cyrillic'), uk: inScripts('Cyrillic'),
+		sh: inScripts('Latin', 'Cyrillic'), el: inScripts('Greek'), grc: inScripts('Greek'), he: inScripts('Hebrew'), yi: inScripts('Hebrew'),
+		hi: inScripts('Devanagari'), hy: inScripts('Armenian'), ka: inScripts('Georgian'), kn: inScripts('Kannada'), km: inScripts('Khmer'),
+		ko: inScripts('Hangul'), lo: inScripts('Lao'), th: inScripts('Thai'),
+	};
+	const latin = inScripts('Latin');
+	for (const language of [
+		'br', 'cs', 'cy', 'da', 'de', 'en', 'eo', 'es', 'et', 'eu', 'fi', 'fr', 'ga', 'gd', 'gv', 'haw', 'hu', 'id',
+		'it', 'kw', 'la', 'lv', 'mt', 'nl', 'no', 'pl', 'pt', 'ro', 'sga', 'sq', 'sv', 'tl', 'tok', 'tr', 'vi',
+	]) {
+		patterns[language] = latin;
+	}
+	return patterns;
+})();
+
+/**
+ * Whether `text` may be in `language` (an ISO code of Yomitan's), as OCR decides which lines it keeps
+ * (OCRLanguage.contains in Sources/OCREngines/OCRLanguage.swift, which this matches): some of it is in the language's
+ * characters (Japanese's and Chinese's as in Yomitan's isTextLookupWorthy, otherwise the language's script), or it has
+ * no letters (e.g. "……"). Unknown languages and "Any" take everything.
+ */
+export function isInLanguage(text, language) {
+	if (!/\p{L}/u.test(text)) return true;
+	return languageCharacters[language]?.test(text) ?? true;
+}

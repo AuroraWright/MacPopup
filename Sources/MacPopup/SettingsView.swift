@@ -226,6 +226,15 @@ private struct FieldRow: View {
             } label: {
                 FieldLabel(field: field)
             }
+        case let .shortcutAndButtons(buttonsKey):
+            LabeledContent {
+                VStack(alignment: .trailing, spacing: 6) {
+                    ShortcutControl(value: value as? [String: Any]) { model.set(field.key, $0 ?? NSNull()) }
+                    GamepadComboControl(buttons: model[buttonsKey] as? [String] ?? []) { model.set(buttonsKey, $0) }
+                }
+            } label: {
+                FieldLabel(field: field)
+            }
         case .keySequence:
             KeySequenceControl(items: (value as? [Any] ?? []).compactMap { $0 as? [String: Any] }) { model.set(field.key, $0) } label: {
                 FieldLabel(field: field)
@@ -1864,6 +1873,9 @@ private struct HotkeysControl: View {
         }
         if SentenceAudioController.isEnabled(model.values), Set(model["sentenceAudioButtons"] as? [String] ?? []) == buttons {
             return "Anki Audio already uses these buttons, so it takes priority."
+        }
+        if Set(model["overlaySwitchButtons"] as? [String] ?? []) == buttons {
+            return "The overlay switch already uses these buttons, so it takes priority."
         }
         let earlier = items[..<index].contains { ($0["enabled"] as? Bool ?? true) && Set($0["buttons"] as? [String] ?? []) == buttons }
         return earlier ? "These controller buttons are already used by an earlier shortcut, which takes priority." : nil

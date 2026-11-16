@@ -21,6 +21,8 @@ protocol BridgeHost: AnyObject {
     /// Acts as if the sentence audio shortcut was pressed. `note` is a card added from a popup: the recording goes to
     /// that card only, replacing its sentence audio.
     func pressSentenceAudioShortcut(note: Int64?)
+    /// Switches between the OCR overlay and the Floating Window (see OCRController.switchOverlay).
+    func switchOverlay(from source: String)
     /// A card was added or overwritten from a popup (see SentenceAudioController.cardAdded).
     func cardAdded(note: Int64, line: Int?, nested: Bool, withAudio: Bool)
     /// Notes a line that was shown, and replies with its id and what the text box does with it (see AppDelegate.noteLine).
@@ -177,6 +179,10 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             // From Anki Audio's controller buttons (see overlay.js).
             guard SentenceAudioController.isEnabled(SettingsStore.shared.dictionary) else { return nil }
             host?.pressSentenceAudioShortcut(note: nil)
+            return nil
+        case "switchOverlay":
+            // From the overlay switch's controller buttons (see overlay.js).
+            host?.switchOverlay(from: body["from"] as? String ?? "page")
             return nil
         case "cardAdded":
             guard let note = (body["note"] as? NSNumber)?.int64Value else { throw AppError("Missing note") }

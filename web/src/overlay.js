@@ -9,6 +9,7 @@ import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js
 import { getTextSourceFromPoint, searchTextSource, setHighlight, textSourceAt } from './lib/scanner.js';
 import { correctWithText, decodeLines, joinLines, letterCount, lineText, ocrCharOf, paragraphBreaks, renderLines, wrappedReach } from './lib/ocr-layer.js';
 import { applyReplacements } from './lib/replacements.js';
+import { isInLanguage } from './lib/languages.js';
 import { popupHotkeyActions } from './lib/settings-defaults.js';
 import { cursorAt } from './lib/cursor.js';
 import { Tooltip } from './lib/tooltip.js';
@@ -21,8 +22,6 @@ const $ = (selector) => document.querySelector(selector);
 const box = $('#box');
 const tooltip = new Tooltip(document);
 const linesElement = $('#lines');
-
-const cjkCharacters = /[\p{scx=Hira}\p{scx=Kana}\p{scx=Han}]/imu;
 
 function icon(path, size = 20) {
 	return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${path}"/></svg>`;
@@ -91,7 +90,7 @@ function transformLine(text) {
 	const settings = getSettings();
 	let line = applyReplacements(text, settings.replacements);
 	if (settings.removeAllWhitespace) line = line.replace(/\s/gm, '').trim();
-	if (settings.filterNonCJKLines && !line.match(cjkCharacters)) line = '';
+	if (settings.filterOtherLanguages && !isInLanguage(line, settings.language)) line = '';
 	if (!line) return undefined;
 	if (settings.preventGlobalDuplicate) {
 		if ((state.lineTextCounts.get(line) ?? 0) > 0) return undefined;
@@ -223,8 +222,8 @@ function addLine(rawText, player = null) {
 	if (state.paused || typeof rawText !== 'string') return line;
 	const settings = getSettings();
 	const text = applyReplacements(rawText, settings.replacements);
-	// Lines the box leaves out as not CJK (e.g. a hook's other text) aren't taken as the game's.
-	if (!notesLines(settings) || (settings.filterNonCJKLines && !text.match(cjkCharacters))) {
+	// Lines the box leaves out as not in the language (e.g. a hook's other text) aren't taken as the game's.
+	if (!notesLines(settings) || (settings.filterOtherLanguages && !isInLanguage(text, settings.language))) {
 		pushLine(rawText, { line });
 		return line;
 	}
@@ -1856,11 +1855,14 @@ window.__macpopupGamepad = (held) => {
 		// buttons (see buttonsNote in SettingsView.swift).
 		const sentenceAudioOn = settings.sentenceAudioEnabled && settings.ankiEnabled;
 		const sentenceAudioButtons = sentenceAudioOn ? (settings.sentenceAudioButtons ?? []) : [];
+		const overlaySwitchButtons = settings.overlaySwitchButtons ?? [];
 		if (scanButtons.length > 0 && sameButtons(combo, scanButtons)) {
 			setControllerFocus(!gamepad.focus);
 		} else if (sentenceAudioButtons.length > 0 && sameButtons(combo, sentenceAudioButtons)) {
 			logEvent('controller: the Anki Audio buttons', { buttons: combo });
 			nativeCall('pressSentenceAudio').catch(() => {});
+		} else if (overlaySwitchButtons.length > 0 && sameButtons(combo, overlaySwitchButtons)) {
+			nativeCall('switchOverlay', { from: 'controller' }).catch(() => {});
 		} else if (popupManager.visiblePopups().length > 0) {
 			const hotkey = controllerHotkeys().find((hotkey) => sameButtons(combo, hotkey.buttons));
 			if (hotkey) {

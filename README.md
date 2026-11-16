@@ -161,7 +161,8 @@ Controller, Xbox controllers and others), without putting it down.
 
 ## OCR overlay
 
-Switch to the OCR overlay from the menu bar icon (**OCR Overlay**) or **Settings → General → Overlay type**. The floating text box
+Switch to the OCR overlay from the menu bar icon (**OCR Overlay**) or **Settings → General → Overlay type**, or from any
+app with a keyboard shortcut or controller buttons set in **Overlay switch key/buttons** just below it. The floating text box
 hides, allowing you to hover directly over text inside your game or app window. Overlay options are in
 *Settings → OCR Overlay*, and how text is read (also used by **Read text from OCR**) is in *Settings → OCR*.
 (Requires **Screen Recording** permission in *System Settings → Privacy & Security*.)

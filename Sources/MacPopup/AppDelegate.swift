@@ -211,6 +211,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         sentenceAudio.shortcutPressed(note: note)
     }
 
+    func switchOverlay(from source: String) {
+        ocr.switchOverlay(from: source)
+    }
+
     func cardAdded(note: Int64, line: Int?, nested: Bool, withAudio: Bool) {
         sentenceAudio.cardAdded(note: note, line: line, nested: nested, withAudio: withAudio)
     }

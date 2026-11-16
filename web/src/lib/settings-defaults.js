@@ -66,7 +66,8 @@ export const defaultSettings = {
 	preventLastDuplicate: 0,
 	preventGlobalDuplicate: false,
 	mergeEqualLineStarts: false,
-	filterNonCJKLines: false,
+	// Hides lines with none of the language's characters (see isInLanguage in lib/languages.js).
+	filterOtherLanguages: false,
 	preserveWhitespace: true,
 	removeAllWhitespace: false,
 	reverseLineOrder: false,
@@ -96,6 +97,10 @@ export const defaultSettings = {
 
 	// OCR: the text of another app's window, read with ocrEngine (see lib/ocr-layer.js).
 	ocrMode: false,
+	// Switch ocrMode from any app (OCRController.switchOverlay): {key, modifiers} as in hotkeys, or null, and controller
+	// buttons, like gamepadScanButtons (see overlay.js).
+	overlaySwitchShortcut: null,
+	overlaySwitchButtons: [],
 	// The window to read, {ownerName, title}, found again by these when MacPopup starts.
 	ocrWindow: null,
 	// Areas of the window to read, normalized to it ({x, y, width, height} in 0-1). Empty: the whole window.

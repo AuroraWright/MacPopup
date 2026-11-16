@@ -255,6 +255,7 @@ final class OCRController {
         self.overlay = overlay
         Simulation.shared?.page = overlay.webView
         overlay.onCursorMoved = { [weak self] point in self?.cursorMoved(to: point) }
+        switchShortcut.onPress = { [weak self] _ in self?.switchOverlay(from: "keyboard") }
         SettingsStore.shared.observe { [weak self] _ in self?.applySettings() }
         applySettings()
     }
@@ -268,6 +269,9 @@ final class OCRController {
     }
 
     private func applySettings() {
+        switchShortcut.set(KeyCombination(setting: settings["overlaySwitchShortcut"])) { [weak self] taken in
+            self?.overlay.showToast("The overlay switch shortcut \(taken.displayName) is used by another app or shortcut")
+        }
         let overlayMode = settings["ocrMode"] as? Bool ?? false
         let enabled = overlayMode || settings["floatingWindowOCR"] as? Bool ?? false
         let switched = enabled && isEnabled && overlayMode != showsOverlay
@@ -354,6 +358,18 @@ final class OCRController {
 
     func setOverlayOn(_ on: Bool) {
         SettingsStore.shared.update(["ocrMode": on])
+    }
+
+    /// Settings → General → Overlay switch key/buttons: the keyboard shortcut (the controller buttons are matched by
+    /// overlay.js).
+    private let switchShortcut = HotkeyController(signature: 0x4D50_4F53) // "MPOS"
+
+    /// Switches between the OCR overlay and the Floating Window, from the overlay switch's keyboard shortcut or
+    /// controller buttons (`source`).
+    func switchOverlay(from source: String) {
+        let on = !isOverlayOn
+        if DebugLog.isOn { DebugLog.record(["type": "event", "event": "overlay switch", "from": source, "ocrMode": on]) }
+        setOverlayOn(on)
     }
 
     // MARK: Lifecycle

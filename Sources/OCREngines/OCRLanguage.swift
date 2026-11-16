@@ -30,7 +30,8 @@ public enum OCRLanguage {
 
     /// Whether `text` may be in `language`, as Yomitan's isTextLookupWorthy decides it: some of it is in the language's
     /// characters (Japanese's and Chinese's as in Yomitan, otherwise the language's script), or it has no letters
-    /// (e.g. "……"). Unknown languages and "Any" take everything.
+    /// (e.g. "……"). Unknown languages and "Any" take everything. web/src/lib/languages.js's isInLanguage matches it (for
+    /// the Floating Window's "Hide lines not matching the language").
     public static func contains(_ text: String, language: String) -> Bool {
         guard text.contains(where: \.isLetter) else { return true }
         switch language {

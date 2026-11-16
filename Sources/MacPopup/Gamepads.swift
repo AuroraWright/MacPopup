@@ -156,7 +156,8 @@ final class GamepadController: ObservableObject {
             $0["enabled"] as? Bool ?? true && !($0["buttons"] as? [String] ?? []).isEmpty
         }
         let sentenceAudioButtons = SentenceAudioController.isEnabled(settings) && !(settings["sentenceAudioButtons"] as? [String] ?? []).isEmpty
-        wanted = (!scanButtons.isEmpty || hotkeyButtons || sentenceAudioButtons) && !layouts.isEmpty
+        let overlaySwitchButtons = !(settings["overlaySwitchButtons"] as? [String] ?? []).isEmpty
+        wanted = (!scanButtons.isEmpty || hotkeyButtons || sentenceAudioButtons || overlaySwitchButtons) && !layouts.isEmpty
         scheduleApply()
     }
 
