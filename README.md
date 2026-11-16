@@ -63,13 +63,13 @@ In the Floating Window, MacPopup listens to every WebSocket URL listed in **Sett
 "..."}`).
 
 - **Move & Resize**: Drag the floating text box by its top header and resize it from the
-  bottom-right corner. Header buttons let you pause incoming lines, clear the box, open Settings, or
-  hide the overlay.
+  bottom-right corner. The buttons shown above its top-right corner while you hover it let you pause
+  incoming lines, clear the box, open Settings, or hide the overlay.
 - **Clipboard Monitoring**: Turn on **Read copied text from clipboard** (*Settings → Floating Window*)
   to automatically add text copied in any other app to the text box (passwords from password
   managers are ignored).
 - **Read text from OCR**: Turn on **Read text from OCR** (*Settings → Floating Window*, or the
-  **OCR** button in the header) to read the game's text with OCR and add it to the text box, like a
+  **OCR** button above the box) to read the game's text with OCR and add it to the text box, like a
   text hooker. Only the dialogue area is read, or the whole window if there's none (see
   [OCR overlay](#ocr-overlay) to select them). When a page fills up over time, as in visual novels,
   each new sentence or paragraph becomes its own line. Lines already received over WebSocket aren't

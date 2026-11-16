@@ -20,6 +20,7 @@ import { convertToRomaji } from '../../vendor/yomitan/ext/js/language/ja/japanes
 
 const $ = (selector) => document.querySelector(selector);
 const box = $('#box');
+const boxButtons = $('#box-buttons');
 const tooltip = new Tooltip(document);
 const linesElement = $('#lines');
 
@@ -46,6 +47,7 @@ function reportHitRects() {
 		hitRectsScheduled = false;
 		const rects = [];
 		if (!box.hidden) rects.push(rectToArray(box.getBoundingClientRect()));
+		if (buttonsShown()) rects.push(rectToArray(boxButtons.getBoundingClientRect()));
 		for (const popup of popupManager.visiblePopups()) rects.push(rectToArray(popup.iframe.getBoundingClientRect()));
 		nativeCall('setHitRects', { rects }).catch(() => {});
 	});
@@ -589,7 +591,22 @@ function clampBoxRect(rect) {
 function applyBoxRect(rect) {
 	const { x, y, width, height } = clampBoxRect(rect);
 	Object.assign(box.style, { left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px` });
+	placeBoxButtons();
 	reportHitRects();
+}
+
+/** Puts the box's buttons above its top right corner, overlapping its edge, or inside its top without room above. */
+function placeBoxButtons() {
+	const rect = box.getBoundingClientRect();
+	const height = boxButtons.offsetHeight;
+	const overlap = 4;
+	boxButtons.style.top = `${rect.top >= height - overlap ? rect.top - height + overlap : rect.top + 2}px`;
+	boxButtons.style.right = `${window.innerWidth - rect.right + 4}px`;
+}
+
+/** Whether the box's buttons are shown (with the header, while the box or they are hovered or the box is dragged). */
+function buttonsShown() {
+	return !box.hidden && (box.classList.contains('hovered') || box.classList.contains('dragging'));
 }
 
 function currentBoxRect() {
@@ -1126,9 +1143,13 @@ window.__macpopupPointer = (x, y, shift, ctrl, alt, meta, pressed = []) => {
 	const scansAtRest = settings.scanWithoutMousemove !== false || buttonPressed;
 	const mayScan = moved || (scanKeyHeld && !wasHeld && scansAtRest);
 	const hit = popupManager.hitTest(x, y);
-	const overBox = !box.hidden && rectContains(box.getBoundingClientRect(), x, y);
+	// The buttons above the box count as the box while they're shown.
+	const overBox =
+		!box.hidden && (rectContains(box.getBoundingClientRect(), x, y) || (buttonsShown() && rectContains(boxButtons.getBoundingClientRect(), x, y)));
 	const ocrLine = !hit && !overBox ? ocrLineAt(x, y) : null;
+	const wasShown = buttonsShown();
 	box.classList.toggle('hovered', overBox && !hit);
+	if (buttonsShown() !== wasShown) reportHitRects();
 	setPointerHover(overBox && !hit ? x : null, y);
 	if (pointerPopup !== null && pointerPopup !== hit?.popup) pointerPopup.api?.setPointerHover(null, null);
 	pointerPopup = hit?.popup ?? null;

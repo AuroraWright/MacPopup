@@ -53,6 +53,31 @@ body {
 	opacity: 1;
 }
 
+/* The box's buttons: just above its top right corner, overlapping its edge so the pointer goes from one to the other
+   without leaving them, or inside its top when there's no room above (see placeBoxButtons in overlay.js), so they
+   don't cover the lines. Shown with the header, on a solid background. */
+#box-buttons {
+	position: fixed;
+	height: 24px;
+	padding: 0 2px;
+	border-radius: 6px;
+	background: hsl(var(--b1));
+	box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 0.15s;
+}
+
+#box.hovered ~ #box-buttons,
+#box.dragging ~ #box-buttons {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+#box[hidden] ~ #box-buttons {
+	display: none;
+}
+
 #drag-handle {
 	cursor: move;
 }
@@ -95,7 +120,7 @@ body {
 	opacity: 1;
 }
 
-#box-header .header-button.pointer-hover {
+#box-buttons .header-button.pointer-hover {
 	color: hsl(var(--p));
 }
 
