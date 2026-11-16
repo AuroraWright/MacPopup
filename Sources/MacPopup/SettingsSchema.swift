@@ -275,11 +275,11 @@ enum SettingsSchema {
                     "floatingWindowOCR", "Read text from OCR", .checkbox,
                     hint: "Reads the game’s text with OCR and adds it to the text box, like a text hooker. Only the dialogue area of the captured window is read (Settings → General → Captured window), or the whole window if there’s none. When a page fills up over time, each new sentence or paragraph becomes its own line. Lines already received over WebSocket aren’t added twice. A window might not be readable while it isn’t visible. Uses the settings in OCR, and requires Screen Recording permission."
                 ),
-                SettingsField("linePadding", "Line spacing (px)", .number(min: 0), hint: "Space above and below each line in the text box (beside it in vertical text)."),
                 SettingsField(
                     "boxFontFamily", "Font", .font(size: "fontSize", effects: "boxFontEffects"),
                     hint: "Select the font family/size/display properties from the macOS selector. A custom color picked here will override the theme’s color."
                 ),
+                SettingsField("linePadding", "Line spacing (px)", .number(min: 0), hint: "Space above and below each line in the text box (beside it in vertical text)."),
                 SettingsField(
                     "preventLastDuplicate", "Skip duplicates within last N lines", .number(min: 0),
                     hint: "Ignores a new line if it matches any of the last N lines shown (0 = off)."
