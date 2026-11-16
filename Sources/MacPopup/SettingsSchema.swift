@@ -294,7 +294,7 @@ enum SettingsSchema {
                     hint: "Replaces the previous line when a new line starts with the exact same text (useful for hooks that send growing lines character by character)."
                 ),
                 SettingsField(
-                    "filterOtherLanguages", "Hide lines not matching the language", .checkbox,
+                    "filterNonCJKLines", "Hide lines not matching the language", .checkbox,
                     hint: "Hides lines with none of the characters of the language set in Settings → General (for Japanese, kana or kanji). Lines without letters, such as “……”, are kept. Text read with OCR is always filtered this way."
                 ),
                 SettingsField("preserveWhitespace", "Keep original spacing and indentation", .checkbox, hint: "Shows line breaks, repeated spaces and indentation as they came. When off, each run of them is shown as a single space."),

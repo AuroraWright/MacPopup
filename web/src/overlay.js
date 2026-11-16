@@ -92,7 +92,7 @@ function transformLine(text) {
 	const settings = getSettings();
 	let line = applyReplacements(text, settings.replacements);
 	if (settings.removeAllWhitespace) line = line.replace(/\s/gm, '').trim();
-	if (settings.filterOtherLanguages && !isInLanguage(line, settings.language)) line = '';
+	if (settings.filterNonCJKLines && !isInLanguage(line, settings.language)) line = '';
 	if (!line) return undefined;
 	if (settings.preventGlobalDuplicate) {
 		if ((state.lineTextCounts.get(line) ?? 0) > 0) return undefined;
@@ -225,7 +225,7 @@ function addLine(rawText, player = null) {
 	const settings = getSettings();
 	const text = applyReplacements(rawText, settings.replacements);
 	// Lines the box leaves out as not in the language (e.g. a hook's other text) aren't taken as the game's.
-	if (!notesLines(settings) || (settings.filterOtherLanguages && !isInLanguage(text, settings.language))) {
+	if (!notesLines(settings) || (settings.filterNonCJKLines && !isInLanguage(text, settings.language))) {
 		pushLine(rawText, { line });
 		return line;
 	}

@@ -71,7 +71,7 @@ export const defaultSettings = {
 	preventGlobalDuplicate: false,
 	mergeEqualLineStarts: false,
 	// Hides lines with none of the language's characters (see isInLanguage in lib/languages.js).
-	filterOtherLanguages: false,
+	filterNonCJKLines: false,
 	preserveWhitespace: true,
 	removeAllWhitespace: false,
 	reverseLineOrder: false,
