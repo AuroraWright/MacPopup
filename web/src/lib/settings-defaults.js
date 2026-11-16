@@ -30,7 +30,6 @@ export const popupHotkeyActions = new Set([
 ]);
 
 // Yomitan's default keyboard shortcuts for popups (its `inputs.hotkeys` with the 'popup' scope).
-
 function defaultHotkeys() {
 	const hotkey = (action, argument, key, modifiers) => ({ action, argument, key, modifiers, enabled: true });
 	return [

@@ -519,6 +519,12 @@ function continuesParagraph(previous, next) {
 	return gap > -size * 0.5 && gap < size * 1.2 && b.x < a.x + a.width && a.x < b.x + b.width;
 }
 
+/** Where a row starts: its left edge, or its top when it's vertical. */
+function rowStart(line) {
+	const box = bounds(line.chars);
+	return line.vertical ? box.y : box.x;
+}
+
 /** Where a row ends: its right edge, or its bottom when it's vertical. */
 function rowEnd(line) {
 	const box = bounds(line.chars);
@@ -557,6 +563,9 @@ export function wrappedReach(lines, reach = { horizontal: 0, vertical: 0 }) {
  * ShownLines.note). A paragraph starts at a row that doesn't continue the one before (see continuesParagraph),
  * or after a row that ends early: with room left for the next row's first word before where rows wrap (the farthest
  * row in this reading, or `reach`; see wrappedReach). In text written without spaces, the first word is one character.
+ * A row that ends with a letter or digit (mid-sentence) has to end before halfway, since some games wrap rows at the
+ * end of a phrase rather than where the next word wouldn't fit. ー and 一 count as dashes, which OCR reads them as (see
+ * OCRText.isDash).
  */
 export function paragraphBreaks(lines, reach = { horizontal: 0, vertical: 0 }) {
 	const ends = lines.map(rowEnd);
@@ -569,8 +578,14 @@ export function paragraphBreaks(lines, reach = { horizontal: 0, vertical: 0 }) {
 		const previous = lines[index - 1];
 		if (!previous) return [];
 		const size = rowSize(previous);
-		const room = farthest[previous.vertical ? 'vertical' : 'horizontal'] - ends[index - 1];
-		return !continuesParagraph(previous, line) || room > firstWordSize(line, spaced) + size * 0.5 ? [index] : [];
+		const far = farthest[previous.vertical ? 'vertical' : 'horizontal'];
+		const room = far - ends[index - 1];
+		// A row ending in a letter or digit, rather than punctuation, stops mid-sentence (in languages that end sentences
+		// with punctuation), so it ends a paragraph only well short of the others. A long vowel mark (or the 一 it's
+		// misread as) can end an exclamation without punctuation.
+		const midSentence = /[\p{L}\p{N}]$/u.test(lineText(previous).trimEnd()) && !/[ー一]$/.test(lineText(previous).trimEnd());
+		const endsEarly = room > firstWordSize(line, spaced) + size * 0.5 && (!midSentence || room > (far - rowStart(previous)) / 2);
+		return !continuesParagraph(previous, line) || endsEarly ? [index] : [];
 	});
 }
 
