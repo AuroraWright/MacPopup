@@ -49,6 +49,7 @@ You don't have to set MacPopup up from scratch: click **Import** at the bottom o
   collapse rules, scanning settings, audio sources, popup shortcuts, Anki settings and card templates.
 - **texthooker-ui Settings…**: Choose a texthooker-ui export to bring over your text box theme, font size, line
   settings and text replacements.
+- **MacPopup Settings…**: Restore a file saved with **Export…**. This replaces all your current settings.
 
 If your Yomitan can share its settings through its API (the `displayOptions`, `dictionaryInfo` and `dictionaryMedia`
 paths, not in a Yomitan release yet), you don't need to import anything: popups match your Yomitan setup and stay in

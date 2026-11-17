@@ -10,6 +10,8 @@ struct SettingsActions {
     var selectOCRWindow: () -> Void
     var importYomitan: () -> Void
     var importTexthooker: () -> Void
+    var importBackup: () -> Void
+    var exportBackup: () -> Void
     var resetAll: () -> Void
     var loadModels: (ConvertedModelsKind) -> Void
     var removeModels: (ConvertedModelsKind) -> Void
@@ -29,12 +31,23 @@ struct SettingsView: View {
                 }
                 .listStyle(.sidebar)
                 VStack(alignment: .leading, spacing: 6) {
-                    Menu("Import") {
+                    // The same width: the sidebar's. Import's title is laid over it, centered like the others' (a
+                    // menu draws its own on the left).
+                    Menu {
                         Button("Yomitan Settings…", action: actions.importYomitan)
                         Button("texthooker-ui Settings…", action: actions.importTexthooker)
+                        Divider()
+                        Button("MacPopup Settings…", action: actions.importBackup)
+                    } label: {
+                        Text("")
                     }
-                    .help("Import a settings backup file from Yomitan (Settings → Backup → Export Settings) or texthooker-ui.")
-                    Button("Reset All…", role: .destructive, action: actions.resetAll)
+                    .frame(maxWidth: .infinity)
+                    .overlay { Text("Import").allowsHitTesting(false) }
+                    .accessibilityLabel("Import")
+                    .help("Import settings from Yomitan, texthooker-ui or a MacPopup settings file.")
+                    Button(action: actions.exportBackup) { Text("Export…").frame(maxWidth: .infinity) }
+                        .help("Save all settings to a file.")
+                    Button(role: .destructive, action: actions.resetAll) { Text("Reset All…").frame(maxWidth: .infinity) }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
