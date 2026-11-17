@@ -260,12 +260,13 @@ struct SettingsView: View {
     }
 
     private var engineHint: String {
-        var hint = "Live Text is built into iOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. PP-OCRv6 Manga (by Kellenok) is specialized for Japanese and Chinese manga. Screen AI and OneOCR appear once their models are loaded below. Google Lens and Bing read online: the picture is sent to Google or Microsoft (not in continuous reading)."
+        var hint = "Live Text is built into iOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. PP-OCRv6 Manga (by Kellenok) is specialized for Japanese and Chinese manga. mida + VOCR6 (rtr46’s line finder with vita-vn-ocr’s reader) is fast and reads horizontal Japanese game text, but not vertical text. Screen AI and OneOCR appear once their models are loaded below. Google Lens and Bing read online: the picture is sent to Google or Microsoft (not in continuous reading)."
         if !OCRLanguage.isRead(language, by: engine) {
             let name = model.languages.first { $0.iso == language }?.name ?? language
             hint += "\n\n\(name) isn’t supported by this engine: "
                 + (engine == Engine.liveText.rawValue ? "Live Text will only recognize English."
-                    : engine == Engine.meikiocr.rawValue ? "meikiocr only recognizes Japanese." : "PP-OCRv6 Manga only recognizes Japanese and Chinese.")
+                    : engine == Engine.meikiocr.rawValue ? "meikiocr only recognizes Japanese."
+                    : engine == Engine.midaVOCR6.rawValue ? "mida + VOCR6 only recognizes Japanese." : "PP-OCRv6 Manga only recognizes Japanese and Chinese.")
         }
         return hint
     }
