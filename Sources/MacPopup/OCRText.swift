@@ -23,12 +23,13 @@ enum OCRText {
     /// Text shorter than this could be part of almost any line (see isLongAndSame).
     static var shortLength: Int { 6 }
 
-    /// Whether two readings are of the same line: both are long enough to be matched loosely, and one contains the
-    /// other, allowing a few characters to differ, since OCR may misread some.
+    /// Whether two readings are of the same line: both are long enough to be matched loosely (dots aside: … becomes
+    /// three of them), and one contains the other, allowing a few characters to differ, since OCR may misread some.
     static func isLongAndSame(_ a: String, _ b: String) -> Bool {
         let a = a.precomposedStringWithCompatibilityMapping, b = b.precomposedStringWithCompatibilityMapping
         let shorter = Swift.min(a.count, b.count)
-        return shorter >= shortLength && Double(commonLength(a, b)) >= 0.85 * Double(shorter)
+        let undotted = Swift.min(a.lazy.filter { !isDot($0) }.count, b.lazy.filter { !isDot($0) }.count)
+        return undotted >= shortLength && Double(commonLength(a, b)) >= 0.85 * Double(shorter)
     }
 
     /// How many characters `a` and `b` have in common, in the same order (their longest common subsequence).

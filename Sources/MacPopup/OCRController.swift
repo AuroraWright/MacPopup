@@ -980,8 +980,10 @@ final class OCRController {
         let settleTime = number("ocrSettleTime", 400) / 1000
         var start = OCRClock.now
         var sawChange = cue != .newLine
-        // The text's settle keys (see settleKey) when they were first read, and the most characters a reading of them had.
-        var previous: (keys: [String], time: Date, longest: Int)?
+        // The text's settle key (see settleKey; its rows' keys joined, as OCR may split a row in two one time and not the
+        // next, or read dots or an icon as a row of their own) when it was first read, and the most characters a reading
+        // of it had.
+        var previous: (key: String, time: Date, longest: Int)?
         // The reading of the dialogue's text being drawn with the most of it, taken as the line if the text is cleared
         // or replaced before it settles (e.g. a game that goes on by itself while OCR keeps misreading a character);
         // since when that text is there, how many readings in a row since were of other text, and when the first was.
@@ -992,7 +994,7 @@ final class OCRController {
         // learnAnimatedBlocks). When the text is still what was read before the round (e.g. the round is for a
         // blinking icon), from before the change too.
         var frames: [Frame] = []
-        let textBefore = (keys: watchedTexts.map { $0.map(Self.settleKey).filter { !$0.isEmpty } }, frame: lastRecognizedFrame)
+        let textBefore = (key: watchedTexts.map { $0.map(Self.settleKey).joined() }, frame: lastRecognizedFrame)
         // Where the dialogue's text was read during the round (see textBlocks): not learned as animated.
         var roundTextBlocks = Set<Int>()
         // Near it: where the text read before it was, which may be going away during the round (fading out, or
@@ -1100,18 +1102,16 @@ final class OCRController {
             nearTextBlocks.formUnion(textBlocks(areaLines.first ?? [], goingOn: true))
             unlearnAnimatedBlocks(covered)
             let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
-            // Rows that are only dots or an icon (sometimes read as a separate row) are ignored.
-            let keys = texts.map(Self.settleKey).filter { !$0.isEmpty }, length = texts.joined().count
-            if previous?.keys != keys {
-                previous = (keys, started, length)
-                frames = keys == textBefore.keys ? textBefore.frame.map { [$0] } ?? [] : []
+            let key = texts.map(Self.settleKey).joined(), length = texts.joined().count
+            if previous?.key != key {
+                previous = (key, started, length)
+                frames = key == textBefore.key ? textBefore.frame.map { [$0] } ?? [] : []
             } else if let longest = previous?.longest, length > longest {
                 previous?.longest = length
             }
             // As compared with later (see comparisonScale), rather than thumbnails of the image read.
             if let readFrame { frames.append(readFrame) }
             if sawChange, read == [0] {
-                let key = keys.joined()
                 // Still the same text (growing as it's drawn, fading, or read a little differently or in another order),
                 // or other text: twice in a row, as one reading may be of a passing effect, or misread.
                 let same = fullest.map { OCRText.isLongAndSame($0.key, key) || OCRText.sharesMost($0.key, key) } ?? true
@@ -1123,7 +1123,7 @@ final class OCRController {
                     // is taken. Not when it's mostly the text read before the round going away (text that goes on from
                     // that is, as the round before may have ended early).
                     if gone.key.count >= OCRText.shortLength, otherSince.timeIntervalSince(gone.since) >= settleTime * 2,
-                       Double(OCRText.commonLength(gone.key, textBefore.keys?.joined() ?? "")) < 2.0 / 3.0 * Double(gone.key.count) {
+                       Double(OCRText.commonLength(gone.key, textBefore.key ?? "")) < 2.0 / 3.0 * Double(gone.key.count) {
                         log("replaced before it settled: taking the reading with the most of it")
                         areaLines[0] = gone.lines
                         areaRemoved[0] = gone.removed
@@ -1170,11 +1170,13 @@ final class OCRController {
     }
 
     /// A line's text as compared to tell whether it's still changing, leaving out what OCR reads inconsistently (see
-    /// OCRText): dots are dropped, a run of dashes counts as one, and dashes or the "next" icon at the end are dropped.
+    /// OCRText): dots and whitespace are dropped (some engines put spaces between words, and a row of dots may be read
+    /// on its own or with the text after it, a space between), a run of dashes counts as one, and dashes or the "next"
+    /// icon at the end are dropped.
     nonisolated static func settleKey(_ text: String) -> String {
         var key = ""
         var last: Character?
-        for character in text where !OCRText.isDot(character) {
+        for character in text where !OCRText.isDot(character) && !character.isWhitespace {
             let mark: Character? = OCRText.isDash(character) ? "—" : nil
             if let mark {
                 if last != mark { key.append(mark) }
