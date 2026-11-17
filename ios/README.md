@@ -9,12 +9,12 @@ dictionary extension such as Yomitan to look up. Readings keep opening in Safari
 
 Build it by opening `ios/MacPopup.xcodeproj` in Xcode, choosing your own team under *Signing & Capabilities* for each
 target (MacPopup, Controls, Share and Broadcast), and running it on your iPhone. Node.js is needed, as for the Mac
-app. The app has Live Text, meikiocr and PP-OCRv6 Manga, and Screen AI and OneOCR once their models are loaded: put
-the same .zip files the Mac app loads (see [OCR Engines](../README.md#ocr-engines)) in Files, then load them in the
-app's Settings. **Google Lens** and **Bing** read online, with the requests the Mac app's cloud recognition makes: the
-picture is sent to Google or Microsoft. Their requests go through libcurl-impersonate, as on the Mac (Bing refuses
-others on some networks); the build downloads its iOS release into `build/cache` and puts it in the app
-(`ios/embed-curl-impersonate.sh`).
+app. The app has Live Text, meikiocr, PP-OCRv6 Manga and mida + VOCR6, and Screen AI and OneOCR once their models
+are loaded: put the same .zip files the Mac app loads (see [OCR Engines](../README.md#ocr-engines)) in Files, then load
+them in the app's Settings. **Google Lens** and **Bing** read online, with the requests the Mac app's cloud
+recognition makes: the picture is sent to Google or Microsoft. Their requests go through libcurl-impersonate, as on the
+Mac (Bing refuses others on some networks); the build downloads its iOS release into `build/cache` and puts it in the
+app (`ios/embed-curl-impersonate.sh`).
 
 Pictures can come from Photos, Files, the clipboard, or the latest screenshots, which the app lists once it's allowed
 full access to Photos. They can also be shared to **MacPopup** from other apps' share sheets, including an image

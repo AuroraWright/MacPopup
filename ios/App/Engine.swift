@@ -10,6 +10,7 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
     case screenAI = "screenai"
     case oneOCR = "oneocr"
     case ppocrManga = "ppocrmanga"
+    case midaVOCR6 = "midavocr6"
     /// Online, with the requests of the Mac's cloud recognition (CloudOCR).
     case googleLens
     case bing
@@ -23,6 +24,7 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
         case .screenAI: "Screen AI"
         case .oneOCR: "OneOCR"
         case .ppocrManga: "PP-OCRv6 Manga"
+        case .midaVOCR6: "mida + VOCR6"
         case .googleLens: CloudOCR.googleLens.name
         case .bing: CloudOCR.bing.name
         }
@@ -40,7 +42,7 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
     var isAvailable: Bool {
         switch self {
         case .liveText: MPLiveText.isAvailable()
-        case .meikiocr, .ppocrManga, .googleLens, .bing: true
+        case .meikiocr, .ppocrManga, .midaVOCR6, .googleLens, .bing: true
         case .screenAI: ConvertedModelsKind.screenAI.installed
         case .oneOCR: ConvertedModelsKind.oneOCR.installed
         }
@@ -62,6 +64,7 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
         case .screenAI: try await ScreenAIOCR.shared.recognize(image, language: language)
         case .oneOCR: try await OneOCROCR.shared.recognize(image)
         case .ppocrManga: try await PPOCRManga.shared.recognize(image)
+        case .midaVOCR6: try await MidaVOCR6.shared.recognize(image)
         case .googleLens: try await CloudOCR.googleLens.recognize(image, language: language)
         case .bing: try await CloudOCR.bing.recognize(image, language: language)
         }
@@ -75,6 +78,7 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
         case .screenAI: try await ScreenAIOCR.shared.prepare()
         case .oneOCR: try await OneOCROCR.shared.prepare()
         case .ppocrManga: try await PPOCRManga.shared.prepare()
+        case .midaVOCR6: try await MidaVOCR6.shared.prepare()
         case .googleLens, .bing: break
         }
     }
@@ -87,6 +91,7 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
         case .screenAI: await ScreenAIOCR.shared.unload()
         case .oneOCR: await OneOCROCR.shared.unload()
         case .ppocrManga: await PPOCRManga.shared.unload()
+        case .midaVOCR6: await MidaVOCR6.shared.unload()
         }
     }
 
