@@ -281,14 +281,20 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
 
     /// Whether a sentence ends after the first `count` non-whitespace characters of `shown`, using Unicode's sentence
     /// boundaries (UAX #29), which work in any language. They attach opening punctuation after a sentence end to that
-    /// sentence (。」「), so the boundary may come a little later.
+    /// sentence (。」「), so the boundary may come a little later. They also attach periods after a sentence end to that
+    /// sentence, and OCR may read the dots that start the next line (…) as periods (。..・), so after a sentence end that
+    /// isn't a dot itself, dots count as opening too.
     static func sentenceEnds(in shown: String, after count: Int) -> Bool {
         guard let split = index(after: count, in: shown) else { return false }
+        let afterEnd = shown[..<split].last(where: { !$0.isWhitespace }).map {
+            !OCRText.isDot($0) && $0.unicodeScalars.first?.properties.isSentenceTerminal == true
+        } ?? false
         var ends = false
         shown.enumerateSubstrings(in: shown.startIndex..<shown.endIndex, options: [.bySentences, .substringNotRequired]) { _, range, _, stop in
             if range.lowerBound >= split {
                 ends = shown[split..<range.lowerBound].allSatisfy { character in
-                    [.openPunctuation, .initialPunctuation].contains(character.unicodeScalars.first?.properties.generalCategory)
+                    (afterEnd && OCRText.isDot(character))
+                        || [.openPunctuation, .initialPunctuation].contains(character.unicodeScalars.first?.properties.generalCategory)
                 }
                 stop = true
             }
