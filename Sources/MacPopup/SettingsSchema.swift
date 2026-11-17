@@ -349,14 +349,15 @@ enum SettingsSchema {
                             SettingsOption("screenai", "Screen AI"),
                             SettingsOption("oneocr", "OneOCR"),
                             SettingsOption("ppocrmanga", "PP-OCRv6 Manga"),
+                            SettingsOption("midavocr6", "mida + VOCR6"),
                         ]),
-                        hint: "Live Text is built into macOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. PP-OCRv6 Manga (by Kellenok) is specialized for Japanese and Chinese manga. Screen AI (Chrome’s OCR) and OneOCR (the Windows Snipping Tool’s) recognize most languages automatically, but require importing their model files below.",
+                        hint: "Live Text is built into macOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. PP-OCRv6 Manga (by Kellenok) is specialized for Japanese and Chinese manga. mida + VOCR6 (rtr46’s line finder with vita-vn-ocr’s reader) is fast and reads horizontal Japanese game text, but not vertical text. Screen AI (Chrome’s OCR) and OneOCR (the Windows Snipping Tool’s) recognize most languages automatically, but require importing their model files below.",
                         warning: { settings in
                             let language = settings["language"] as? String ?? "ja"
                             let engine = settings["ocrEngine"] as? String ?? "liveText"
                             guard !OCRLanguage.isRead(language, by: engine) else { return nil }
                             let name = support.languages.first { $0.iso == language }?.name ?? language
-                            return "\(name) (selected in Settings → General) isn’t supported by this engine: " + (engine == "liveText" ? "Live Text will only recognize English." : engine == "meikiocr" ? "meikiocr only recognizes Japanese." : "PP-OCRv6 Manga only recognizes Japanese and Chinese.")
+                            return "\(name) (selected in Settings → General) isn’t supported by this engine: " + (engine == "liveText" ? "Live Text will only recognize English." : engine == "meikiocr" ? "meikiocr only recognizes Japanese." : engine == "midavocr6" ? "mida + VOCR6 only recognizes Japanese." : "PP-OCRv6 Manga only recognizes Japanese and Chinese.")
                         }
                     ),
                     SettingsField(

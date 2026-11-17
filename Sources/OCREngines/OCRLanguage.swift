@@ -18,11 +18,11 @@ public enum OCRLanguage {
     }
 
     /// Whether the engine (Settings → OCR → Text recognition engine) reads `language`. Screen AI and OneOCR read most
-    /// scripts; PP-OCRv6_manga is trained on Japanese and Chinese.
+    /// scripts; PP-OCRv6_manga is trained on Japanese and Chinese, meikiocr and VOCR6 on Japanese.
     @MainActor public static func isRead(_ language: String, by engine: String) -> Bool {
         switch engine {
         case "liveText": !liveTextLocales(for: language).isEmpty
-        case "meikiocr": language == "ja"
+        case "meikiocr", "midavocr6": language == "ja"
         case "ppocrmanga": ["ja", "zh", "yue"].contains(language)
         default: true
         }

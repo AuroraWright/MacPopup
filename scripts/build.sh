@@ -86,13 +86,16 @@ if [[ -x "$FFMPEG/ffmpeg" ]]; then
     cp "$FFMPEG"/COPYING.* "$FFMPEG"/LICENSE.md "$FFMPEG"/SOURCE.txt "$APP/Contents/Resources/Licenses/ffmpeg/"
 fi
 # The IINA plugin (iina-plugin/), packaged for IINA to install when it's opened.
-(cd iina-plugin && zip -q -r -X "../$APP/Contents/Resources/MacPopup.iinaplgz" Info.json main.js global.js preferences.html)
-# meikiocr's and PP-OCRv6_manga's models (see vendor/meikiocr and vendor/ppocr-manga), compiled for Core ML.
+PLUGIN="${APP:A}/Contents/Resources/MacPopup.iinaplgz"
+(cd iina-plugin && zip -q -r -X "$PLUGIN" Info.json main.js global.js preferences.html)
+# meikiocr's, PP-OCRv6_manga's and mida + VOCR6's models (see vendor/meikiocr, vendor/ppocr-manga and vendor/mida-vocr6),
+# compiled for Core ML.
 mkdir -p "$APP/Contents/Resources/Models"
-for model in vendor/meikiocr/*.mlpackage vendor/ppocr-manga/*.mlpackage; do
+for model in vendor/meikiocr/*.mlpackage vendor/ppocr-manga/*.mlpackage vendor/mida-vocr6/*.mlpackage; do
     xcrun coremlcompiler compile "$model" "$APP/Contents/Resources/Models" >/dev/null
 done
-cp vendor/ppocr-manga/PPOCRMangaCharacters.txt "$APP/Contents/Resources/Models/"
+cp vendor/ppocr-manga/PPOCRMangaCharacters.txt vendor/mida-vocr6/MidaVOCR6.json vendor/mida-vocr6/VOCR6Head.bin \
+    "$APP/Contents/Resources/Models/"
 # Signed with a certificate, macOS keeps the privacy permissions (Screen Recording, Accessibility) across
 # builds; ad-hoc signatures change with every build, so they'd be asked for again.
 # The certificate is MACPOPUP_SIGN_IDENTITY, or else the first line of .signing-identity (kept out of git), such as
