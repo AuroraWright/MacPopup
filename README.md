@@ -13,7 +13,8 @@ modes:
   [GameSentenceMiner](https://github.com/bpwhelan/GameSentenceMiner). Reads the text straight from any app or game
   window, so you can point at the game's own text to look words up. It uses Apple Live Text,
   [meikiocr](https://github.com/rtr46/meikiocr), [PP-OCRv6 Manga](https://huggingface.co/Kellenok/PP-OCRv6_manga),
-  Chrome's Screen AI or Windows' OneOCR, optionally followed by Google Lens or Bing.
+  [mida](https://huggingface.co/rtr46/mida) + [VOCR6](https://github.com/bee-san/vita-vn-ocr), Chrome's Screen AI
+  or Windows' OneOCR, optionally followed by Google Lens or Bing.
 
 Lookups and Anki card templates come from the Yomitan you already use in your browser, through the
 [Yomitan API](https://github.com/yomidevs/yomitan-api), which MacPopup can install for you.
@@ -189,6 +190,8 @@ Choose the engine in **Settings → OCR → Text recognition engine**. Lines wit
   boxes around each character (Japanese only).
 - **PP-OCRv6 Manga**: Built-in Core ML models by Kellenok, fine-tuned from PaddleOCR's PP-OCRv6 for manga and anime:
   vertical text in speech bubbles, and sound effects (Japanese and Chinese).
+- **mida + VOCR6**: Built-in Core ML models: rtr46's mida finds the lines and vita-vn-ocr's VOCR6 reads them, as in
+  meikipop. About twice as fast as meikiocr, for Japanese game text, but horizontal text only.
 - **Screen AI**: Google Chrome's own OCR engine, running on Core ML. Reads most scripts, and works out the layout and
   reading order by itself.
   - *Setup*: Make sure Chrome has downloaded its Screen AI component (`~/Library/Application
@@ -357,3 +360,7 @@ The `meikiocr` Core ML models (`vendor/meikiocr`) are licensed under the **LGPL-
 
 The PP-OCRv6 Manga Core ML models (`vendor/ppocr-manga`) are licensed under the **Apache License 2.0** (see
 `vendor/ppocr-manga/README.md`).
+
+The VOCR6 Core ML model and head (`vendor/mida-vocr6`) are licensed under the **GPL-3.0-or-later**, for
+**non-commercial use only**, and `Sources/OCREngines/MidaVOCR6.swift` is adapted from meikipop's provider and
+vita-vn-ocr's code under the **GPL-3.0-or-later** (see `vendor/mida-vocr6/README.md`). The mida model is by rtr46.

@@ -1597,6 +1597,7 @@ final class OCRController {
         case screenAI = "screenai"
         case oneOCR = "oneocr"
         case ppocrManga = "ppocrmanga"
+        case midaVOCR6 = "midavocr6"
 
         /// Whether its boxes for words are where they are: Live Text's are often a cell off, so its lines are snapped to
         /// their cells (see OCRLayout.layOut).
@@ -1610,6 +1611,7 @@ final class OCRController {
             case .screenAI: "Screen AI"
             case .oneOCR: "OneOCR"
             case .ppocrManga: "PP-OCRv6 Manga"
+            case .midaVOCR6: "mida + VOCR6"
             }
         }
     }
@@ -1657,6 +1659,8 @@ final class OCRController {
             try await OneOCROCR.shared.recognize(image)
         case .ppocrManga:
             try await PPOCRManga.shared.recognize(image)
+        case .midaVOCR6:
+            try await MidaVOCR6.shared.recognize(image)
         }
     }
 
@@ -1724,6 +1728,8 @@ final class OCRController {
             await prepare(OneOCROCR.shared.prepare)
         case .ppocrManga:
             await prepare(PPOCRManga.shared.prepare)
+        case .midaVOCR6:
+            await prepare(MidaVOCR6.shared.prepare)
         }
         log("\(engine.rawValue) ready in \(String(format: "%.2f", OCRClock.now.timeIntervalSince(started)))s")
     }
