@@ -1,5 +1,5 @@
 // Builds the iOS app's reading page (src/viewer, with lib/ocr-layer.js) and its list of Yomitan's languages into
-// ../build/viewer, which ios/'s build copies into the app. Separate from build.mjs, which empties build/web.
+// ../build/viewer, which ios/'s build copies into the app. Separate from build.mjs, which empties its own folder.
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

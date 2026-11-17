@@ -22,8 +22,6 @@ if [[ ! -f "$FONT" ]]; then
         || { echo "warning: couldn't download the kanji stroke order font; continuing without it"; rm -f "$FONT"; }
 fi
 
-(cd web && { [[ -d node_modules ]] || npm install --no-fund --no-audit; } && node build.mjs)
-
 # libcurl-impersonate, for the cloud OCR engines' requests (Sources/CurlImpersonate): a release of
 # github.com/lexiforest/curl-impersonate, checked against its SHA-256.
 CURL_IMPERSONATE_VERSION="v2.2.3"
@@ -74,7 +72,10 @@ cp Resources/com.aury.macpopup.pause-helper.plist "$APP/Contents/Library/LaunchD
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # Made by scripts/make-icon.swift.
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-cp -R build/web "$APP/Contents/Resources/web"
+# The web assets, built into the app itself: a folder shared by builds running at the same time (e.g. one to notarize
+# and another of build/MacPopup.app) is emptied by one while the other copies it.
+WEB="${APP:A}/Contents/Resources/web"
+(cd web && { [[ -d node_modules ]] || npm install --no-fund --no-audit; } && node build.mjs "$WEB")
 if [[ -f "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" ]]; then
     mkdir -p "$APP/Contents/Frameworks" "$APP/Contents/Resources/Licenses/curl-impersonate"
     cp -L "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" "$APP/Contents/Frameworks/"

@@ -1,12 +1,12 @@
-// Builds the web assets into ../build/web (served by the app under macpopup://app/).
+// Builds the web assets (served by the app under macpopup://app/) into the folder given, or ../build/web.
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 
 const root = dirname(fileURLToPath(import.meta.url));
-const out = join(root, '..', 'build', 'web');
+const out = process.argv[2] ? resolve(process.argv[2]) : join(root, '..', 'build', 'web');
 const yomitan = join(root, '..', 'vendor', 'yomitan', 'ext');
 
 // Yomitan modules that need extension APIs or extra libraries, replaced by ones that work here.
