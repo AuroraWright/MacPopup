@@ -70,6 +70,26 @@ protocol Recognizer: AnyObject, Sendable {
     func transcribe(_ samples: [Float], language: String) async throws -> String
 }
 
+/// How many speech and sentence-end models are loading, for the Floating Window's audio button: the first time, Core
+/// ML takes minutes to prepare one.
+@MainActor public enum ModelsLoading {
+    public private(set) static var count = 0
+    /// Posted on the main thread when `count` changes.
+    public static let changed = Notification.Name("MacPopupModelsLoadingChanged")
+
+    /// Runs `load`, counted while it runs (also when the load was let go meanwhile, as Core ML goes on preparing).
+    nonisolated static func counting<T>(_ load: () async throws -> T) async rethrows -> T {
+        await change(by: 1)
+        defer { Task { await change(by: -1) } }
+        return try await load()
+    }
+
+    private static func change(by difference: Int) {
+        count += difference
+        NotificationCenter.default.post(name: changed, object: nil)
+    }
+}
+
 /// One model's loaded recognizer, loading its models and replacing or removing them (Settings' Load and Remove).
 public actor SpeechRecognizer: ConvertedModelsStore {
     @MainActor private static var instances: [SpeechModel: SpeechRecognizer] = [:]
@@ -140,11 +160,13 @@ public actor SpeechRecognizer: ConvertedModelsStore {
         let model = model, directory = directory
         let task = Task.detached(priority: .userInitiated) { () throws -> any Recognizer in
             try Self.check(model, directory)
-            switch model {
-            case .whisper, .animeWhisper: return try await WhisperRecognizer(model, directory: directory)
-            case .kitsune: return try KitsuneRecognizer(directory: directory)
-            case .senseVoice: return try SenseVoiceRecognizer(directory: directory)
-            case .parakeet: return try ParakeetRecognizer(directory: directory)
+            return try await ModelsLoading.counting { () throws -> any Recognizer in
+                switch model {
+                case .whisper, .animeWhisper: return try await WhisperRecognizer(model, directory: directory)
+                case .kitsune: return try KitsuneRecognizer(directory: directory)
+                case .senseVoice: return try SenseVoiceRecognizer(directory: directory)
+                case .parakeet: return try ParakeetRecognizer(directory: directory)
+                }
             }
         }
         loading = task

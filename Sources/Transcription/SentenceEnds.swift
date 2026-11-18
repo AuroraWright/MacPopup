@@ -3,9 +3,10 @@ import Foundation
 import OCREngines
 
 /// SaT (Segment any Text, sat-3l-sm, made by scripts/convert-sat.py): where sentences end in text without punctuation,
-/// such as Kitsune's transcriptions. XLM-RoBERTa with 3 layers gives each token the probability that a sentence ends
-/// after it, which goes to the token's last character (as wtpsplit does). The word embeddings are looked up here, from
-/// embeddings.bin (8-bit rows with a scale each, memory-mapped), and the Core ML model does the rest on the CPU.
+/// such as speech transcribed a stretch at a time. XLM-RoBERTa with 3 layers gives each token the probability that a
+/// sentence ends after it, which goes to the token's last character (as wtpsplit does). The word embeddings are looked
+/// up here, from embeddings.bin (8-bit rows with a scale each, memory-mapped), and the Core ML model does the rest on
+/// the CPU.
 public actor SentenceEnds: ConvertedModelsStore {
     @MainActor public static let shared = SentenceEnds()
 
@@ -33,7 +34,7 @@ public actor SentenceEnds: ConvertedModelsStore {
             throw ConvertedModelsKind.Failure("SaT isn’t loaded. Load it in Settings → Transcription.")
         }
         let directory = directory
-        let task = Task.detached(priority: .userInitiated) { try Model(directory: directory) }
+        let task = Task.detached(priority: .userInitiated) { try await ModelsLoading.counting { try Model(directory: directory) } }
         loading = task
         do {
             return try await task.value

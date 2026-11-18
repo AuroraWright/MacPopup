@@ -486,12 +486,12 @@ enum SettingsSchema {
                         showIf: { $0["transcriptionModel"] as? String == "parakeet" }
                     ),
                     SettingsField(
-                        "transcriptionSentenceEnds", "Find sentence ends in the text", .checkbox,
-                        hint: "Ends lines where sentences end, found by SaT, instead of at every pause: a line grows while its sentence goes on. Helps with models that write little punctuation, such as Kitsune."
+                        "transcriptionSentenceEnds", "End lines at sentence ends", .checkbox,
+                        hint: "A line keeps growing until its sentence ends, instead of ending at every pause."
                     ),
                     SettingsField(
                         "satModels", "SaT models", .convertedModels(.sat),
-                        hint: "Run scripts/convert-sat.py to make a .zip file, then click Load.",
+                        hint: "SaT finds the sentence ends. Run scripts/convert-sat.py to make a .zip file, then click Load.",
                         showIf: { $0["transcriptionSentenceEnds"] as? Bool == true }
                     ),
                     SettingsField(

@@ -170,7 +170,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
 
     func ocrMessage(_ body: [String: Any]) -> Bool {
         // The page tells OCR when it has (re)loaded.
-        if body["action"] as? String == "ready" { overlay.pageReady() }
+        if body["action"] as? String == "ready" {
+            overlay.pageReady()
+            audioTranscriber.pageReady()
+        }
         return ocr.handle(body)
     }
 

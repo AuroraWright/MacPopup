@@ -82,6 +82,8 @@ const state = {
 	ocrLine: null,
 	// The box line of the last transcribed line ("Read text from audio"), which may grow.
 	transcriptLine: null,
+	// A speech recognition model is loading (see ModelsLoading in SpeechRecognizer.swift).
+	audioLoading: false,
 	renderKey: '',
 	// The order and writing direction the lines are laid out in, which settings can have changed since.
 	lineLayout: { reverseLineOrder: false, displayVertical: false },
@@ -2465,10 +2467,18 @@ function renderOcrButton() {
 function renderAudioButton() {
 	const button = $('#audio-button');
 	const enabled = !!getSettings().floatingWindowAudio;
+	const loading = enabled && state.audioLoading;
 	button.innerHTML = icon(mdiAccountVoice);
-	button.title = 'Audio';
-	button.classList.toggle('text-green-700', enabled);
+	button.title = loading ? 'Audio (loading…)' : 'Audio';
+	button.classList.toggle('text-green-700', enabled && !loading);
+	button.classList.toggle('text-warning', loading);
 }
+
+// From the host (AudioTranscriber.swift): whether a speech recognition model is loading.
+window.__macpopupAudioLoading = (loading) => {
+	state.audioLoading = loading;
+	renderAudioButton();
+};
 
 function renderPauseButton() {
 	const button = $('#pause-button');

@@ -10,7 +10,7 @@ import Transcription
 /// can't hear a short breath), or at the quietest moment once it's long: 28 seconds (the models read 30 at most), or 10
 /// without pauses (transcriptionPause 0).
 /// It's transcribed with the model chosen in Settings → Transcription, a stretch at a time and in order, and the text is
-/// split into sentences. With "Find sentence ends in the text" (SaT, SentenceEnds), as with OCR's lines (ShownLines), a
+/// split into sentences. With "End lines at sentence ends" (SaT, SentenceEnds), as with OCR's lines (ShownLines), a
 /// line grows with the next stretch while its sentence goes on: it ends at sentence-ending punctuation, where SaT finds
 /// an end with some text after it, or when the voice stops.
 @MainActor
@@ -51,6 +51,9 @@ final class AudioTranscriber {
     init(overlay: OverlayController) {
         self.overlay = overlay
         SettingsStore.shared.observe { [weak self] _ in self?.applySettings() }
+        NotificationCenter.default.addObserver(forName: ModelsLoading.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.showLoading() }
+        }
         applySettings()
         // Checks again now and then, since the captured window's app may start, quit or open the window later.
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -59,6 +62,16 @@ final class AudioTranscriber {
     }
 
     private var settings: [String: Any] { SettingsStore.shared.dictionary }
+
+    /// Shows on the box's audio button whether a model is loading.
+    private func showLoading() {
+        overlay.evaluate("window.__macpopupAudioLoading?.(\(ModelsLoading.count > 0))")
+    }
+
+    /// The box's page (re)loaded.
+    func pageReady() {
+        showLoading()
+    }
 
     private func applySettings() {
         let enabled = settings["floatingWindowAudio"] as? Bool ?? false
@@ -130,7 +143,7 @@ final class AudioTranscriber {
         return .allBut(ProcessInfo.processInfo.processIdentifier)
     }
 
-    /// Settings → Transcription → "Find sentence ends in the text".
+    /// Settings → Transcription → "End lines at sentence ends".
     private var findsSentenceEnds: Bool { settings["transcriptionSentenceEnds"] as? Bool ?? false }
     private var satLoading = false
 
