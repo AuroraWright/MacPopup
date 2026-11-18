@@ -26,7 +26,7 @@ protocol BridgeHost: AnyObject {
     /// A card was added or overwritten from a popup (see SentenceAudioController.cardAdded).
     func cardAdded(note: Int64, line: Int?, nested: Bool, withAudio: Bool)
     /// Notes a line that was shown, and replies with its id and what the text box does with it (see AppDelegate.noteLine).
-    func noteLine(_ text: String, age: Double, fromOCR: Bool, rows: [String], breaks: Set<Int>) -> [String: Any]
+    func noteLine(_ text: String, age: Double, fromOCR: Bool, grows: Bool, rows: [String], breaks: Set<Int>) -> [String: Any]
     /// The screenshot taken when the line with id `line` was shown, if there is one (see ScreenshotHistory).
     func bufferedScreenshot(line: Int, format: String, quality: Double, fullResolution: Bool) -> Data?
     func setOverlayCursor(_ cursor: String?)
@@ -169,7 +169,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "line":
             return host?.noteLine(
                 body["text"] as? String ?? "", age: (body["age"] as? NSNumber)?.doubleValue ?? 0, fromOCR: body["ocr"] as? Bool ?? false,
-                rows: body["rows"] as? [String] ?? [], breaks: Self.paragraphBreaks(body)
+                grows: body["grows"] as? Bool ?? false, rows: body["rows"] as? [String] ?? [], breaks: Self.paragraphBreaks(body)
             ) ?? [:]
         case "gamePause":
             // A popup opened or closed (see updateGamePause in overlay.js); replies once the game is frozen.

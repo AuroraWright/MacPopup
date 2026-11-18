@@ -40,6 +40,7 @@ public enum SpeechModel: String, CaseIterable, Sendable {
         for model in allCases {
             ConvertedModelsKind.register(SpeechRecognizer.shared(model), for: model.kind)
         }
+        ConvertedModelsKind.register(SentenceEnds.shared, for: .sat)
     }
 
     /// The files besides its Core ML models that the model needs.
@@ -93,7 +94,32 @@ public actor SpeechRecognizer: ConvertedModelsStore {
     /// Transcribes 16 kHz mono audio (-1 to 1, at most 30 s) in `language` (Yomitan's ISO code; models that don't
     /// read it guess), loading the models first if needed.
     public func transcribe(_ samples: [Float], language: String) async throws -> String {
-        try await recognizer().transcribe(samples, language: language)
+        Self.tidied(try await recognizer().transcribe(samples, language: language))
+    }
+
+    /// The text without spaces next to Chinese or Japanese characters, which are written without them (SenseVoice
+    /// often puts one between Japanese words), and with one space where there were several.
+    public static func tidied(_ text: String) -> String {
+        var result = ""
+        var space = false
+        for character in text {
+            if character.isWhitespace {
+                space = true
+                continue
+            }
+            if space, let last = result.last, !isCJK(last), !isCJK(character) { result.append(" ") }
+            space = false
+            result.append(character)
+        }
+        return result
+    }
+
+    /// Han, kana, and their punctuation and full-width forms.
+    private static func isCJK(_ character: Character) -> Bool {
+        guard let scalar = character.unicodeScalars.first?.value else { return false }
+        return (0x3000...0x30FF).contains(scalar) || (0x31F0...0x31FF).contains(scalar) || (0x3400...0x4DBF).contains(scalar)
+            || (0x4E00...0x9FFF).contains(scalar) || (0xF900...0xFAFF).contains(scalar) || (0xFF00...0xFFEF).contains(scalar)
+            || (0x20000...0x3FFFF).contains(scalar)
     }
 
     /// Loads the models, if they aren't yet. The first time, Core ML prepares them for the Neural Engine, which takes

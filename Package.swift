@@ -75,7 +75,7 @@ let package = Package(
             path: "Sources/OCREngines"
         ),
         // Speech recognition for the Floating Window's "Read text from audio": models converted or packed by
-        // scripts/convert-{whisper,anime-whisper,kitsune,sensevoice,parakeet}.py, loaded like the OCR engines' (ConvertedModels).
+        // scripts/convert-{whisper,anime-whisper,kitsune,sensevoice,parakeet,sat}.py, loaded like the OCR engines' (ConvertedModels).
         .target(
             name: "Transcription",
             dependencies: ["OCREngines", .product(name: "WhisperKit", package: "argmax-oss-swift")],

@@ -10,7 +10,9 @@ import Transcription
 /// can't hear a short breath), or at the quietest moment once it's long: 28 seconds (the models read 30 at most), or 10
 /// without pauses (transcriptionPause 0).
 /// It's transcribed with the model chosen in Settings → Transcription, a stretch at a time and in order, and the text is
-/// split into sentences.
+/// split into sentences. With "Find sentence ends in the text" (SaT, SentenceEnds), as with OCR's lines (ShownLines), a
+/// line grows with the next stretch while its sentence goes on: it ends at sentence-ending punctuation, where SaT finds
+/// an end with some text after it, or when the voice stops.
 @MainActor
 final class AudioTranscriber {
     private struct Source: Equatable {
@@ -32,6 +34,19 @@ final class AudioTranscriber {
 
     /// Stretches kept waiting while one is transcribed; older ones are dropped when transcription can't keep up.
     private static let maxPending = 4
+    /// SaT's probability from which a sentence ends where the speaker paused (the join with the open line), and where
+    /// they didn't: a pause makes an end likelier, and without one a lower threshold cut words and phrases in two
+    /// (tuned with scratch-tools/punct/simulate-lines.py on a talk video and game voice lines).
+    private static let endAtPause: Float = 0.1
+    private static let endWithoutPause: Float = 0.4
+    /// The characters needed after an end SaT finds: with none, it takes the end of any text for a sentence end.
+    private static let charactersAfterEnd = 6
+    /// The longest a line grows, in seconds of speech.
+    private static let maxLineDuration = 30.0
+
+    /// The box's last line while it may still grow (with SaT): its text, when its speech started (system uptime) and
+    /// how many seconds of speech it has.
+    private var openLine: (text: String, start: Double, duration: Double)?
 
     init(overlay: OverlayController) {
         self.overlay = overlay
@@ -56,6 +71,7 @@ final class AudioTranscriber {
             self.model = model
             shownError = nil
             pending.removeAll()
+            openLine = nil
             if let model {
                 // Now, so the first line isn't late (the first time, Core ML takes long to prepare a model).
                 let recognizer = SpeechRecognizer.shared(model)
@@ -68,6 +84,17 @@ final class AudioTranscriber {
                         self.report(error)
                     }
                 }
+            }
+        }
+        if enabled, findsSentenceEnds, !satLoading {
+            satLoading = true
+            Task {
+                do {
+                    try await SentenceEnds.shared.load()
+                } catch {
+                    self.report(error)
+                }
+                satLoading = false
             }
         }
         let source = enabled ? Source(processes: processes(), pause: Double(settings["transcriptionPause"] as? NSNumber ?? 1000) / 1000) : nil
@@ -103,6 +130,10 @@ final class AudioTranscriber {
         return .allBut(ProcessInfo.processInfo.processIdentifier)
     }
 
+    /// Settings → Transcription → "Find sentence ends in the text".
+    private var findsSentenceEnds: Bool { settings["transcriptionSentenceEnds"] as? Bool ?? false }
+    private var satLoading = false
+
     private func heard(_ speech: SpeechListener.Speech) {
         guard model != nil else { return }
         pending.append(speech)
@@ -116,6 +147,12 @@ final class AudioTranscriber {
     private func transcribeNext() {
         guard !transcribing, let model, !pending.isEmpty else { return }
         let speech = pending.removeFirst()
+        guard !speech.samples.isEmpty else {
+            // The voice stopped after a stretch too quiet to transcribe.
+            openLine = nil
+            transcribeNext()
+            return
+        }
         let language = settings["language"] as? String ?? "ja"
         let recognizer = SpeechRecognizer.shared(model)
         transcribing = true
@@ -137,13 +174,74 @@ final class AudioTranscriber {
             // Turned off or switched to another model meanwhile.
             guard self.model == model else { return }
             shownError = nil
-            let age = ProcessInfo.processInfo.systemUptime - speech.start
+            if findsSentenceEnds {
+                await addGrowing(text, speech: speech, language: language)
+                return
+            }
+            openLine = nil
             for sentence in Self.sentences(text, language: language) {
-                guard let data = try? JSONSerialization.data(withJSONObject: [sentence]),
-                      let json = String(data: data, encoding: .utf8) else { continue }
-                overlay.evaluate("window.__macpopupTranscript?.(\(json)[0], \(age))")
+                show(sentence, start: speech.start, grows: false)
             }
         }
+    }
+
+    /// Adds the stretch's text to the open line, and ends lines where sentences end (see the class).
+    private func addGrowing(_ text: String, speech: SpeechListener.Speech, language: String) async {
+        let piece = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        defer { if speech.endsVoice { openLine = nil } }
+        guard !piece.isEmpty else { return }
+        if let open = openLine, open.duration + speech.duration > Self.maxLineDuration { openLine = nil }
+        let previous = openLine?.text ?? ""
+        let joined = previous.isEmpty ? piece : SpeechRecognizer.tidied(previous + " " + piece)
+        // Where the earlier text ends in the joined text (tidying may drop the space between them).
+        let from = joined.hasPrefix(previous) ? previous.count : 0
+        let characters = Array(joined)
+        var ends = Set<Int>()
+        // Sentence-ending punctuation.
+        for range in Sentences.ranges(in: joined, language: language).dropLast() {
+            let end = joined.distance(from: joined.startIndex, to: range.upperBound)
+            if end >= from { ends.insert(end) }
+        }
+        do {
+            let probabilities = try await SentenceEnds.shared.probabilities(joined)
+            for (index, probability) in probabilities.enumerated() {
+                let end = index + 1
+                guard end >= from, characters.count - end >= Self.charactersAfterEnd else { continue }
+                if probability >= (end == from ? Self.endAtPause : Self.endWithoutPause) { ends.insert(end) }
+            }
+        } catch {
+            report(error)
+        }
+        // Turned off or switched to another model meanwhile.
+        guard model != nil else { return }
+        var segments: [String] = []
+        var start = 0
+        for end in ends.sorted() + [characters.count] where end > start {
+            segments.append(String(characters[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines))
+            start = end
+        }
+        var lineStart = openLine?.start ?? speech.start
+        var duration = (openLine?.duration ?? 0) + speech.duration
+        for (index, segment) in segments.enumerated() where !segment.isEmpty {
+            let grows = index == 0 && openLine != nil
+            if !grows || segment != previous { show(segment, start: lineStart, grows: grows) }
+            if index < segments.count - 1 {
+                // A later line starts in this stretch.
+                lineStart = speech.start
+                duration = speech.duration
+            }
+        }
+        openLine = segments.last.map { ($0, lineStart, duration) }
+        // Ended with sentence-ending punctuation.
+        if segments.last?.last?.unicodeScalars.first?.properties.isSentenceTerminal == true { openLine = nil }
+    }
+
+    /// Adds a line to the text box, or replaces its last line with the text when it `grows`.
+    private func show(_ text: String, start: Double, grows: Bool) {
+        guard !text.isEmpty, let data = try? JSONSerialization.data(withJSONObject: [text]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        let age = ProcessInfo.processInfo.systemUptime - start
+        overlay.evaluate("window.__macpopupTranscript?.(\(json)[0], \(age), \(grows))")
     }
 
     private func report(_ error: Error) {
@@ -169,9 +267,12 @@ func transcriptionLog(_ message: String) {
 /// mixed to mono at 16 kHz. Everything but `start` and `stop` runs on its own queue.
 final class SpeechListener: @unchecked Sendable {
     struct Speech {
+        /// Empty when the stretch was too quiet to transcribe but ended the voice.
         let samples: [Float]
         /// When the voice started, in seconds of system uptime.
         let start: Double
+        /// The voice stopped after it (the classifier heard no speech), rather than pausing or going on.
+        let endsVoice: Bool
         var duration: Double { Double(samples.count) / SpeechListener.sampleRate }
     }
 
@@ -381,13 +482,13 @@ final class SpeechListener: @unchecked Sendable {
             if voiceStart == nil { voiceStart = max(range.start.seconds, given) }
             voiceEnd = max(voiceEnd, range.end.seconds)
         } else if let start = voiceStart, classifiedEnd - voiceEnd >= pause {
-            give(from: start, to: voiceEnd)
+            give(from: start, to: voiceEnd, endsVoice: true)
         }
     }
 
     /// Gives the speech between `start` and `end` (seconds into the recording), placed more finely, and lets the audio
     /// before `end` go.
-    private func give(from start: Double, to end: Double) {
+    private func give(from start: Double, to end: Double, endsVoice: Bool = false) {
         voiceStart = nil
         guard let format, end > start else { return }
         let previous = given
@@ -398,6 +499,10 @@ final class SpeechListener: @unchecked Sendable {
         guard Double(sound) * Self.block >= Self.minVoiced else {
             transcriptionLog(String(format: "speech %.2f–%.2f s, too quiet", start, end))
             dropAudio(before: end)
+            if endsVoice {
+                let speech = Speech(samples: [], start: clockStart + end, endsVoice: true)
+                Task { @MainActor in onSpeech(speech) }
+            }
             return
         }
         // Only the audio after the last stretch and up to this one's end, so that the padding takes no words from
@@ -414,7 +519,7 @@ final class SpeechListener: @unchecked Sendable {
         transcriptionLog(String(format: "speech %.2f–%.2f s, finely %.2f–%.2f s", start, end, offset + base + range.0, offset + base + range.1))
         dropAudio(before: end)
         guard let samples = clip.monoSamples(sampleRate: Self.sampleRate), !samples.isEmpty else { return }
-        let speech = Speech(samples: samples, start: clockStart + offset + base + range.0)
+        let speech = Speech(samples: samples, start: clockStart + offset + base + range.0, endsVoice: endsVoice)
         Task { @MainActor in onSpeech(speech) }
     }
 }

@@ -477,13 +477,22 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "senseVoiceModels", "SenseVoice models", .convertedModels(.senseVoice),
-                        hint: "Run scripts/convert-sensevoice.py to make a .zip file, then click Load. The first load takes up to 20 minutes.",
+                        hint: "Run scripts/convert-sensevoice.py to make a .zip file, then click Load. The first load takes about 2 minutes.",
                         showIf: { $0["transcriptionModel"] as? String == "senseVoice" }
                     ),
                     SettingsField(
                         "parakeetModels", "Parakeet models", .convertedModels(.parakeet),
                         hint: "Run scripts/convert-parakeet.py to make a .zip file, then click Load.",
                         showIf: { $0["transcriptionModel"] as? String == "parakeet" }
+                    ),
+                    SettingsField(
+                        "transcriptionSentenceEnds", "Find sentence ends in the text", .checkbox,
+                        hint: "Ends lines where sentences end, found by SaT, instead of at every pause: a line grows while its sentence goes on. Helps with models that write little punctuation, such as Kitsune."
+                    ),
+                    SettingsField(
+                        "satModels", "SaT models", .convertedModels(.sat),
+                        hint: "Run scripts/convert-sat.py to make a .zip file, then click Load.",
+                        showIf: { $0["transcriptionSentenceEnds"] as? Bool == true }
                     ),
                     SettingsField(
                         "transcriptionPause", "Line ends after a pause of (ms, 0 = off)", .number(min: 0),

@@ -4,12 +4,38 @@
 // (scratch-tools/asr). Japanese, except eu-<language>_<region> domains (FLEURS's European languages, e.g. eu-es_419).
 // Prints how long loading took.
 //
-// transcribe-cli install <model> <zip>: loads the zip as Settings' Load button does, into MACPOPUP_MODELS_DIRECTORY
+// transcribe-cli install <model|sat> <zip>: loads the zip as Settings' Load button does, into MACPOPUP_MODELS_DIRECTORY
 // (set it, or it's Application Support's).
+//
+// transcribe-cli sat <talk.jsonl> <out.jsonl>: SaT's sentence end probabilities for each row's "bare" text
+// (scratch-tools/punct/make-talk.py), as {"p": [per character]}, for checking against wtpsplit.
 import Foundation
 import Transcription
 
 let arguments = CommandLine.arguments
+if arguments.count == 4, arguments[1] == "install", arguments[2] == "sat" {
+    let started = Date()
+    try await SentenceEnds.shared.installModels(from: URL(fileURLWithPath: arguments[3]))
+    print(String(format: "installed and loaded in %.1f s", Date().timeIntervalSince(started)))
+    exit(0)
+}
+if arguments.count == 4, arguments[1] == "sat" {
+    let rows = try String(contentsOfFile: arguments[2], encoding: .utf8).split(separator: "\n")
+    let started = Date()
+    try await SentenceEnds.shared.load()
+    print(String(format: "loaded in %.1f s", Date().timeIntervalSince(started)))
+    var out = "", total = 0.0
+    for row in rows {
+        let text = (try JSONSerialization.jsonObject(with: Data(row.utf8)) as! [String: Any])["bare"] as! String
+        let start = Date()
+        let probabilities = try await SentenceEnds.shared.probabilities(text)
+        total += Date().timeIntervalSince(start)
+        out += String(decoding: try JSONSerialization.data(withJSONObject: ["p": probabilities]), as: UTF8.self) + "\n"
+    }
+    try out.write(toFile: arguments[3], atomically: true, encoding: .utf8)
+    print(String(format: "%.1f ms per text", total / Double(rows.count) * 1000))
+    exit(0)
+}
 if arguments.count == 4, arguments[1] == "install", let model = SpeechModel(rawValue: arguments[2]) {
     let started = Date()
     try await SpeechRecognizer(model).installModels(from: URL(fileURLWithPath: arguments[3]))

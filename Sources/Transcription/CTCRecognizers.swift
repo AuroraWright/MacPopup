@@ -235,15 +235,21 @@ final class KitsuneRecognizer: Recognizer, @unchecked Sendable {
 final class SenseVoiceRecognizer: Recognizer, @unchecked Sendable {
     /// The encoder's embedding indices for its languages; the others are detected (0).
     static let languageIndex = ["zh": 3, "en": 4, "yue": 7, "ja": 11, "ko": 12]
-    private static let buckets = [128, 256, 512, 1024, 1800]
     /// Punctuation and inverse text normalization (numbers as digits).
     private static let withITN = 14
 
     private let preprocessor: MLModel
     private let encoder: MLModel
     private let vocabulary: [String]
+    /// The encoder's input lengths, in feature frames of 60 ms (sensevoice.json): the features are padded to the
+    /// shortest that fits.
+    private let buckets: [Int]
 
     init(directory: URL) throws {
+        guard let info = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("sensevoice.json"))) as? [String: Any],
+              let buckets = info["buckets"] as? [Int], !buckets.isEmpty
+        else { throw ConvertedModelsKind.senseVoice.unexpectedModels }
+        self.buckets = buckets.sorted()
         let models = directory.appendingPathComponent("coreml")
         let cpu = MLModelConfiguration()
         // Its filter bank values exceed 16-bit floats.
@@ -264,10 +270,10 @@ final class SenseVoiceRecognizer: Recognizer, @unchecked Sendable {
         let features = try await preprocessor.prediction(from: MLDictionaryFeatureProvider(dictionary: [
             "waveform": MLFeatureValue(multiArray: try multiArray(scaled, shape: [1, scaled.count])),
         ]))
-        let largest = Self.buckets.last!
+        let largest = buckets.last!
         let (speech, frames) = try withOutput(features, "features") { values, shape, strides in
             let frames = min(shape[1], largest)
-            let bucket = Self.buckets.first { $0 >= frames } ?? largest
+            let bucket = buckets.first { $0 >= frames } ?? largest
             var speech = [Float](repeating: 0, count: bucket * shape[2])
             for frame in 0..<frames {
                 for index in 0..<shape[2] {

@@ -106,6 +106,7 @@ export const defaultSettings = {
 	// Sources/Transcription), and how long a pause in the voice (ms) ends a line.
 	transcriptionModel: 'kitsune',
 	transcriptionPause: 1000,
+	transcriptionSentenceEnds: false,
 
 	// OCR: the text of another app's window, read with ocrEngine (see lib/ocr-layer.js).
 	ocrMode: false,

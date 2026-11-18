@@ -2,10 +2,10 @@ import CoreGraphics
 import CoreML
 import Foundation
 
-/// The OCR engines and speech recognition models whose models can't come with MacPopup: a script converts or packs them
+/// The OCR engines, speech recognition models and SaT (sentence ends in transcriptions), whose models can't come with MacPopup: a script converts or packs them
 /// on the user's Mac into a zip, which Settings → OCR or Transcription loads into Application Support.
 public enum ConvertedModelsKind: String, CaseIterable {
-    case screenAI, oneOCR, whisper, animeWhisper, kitsune, senseVoice, parakeet
+    case screenAI, oneOCR, whisper, animeWhisper, kitsune, senseVoice, parakeet, sat
 
     /// The OCR engines' (the iPhone app's).
     public static let ocr: [ConvertedModelsKind] = [.screenAI, .oneOCR]
@@ -19,6 +19,7 @@ public enum ConvertedModelsKind: String, CaseIterable {
         case .kitsune: "Kitsune"
         case .senseVoice: "SenseVoice"
         case .parakeet: "Parakeet"
+        case .sat: "SaT"
         }
     }
 
@@ -32,6 +33,7 @@ public enum ConvertedModelsKind: String, CaseIterable {
         case .kitsune: "Kitsune"
         case .senseVoice: "SenseVoice"
         case .parakeet: "Parakeet"
+        case .sat: "SaT"
         }
     }
 
@@ -45,6 +47,7 @@ public enum ConvertedModelsKind: String, CaseIterable {
         case .kitsune: "scripts/convert-kitsune.py"
         case .senseVoice: "scripts/convert-sensevoice.py"
         case .parakeet: "scripts/convert-parakeet.py"
+        case .sat: "scripts/convert-sat.py"
         }
     }
 

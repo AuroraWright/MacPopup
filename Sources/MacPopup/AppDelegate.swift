@@ -232,13 +232,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     ///   row's UTF-16 code units].
     /// - A WebSocket or clipboard line with the same text as the last OCR line takes its place ("replacesOCR": the box
     ///   removes its last line before adding the new one).
-    func noteLine(_ text: String, age: Double, fromOCR: Bool, rows: [String], breaks: Set<Int>) -> [String: Any] {
+    /// `grows`: a transcribed line that grew (see AudioTranscriber), the last line again with more text.
+    func noteLine(_ text: String, age: Double, fromOCR: Bool, grows: Bool, rows: [String], breaks: Set<Int>) -> [String: Any] {
         if lines.count >= 100 { lines.removeFirst(lines.count - 99) }
         // A sent line is the line before it again as the text box decides it (see transformLine in overlay.js).
         let settings = SettingsStore.shared.dictionary
         let sent = ShownLines<Bool>.SentLines(
             repeats: (settings["preventLastDuplicate"] as? NSNumber)?.intValue ?? 0 > 0 || settings["preventGlobalDuplicate"] as? Bool == true,
-            grows: settings["mergeEqualLineStarts"] as? Bool == true
+            grows: grows || settings["mergeEqualLineStarts"] as? Bool == true
         )
         guard let noted = lines.note(text, page: fromOCR, breaks: breaks, rows: rows, sent: sent,
                                      language: settings["language"] as? String ?? "ja", info: { fromOCR }) else { return [:] }
