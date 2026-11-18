@@ -4,7 +4,7 @@ import ServiceManagement
 /// The macOS privacy permissions MacPopup uses, shown in Settings → Permissions.
 enum Permission {
     case screenRecording
-    /// Recording other apps' audio, for Anki Audio. System Settings lists it with Screen Recording.
+    /// Recording other apps' audio, for Anki Audio and transcription. System Settings lists it with Screen Recording.
     case audioCapture
     case accessibility
     /// MacPopup's pause helper (see GamePause), approved in System Settings → General → Login Items.

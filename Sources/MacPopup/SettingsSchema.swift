@@ -1,5 +1,6 @@
 import Foundation
 import OCREngines
+import Transcription
 
 /// A choice in a menu: the stored value and its label.
 struct SettingsOption: Hashable {
@@ -237,7 +238,7 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "language", "Language", .select(support.languages.map { SettingsOption($0.iso, $0.name) }),
-                    hint: "Language of the text that is being looked up. Should match your active Yomitan profile language (automatically set when importing Yomitan settings). Also used to select default audio sources, format text, and choose the language OCR reads (text in other scripts is skipped)."
+                    hint: "Language of the text that is being looked up. Should match your active Yomitan profile language (automatically set when importing Yomitan settings). Also used to select default audio sources, format text, and choose the language OCR reads (text in other scripts is skipped) and transcription expects."
                 ),
                 SettingsField(
                     "furiganaReadingMode", "Furigana style", .select([
@@ -284,6 +285,10 @@ enum SettingsSchema {
                 SettingsField(
                     "floatingWindowOCR", "Read text from OCR", .checkbox,
                     hint: "Reads the game’s text with OCR and adds it to the text box, like a text hooker. Only the dialogue area of the captured window is read (Settings → General → Captured window), or the whole window if there’s none. When a page fills up over time, each new sentence or paragraph becomes its own line. Lines already received over WebSocket aren’t added twice. A window might not be readable while it isn’t visible. Uses the settings in OCR, and requires Screen Recording permission."
+                ),
+                SettingsField(
+                    "floatingWindowAudio", "Read text from audio", .checkbox,
+                    hint: "Transcribes speech from the captured window’s app (or from all apps if no window is captured) and adds each sentence to the text box. Music and sound effects are skipped. Choose the model in Settings → Transcription. Requires System Audio Recording permission."
                 ),
                 SettingsField(
                     "boxFontFamily", "Font", .font(size: "fontSize", effects: "boxFontEffects"),
@@ -419,6 +424,70 @@ enum SettingsSchema {
                     SettingsField(
                         "ocrMaxWait", "Show reading anyway after (ms)", .number(min: 100),
                         hint: "If text keeps changing continuously (such as very slow typewriter text), use the latest reading after this time limit and keep updating as more text appears."
+                    ),
+                ]
+            ),
+            SettingsSection(
+                title: "Transcription", symbol: "captions.bubble",
+                description: "Speech recognition for “Read text from audio” in the Floating Window. Models run on this Mac and aren’t included with MacPopup: make a model’s .zip file with its script, then load it here.",
+                fields: [
+                    SettingsField(
+                        "transcriptionModel", "Speech recognition model",
+                        .select([
+                            SettingsOption("kitsune", "Kitsune P-0.3B"),
+                            SettingsOption("animeWhisper", "anime-whisper"),
+                            SettingsOption("whisper", "Whisper large-v3 turbo"),
+                            SettingsOption("senseVoice", "SenseVoice Small"),
+                            SettingsOption("parakeet", "Parakeet TDT 0.6B v3"),
+                        ]),
+                        hint: "Kitsune (by Multy123): Japanese, very fast. Non-commercial use only. anime-whisper (by litagin): Japanese, the most accurate on game and anime voices, but slower. Whisper (OpenAI): 99 languages, about a second per line. SenseVoice (Alibaba): Chinese, Cantonese, Japanese, Korean and English, the fastest. Parakeet (NVIDIA): 25 European languages, very fast.",
+                        warning: { settings in
+                            let language = settings["language"] as? String ?? "ja"
+                            guard let model = SpeechModel(rawValue: settings["transcriptionModel"] as? String ?? "kitsune") else { return nil }
+                            let name = support.languages.first { $0.iso == language }?.name ?? language
+                            // Parakeet reads its languages about as well as Whisper, 10 times faster.
+                            if model == .whisper && SpeechModel.parakeet.reads(language) {
+                                return "Parakeet transcribes \(name) about as accurately and 10 times faster."
+                            }
+                            guard !model.reads(language) else { return nil }
+                            let reads = switch model {
+                            case .kitsune: "Kitsune only transcribes Japanese."
+                            case .animeWhisper: "anime-whisper only transcribes Japanese."
+                            case .senseVoice: "SenseVoice only transcribes Chinese, Cantonese, Japanese, Korean and English."
+                            case .whisper: "Whisper doesn’t transcribe it."
+                            case .parakeet: "Parakeet only transcribes 25 European languages."
+                            }
+                            return "Your language is \(name) (Settings → General). \(reads)"
+                        }
+                    ),
+                    SettingsField(
+                        "kitsuneModels", "Kitsune models", .convertedModels(.kitsune),
+                        hint: "Run scripts/convert-kitsune.py to make a .zip file, then click Load.",
+                        showIf: { ($0["transcriptionModel"] as? String ?? "kitsune") == "kitsune" }
+                    ),
+                    SettingsField(
+                        "animeWhisperModels", "anime-whisper models", .convertedModels(.animeWhisper),
+                        hint: "Run scripts/convert-anime-whisper.py to make a .zip file, then click Load. The first load takes up to 20 minutes.",
+                        showIf: { $0["transcriptionModel"] as? String == "animeWhisper" }
+                    ),
+                    SettingsField(
+                        "whisperModels", "Whisper models", .convertedModels(.whisper),
+                        hint: "Run scripts/convert-whisper.py to make a .zip file (add --full for the slightly more accurate 1.6 GB version), then click Load. The first load takes about 10 minutes.",
+                        showIf: { $0["transcriptionModel"] as? String == "whisper" }
+                    ),
+                    SettingsField(
+                        "senseVoiceModels", "SenseVoice models", .convertedModels(.senseVoice),
+                        hint: "Run scripts/convert-sensevoice.py to make a .zip file, then click Load. The first load takes up to 20 minutes.",
+                        showIf: { $0["transcriptionModel"] as? String == "senseVoice" }
+                    ),
+                    SettingsField(
+                        "parakeetModels", "Parakeet models", .convertedModels(.parakeet),
+                        hint: "Run scripts/convert-parakeet.py to make a .zip file, then click Load.",
+                        showIf: { $0["transcriptionModel"] as? String == "parakeet" }
+                    ),
+                    SettingsField(
+                        "transcriptionPause", "Line ends after a pause of (ms, 0 = off)", .number(min: 0),
+                        hint: "How long the speaker must pause before a line is added. Shorter pauses show lines sooner, but may cut sentences in two. For someone who talks without stopping, try 200, or 0 for a line about every 10 seconds."
                     ),
                 ]
             ),
@@ -908,7 +977,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "permission.audioCapture", "System Audio Recording", .permission(.audioCapture),
-                        hint: "Needed for Anki Audio to record your game’s voice lines. Shown as Screen & System Audio Recording in System Settings."
+                        hint: "Needed for Anki Audio and for “Read text from audio” in the Floating Window. Shown as Screen & System Audio Recording in System Settings."
                     ),
                     SettingsField(
                         "permission.accessibility", "Accessibility", .permission(.accessibility),

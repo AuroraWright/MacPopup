@@ -567,7 +567,11 @@ private struct ConvertedModelsControl: View {
             ZStack(alignment: .trailing) {
                 loaded.hidden()
                 notLoaded.hidden()
-                if let converted = models.converted {
+                loading.hidden()
+                if models.busy {
+                    // Speech models take minutes the first time, while Core ML prepares them.
+                    loading
+                } else if let converted = models.converted {
                     loaded.help("Converted \(converted.formatted(date: .abbreviated, time: .shortened))")
                 } else {
                     notLoaded
@@ -584,6 +588,13 @@ private struct ConvertedModelsControl: View {
 
     private var notLoaded: some View {
         Label("Not loaded", systemImage: "exclamationmark.circle.fill").foregroundStyle(.orange)
+    }
+
+    private var loading: some View {
+        HStack(spacing: 4) {
+            ProgressView().controlSize(.small)
+            Text("Working…")
+        }
     }
 }
 

@@ -82,6 +82,9 @@ export const defaultSettings = {
 	// monitor, which opens its search page instead).
 	clipboardMonitor: false,
 	floatingWindowOCR: false,
+	// The speech of the captured window's app (or of every app) transcribed into lines, with transcriptionModel (see
+	// AudioTranscriber.swift).
+	floatingWindowAudio: false,
 	clipboardMaxLength: 1000,
 	replacements: [],
 	customCSS: '',
@@ -98,6 +101,11 @@ export const defaultSettings = {
 	termSpacing: true,
 	displayIndex: 0,
 	windowLevel: 'screenSaver',
+
+	// Transcription (Settings → Transcription): 'kitsune', 'animeWhisper', 'whisper' or 'senseVoice' (SpeechModel in
+	// Sources/Transcription), and how long a pause in the voice (ms) ends a line.
+	transcriptionModel: 'kitsune',
+	transcriptionPause: 1000,
 
 	// OCR: the text of another app's window, read with ocrEngine (see lib/ocr-layer.js).
 	ocrMode: false,

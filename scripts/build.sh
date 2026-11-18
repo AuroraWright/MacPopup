@@ -86,6 +86,10 @@ if [[ -x "$FFMPEG/ffmpeg" ]]; then
     cp "$FFMPEG/ffmpeg" "$APP/Contents/Helpers/ffmpeg"
     cp "$FFMPEG"/COPYING.* "$FFMPEG"/LICENSE.md "$FFMPEG"/SOURCE.txt "$APP/Contents/Resources/Licenses/ffmpeg/"
 fi
+# WhisperKit (Package.swift's argmax-oss-swift, for Settings → Transcription): MIT, with parts under the Apache License
+# listed in its NOTICES.
+mkdir -p "$APP/Contents/Resources/Licenses/WhisperKit"
+cp .build/checkouts/argmax-oss-swift/LICENSE .build/checkouts/argmax-oss-swift/NOTICES "$APP/Contents/Resources/Licenses/WhisperKit/"
 # The IINA plugin (iina-plugin/), packaged for IINA to install when it's opened.
 PLUGIN="${APP:A}/Contents/Resources/MacPopup.iinaplgz"
 (cd iina-plugin && zip -q -r -X "$PLUGIN" Info.json main.js global.js preferences.html)

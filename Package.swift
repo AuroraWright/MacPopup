@@ -9,6 +9,10 @@ let package = Package(
         .library(name: "OCREngines", targets: ["OCREngines"]),
         .library(name: "LiveText", targets: ["LiveText"]),
     ],
+    dependencies: [
+        // WhisperKit, for the Whisper speech recognition models (Settings → Transcription).
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", exact: "1.1.1"),
+    ],
     targets: [
         .target(
             name: "LiveText",
@@ -70,6 +74,19 @@ let package = Package(
             dependencies: ["ScreenAI", "OneOCR", "CurlImpersonate", "OCRLineCache"],
             path: "Sources/OCREngines"
         ),
+        // Speech recognition for the Floating Window's "Read text from audio": models converted or packed by
+        // scripts/convert-{whisper,anime-whisper,kitsune,sensevoice,parakeet}.py, loaded like the OCR engines' (ConvertedModels).
+        .target(
+            name: "Transcription",
+            dependencies: ["OCREngines", .product(name: "WhisperKit", package: "argmax-oss-swift")],
+            path: "Sources/Transcription"
+        ),
+        // Transcribes audio files (for checking the recognizers against the Python ones).
+        .executableTarget(
+            name: "transcribe-cli",
+            dependencies: ["Transcription"],
+            path: "Sources/TranscribeCLI"
+        ),
         // What MacPopup and its pause helper say to each other over XPC.
         .target(
             name: "PauseHelperInterface",
@@ -84,7 +101,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "MacPopup",
-            dependencies: ["LiveText", "OCREngines", "PauseHelperInterface"],
+            dependencies: ["LiveText", "OCREngines", "PauseHelperInterface", "Transcription"],
             path: "Sources/MacPopup"
         ),
     ]

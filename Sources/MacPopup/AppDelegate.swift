@@ -1,4 +1,5 @@
 import AppKit
+import Transcription
 import WebKit
 
 @MainActor
@@ -16,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var ocr: OCRController!
     private var clipboardMonitor: ClipboardMonitor!
     private var sentenceAudio: SentenceAudioController!
+    private var audioTranscriber: AudioTranscriber!
     private var screenshots: ScreenshotHistory!
     /// The lines shown in the text box or read by OCR (see noteLine). `Info` is whether OCR read the line.
     private var lines = ShownLines<Bool>()
@@ -41,6 +43,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         DebugLog.onSession = { [weak self] in self?.ocr.logWindow() }
         clipboardMonitor = ClipboardMonitor(overlay: overlay)
         sentenceAudio = SentenceAudioController(overlay: overlay)
+        SpeechModel.registerModels()
+        audioTranscriber = AudioTranscriber(overlay: overlay)
         screenshots = ScreenshotHistory { [weak self] fullResolution in try await self?.ocr.windowScreenshot(fullResolution: fullResolution) }
         GamepadController.shared.onSwitchAway = { [weak self] in self?.overlay.evaluate("window.__macpopupReleaseForGame?.()") }
         GamepadController.shared.onChange = { [weak self] pressed in
@@ -236,7 +240,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
             repeats: (settings["preventLastDuplicate"] as? NSNumber)?.intValue ?? 0 > 0 || settings["preventGlobalDuplicate"] as? Bool == true,
             grows: settings["mergeEqualLineStarts"] as? Bool == true
         )
-        guard let noted = lines.note(text, page: fromOCR, breaks: breaks, rows: rows, sent: sent, info: { fromOCR }) else { return [:] }
+        guard let noted = lines.note(text, page: fromOCR, breaks: breaks, rows: rows, sent: sent,
+                                     language: settings["language"] as? String ?? "ja", info: { fromOCR }) else { return [:] }
         let line = lines[noted.index]
         sentenceAudio.noteLine(id: line.id, isNew: noted.isNew, text: line.text, age: age)
         screenshots.noteLine(id: line.id, isNew: noted.isNew, grew: noted.grew, settled: fromOCR)

@@ -18,7 +18,7 @@ extension Engine {
 struct ImportedModelsSection: View {
     var body: some View {
         Section {
-            ForEach(ConvertedModelsKind.allCases, id: \.self) { kind in
+            ForEach(ConvertedModelsKind.ocr, id: \.self) { kind in
                 ImportedModelsRow(status: ConvertedModelsStatus.shared(kind))
             }
         } header: {

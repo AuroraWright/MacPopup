@@ -1,7 +1,7 @@
 // The overlay page: a texthooker-ui style text box plus Yomitan-style popups, on a transparent
 // page covering the whole display. The host polls the mouse and calls window.__macpopupPointer,
 // and makes the window click-through everywhere except the rects reported via setHitRects.
-import { mdiClipboardOffOutline, mdiClipboardTextOutline, mdiCog, mdiConnection, mdiDeleteSweep, mdiEyeOff, mdiPause, mdiPlay, mdiTextRecognition } from '@mdi/js';
+import { mdiAccountVoice, mdiClipboardOffOutline, mdiClipboardTextOutline, mdiCog, mdiConnection, mdiDeleteSweep, mdiEyeOff, mdiPause, mdiPlay, mdiTextRecognition } from '@mdi/js';
 import { log, nativeCall } from './lib/native.js';
 import { logDebug, logEvent } from './lib/debug-log.js';
 import { getPopupPosition } from './lib/popup-position.js';
@@ -216,11 +216,12 @@ function readsOcr(settings = getSettings()) {
 }
 
 /**
- * Adds a line from a WebSocket or the clipboard, with `player` for one from a video player. It's added to the text box
- * once the host noted it (see noteLine in AppDelegate.swift), which also gives it its id. With "Read text from OCR", if
- * OCR already added the same line, this one takes its place. Returns the line (ShownLine), whose id comes later.
+ * Adds a line from a WebSocket, the clipboard or transcribed audio, with `player` for one from a video player, and
+ * `age`, how many seconds ago its voice started, for a transcribed one. It's added to the text box once the host noted
+ * it (see noteLine in AppDelegate.swift), which also gives it its id. With "Read text from OCR", if OCR already added
+ * the same line, this one takes its place. Returns the line (ShownLine), whose id comes later.
  */
-function addLine(rawText, player = null) {
+function addLine(rawText, player = null, age = 0) {
 	const line = { id: null, player };
 	if (state.paused || typeof rawText !== 'string') return line;
 	const settings = getSettings();
@@ -230,7 +231,7 @@ function addLine(rawText, player = null) {
 		pushLine(rawText, { line });
 		return line;
 	}
-	void nativeCall('line', { text })
+	void nativeCall('line', { text, age })
 		.catch(() => ({}))
 		.then((result) => {
 			line.id = result?.id ?? null;
@@ -1204,6 +1205,10 @@ window.__macpopupClipboard = (text) => {
 	const max = getSettings().clipboardMaxLength;
 	addLine(Number.isFinite(max) && max > 0 && text.length > max ? text.slice(0, max) : text);
 };
+
+// A sentence of transcribed speech, with "Read text from audio" (see AudioTranscriber.swift), and how many seconds ago
+// its voice started.
+window.__macpopupTranscript = (text, age) => addLine(text, null, age);
 
 // OCR: the host reads another app's window with Live Text or another OCR engine
 // (OCRController.swift) and sends the text here, where it's laid over the window invisibly
@@ -2415,6 +2420,7 @@ function applySettings(settings) {
 	updateOcrWebsocket();
 	renderClipboardButton();
 	renderOcrButton();
+	renderAudioButton();
 	popupManager.applySettings();
 	reportHitRects();
 	// Without the scan key's buttons, or in the other mode, the text no longer has controller focus.
@@ -2440,6 +2446,14 @@ function renderOcrButton() {
 	const enabled = !!getSettings().floatingWindowOCR;
 	button.innerHTML = icon(mdiTextRecognition);
 	button.title = 'OCR';
+	button.classList.toggle('text-green-700', enabled);
+}
+
+function renderAudioButton() {
+	const button = $('#audio-button');
+	const enabled = !!getSettings().floatingWindowAudio;
+	button.innerHTML = icon(mdiAccountVoice);
+	button.title = 'Audio';
 	button.classList.toggle('text-green-700', enabled);
 }
 
@@ -2472,6 +2486,7 @@ async function main() {
 	});
 	$('#clipboard-button').addEventListener('click', () => void saveSettings({ clipboardMonitor: !getSettings().clipboardMonitor }));
 	$('#ocr-button').addEventListener('click', () => void saveSettings({ floatingWindowOCR: !getSettings().floatingWindowOCR }));
+	$('#audio-button').addEventListener('click', () => void saveSettings({ floatingWindowAudio: !getSettings().floatingWindowAudio }));
 	$('#clear-button').addEventListener('click', clearLines);
 	$('#settings-button').addEventListener('click', () => nativeCall('openSettings'));
 	$('#hide-button').addEventListener('click', () => nativeCall('setOverlayVisible', { visible: false }));
