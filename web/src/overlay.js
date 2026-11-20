@@ -1903,12 +1903,15 @@ window.__macpopupGamepad = (held) => {
 		// buttons (see buttonsNote in SettingsView.swift).
 		const sentenceAudioOn = settings.sentenceAudioEnabled && settings.ankiEnabled;
 		const sentenceAudioButtons = sentenceAudioOn ? (settings.sentenceAudioButtons ?? []) : [];
+		const overlayHideButtons = settings.overlayHideButtons ?? [];
 		const overlaySwitchButtons = settings.overlaySwitchButtons ?? [];
 		if (scanButtons.length > 0 && sameButtons(combo, scanButtons)) {
 			setControllerFocus(!gamepad.focus);
 		} else if (sentenceAudioButtons.length > 0 && sameButtons(combo, sentenceAudioButtons)) {
 			logEvent('controller: the Anki Audio buttons', { buttons: combo });
 			nativeCall('pressSentenceAudio').catch(() => {});
+		} else if (overlayHideButtons.length > 0 && sameButtons(combo, overlayHideButtons)) {
+			nativeCall('toggleOverlayVisible', { from: 'controller' }).catch(() => {});
 		} else if (overlaySwitchButtons.length > 0 && sameButtons(combo, overlaySwitchButtons)) {
 			nativeCall('switchOverlay', { from: 'controller' }).catch(() => {});
 		} else if (popupManager.visiblePopups().length > 0) {

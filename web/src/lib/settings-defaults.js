@@ -110,8 +110,11 @@ export const defaultSettings = {
 
 	// OCR: the text of another app's window, read with ocrEngine (see lib/ocr-layer.js).
 	ocrMode: false,
-	// Switch ocrMode from any app (OCRController.switchOverlay): {key, modifiers} as in hotkeys, or null, and controller
-	// buttons, like gamepadScanButtons (see overlay.js).
+	// Hide or show the overlays from any app, as the menu bar's Hide Overlays (AppDelegate.toggleOverlay), and switch
+	// ocrMode (OCRController.switchOverlay): {key, modifiers} as in hotkeys, or null, and controller buttons, like
+	// gamepadScanButtons (see overlay.js).
+	overlayHideShortcut: null,
+	overlayHideButtons: [],
 	overlaySwitchShortcut: null,
 	overlaySwitchButtons: [],
 	// The window to read, {ownerName, title}, found again by these when MacPopup starts.

@@ -37,7 +37,8 @@ Lookups and Anki card templates come from the Yomitan you already use in your br
 
 MacPopup runs in the background, without a Dock icon. Click its **speech bubble icon in the menu bar** to open
 Settings, switch between the Floating Window and the OCR overlay, choose the window to read, hide the overlay, move it
-to another display, or quit.
+to another display, or quit. To hide the overlay from any app, set the **Overlay hide key/buttons** in *Settings →
+General*.
 
 ---
 
@@ -159,16 +160,16 @@ and others), without putting it down.
 - **Switching Apps**: Bringing another app to the front closes the popups and gives the controller back, so you can
   use it there. With **Pause the game while a popup is open** on, the game also stays paused while you look up words
   with the controller.
-- **Other Shortcuts**: The sentence audio recording (*Settings → Anki Audio*) and the **Overlay switch key/buttons**
-  (*Settings → General*) can have controller buttons too, which work at any time. As with the scan key, pick buttons
-  your game doesn't use.
+- **Other Shortcuts**: The sentence audio recording (*Settings → Anki Audio*) and the **Overlay hide key/buttons** and
+  **Overlay switch key/buttons** (*Settings → General*) can have controller buttons too, which work at any time. As
+  with the scan key, pick buttons your game doesn't use.
 
 ---
 
 ## OCR overlay
 
 Switch to the OCR overlay with **OCR Overlay** in the menu bar, with **Overlay type** in *Settings → General*, or from
-any app with the **Overlay switch key/buttons** set just below it. The text box hides, and you can point at the text
+any app with the **Overlay switch key/buttons** set below it. The text box hides, and you can point at the text
 in your game or app directly. Overlay options are in *Settings → OCR Overlay*, and how text is read (also by **Read
 text from OCR**) in *Settings → OCR*. MacPopup needs the **Screen Recording** permission (*System Settings → Privacy &
 Security*).

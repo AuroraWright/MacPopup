@@ -200,6 +200,21 @@ enum SettingsSchema {
                     hint: "The Floating Window displays incoming text in a floating box. The OCR overlay reads text directly from a game or app window on screen, and you hover over it there."
                 ),
                 SettingsField(
+                    "overlayHideShortcut", "Overlay hide key/buttons", .shortcutAndButtons(buttons: "overlayHideButtons"),
+                    hint: "Hides the overlays and shows them again from any app, as Hide Overlays in the menu bar does, with a keyboard shortcut or a button combination on a game controller set up in Settings → Controllers. Your game doesn’t see the keyboard shortcut, but it does see the controller buttons, so pick buttons it doesn’t use.",
+                    warning: { settings in
+                        let buttons = Set(settings["overlayHideButtons"] as? [String] ?? [])
+                        guard !buttons.isEmpty else { return nil }
+                        if Set(settings["gamepadScanButtons"] as? [String] ?? []) == buttons {
+                            return "These controller buttons are already used by the controller scan key, which takes priority."
+                        }
+                        if SentenceAudioController.isEnabled(settings), Set(settings["sentenceAudioButtons"] as? [String] ?? []) == buttons {
+                            return "Anki Audio already uses these buttons, so it takes priority."
+                        }
+                        return nil
+                    }
+                ),
+                SettingsField(
                     "overlaySwitchShortcut", "Overlay switch key/buttons", .shortcutAndButtons(buttons: "overlaySwitchButtons"),
                     hint: "Switches between the OCR overlay and the Floating Window from any app, with a keyboard shortcut or a button combination on a game controller set up in Settings → Controllers. Your game doesn’t see the keyboard shortcut, but it does see the controller buttons, so pick buttons it doesn’t use.",
                     warning: { settings in
@@ -210,6 +225,9 @@ enum SettingsSchema {
                         }
                         if SentenceAudioController.isEnabled(settings), Set(settings["sentenceAudioButtons"] as? [String] ?? []) == buttons {
                             return "Anki Audio already uses these buttons, so it takes priority."
+                        }
+                        if Set(settings["overlayHideButtons"] as? [String] ?? []) == buttons {
+                            return "The overlay hide key/buttons already use these buttons, so they take priority."
                         }
                         return nil
                     }

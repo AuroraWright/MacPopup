@@ -31,23 +31,20 @@ struct SettingsView: View {
                 }
                 .listStyle(.sidebar)
                 VStack(alignment: .leading, spacing: 6) {
-                    // The same width: the sidebar's. Import's title is laid over it, centered like the others' (a
-                    // menu draws its own on the left).
-                    Menu {
+                    // The same width: the sidebar's, with the titles on the left, where a menu draws its own.
+                    Menu("Import") {
                         Button("Yomitan Settings…", action: actions.importYomitan)
                         Button("texthooker-ui Settings…", action: actions.importTexthooker)
                         Divider()
                         Button("MacPopup Settings…", action: actions.importBackup)
-                    } label: {
-                        Text("")
                     }
                     .frame(maxWidth: .infinity)
-                    .overlay { Text("Import").allowsHitTesting(false) }
-                    .accessibilityLabel("Import")
                     .help("Import settings from Yomitan, texthooker-ui or a MacPopup settings file.")
-                    Button(action: actions.exportBackup) { Text("Export…").frame(maxWidth: .infinity) }
+                    Button(action: actions.exportBackup) { Text("Export…").frame(maxWidth: .infinity, alignment: .leading) }
                         .help("Save all settings to a file.")
-                    Button(role: .destructive, action: actions.resetAll) { Text("Reset All…").frame(maxWidth: .infinity) }
+                    Button(role: .destructive, action: actions.resetAll) {
+                        Text("Reset All…").frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2148,6 +2145,9 @@ private struct HotkeysControl: View {
         }
         if SentenceAudioController.isEnabled(model.values), Set(model["sentenceAudioButtons"] as? [String] ?? []) == buttons {
             return "Anki Audio already uses these buttons, so it takes priority."
+        }
+        if Set(model["overlayHideButtons"] as? [String] ?? []) == buttons {
+            return "The overlay hide key/buttons already use these buttons, so they take priority."
         }
         if Set(model["overlaySwitchButtons"] as? [String] ?? []) == buttons {
             return "The overlay switch already uses these buttons, so it takes priority."

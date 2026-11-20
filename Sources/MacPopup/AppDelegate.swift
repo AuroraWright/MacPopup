@@ -66,6 +66,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         setUpStatusItem()
         setUpEditMenu()
         setOverlayVisible(true)
+        hideShortcut.onPress = { [weak self] _ in self?.toggleOverlayVisible(from: "keyboard") }
+        SettingsStore.shared.observe { [weak self] _ in self?.applyHideShortcut() }
+        applyHideShortcut()
 
         if WelcomeWindowController.isFirstLaunch {
             welcomeWindow = WelcomeWindowController(yomitanAPI: yomitanAPI) { [weak self] section in
@@ -133,6 +136,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
 
     @objc private func toggleOverlay() {
         setOverlayVisible(!overlay.isVisible)
+    }
+
+    /// Settings → General → Overlay hide key/buttons: the keyboard shortcut (the controller buttons are matched by
+    /// overlay.js).
+    private let hideShortcut = HotkeyController(signature: 0x4D50_4F48) // "MPOH"
+
+    private func applyHideShortcut() {
+        hideShortcut.set(KeyCombination(setting: SettingsStore.shared.dictionary["overlayHideShortcut"])) { [weak self] taken in
+            self?.overlay.showToast("The overlay hide shortcut \(taken.displayName) is used by another app or shortcut")
+        }
+    }
+
+    /// Hides the overlays or shows them again, from the overlay hide key/buttons (`source`).
+    func toggleOverlayVisible(from source: String) {
+        if DebugLog.isOn { DebugLog.record(["type": "event", "event": "overlay hide", "from": source, "visible": !overlay.isVisible]) }
+        toggleOverlay()
     }
 
     @objc private func toggleOCR() {

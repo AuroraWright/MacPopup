@@ -23,6 +23,8 @@ protocol BridgeHost: AnyObject {
     func pressSentenceAudioShortcut(note: Int64?)
     /// Switches between the OCR overlay and the Floating Window (see OCRController.switchOverlay).
     func switchOverlay(from source: String)
+    /// Hides the overlays or shows them again, as the menu bar's Hide Overlays.
+    func toggleOverlayVisible(from source: String)
     /// A card was added or overwritten from a popup (see SentenceAudioController.cardAdded).
     func cardAdded(note: Int64, line: Int?, nested: Bool, withAudio: Bool)
     /// Notes a line that was shown, and replies with its id and what the text box does with it (see AppDelegate.noteLine).
@@ -183,6 +185,10 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "switchOverlay":
             // From the overlay switch's controller buttons (see overlay.js).
             host?.switchOverlay(from: body["from"] as? String ?? "page")
+            return nil
+        case "toggleOverlayVisible":
+            // From the overlay hide buttons (see overlay.js).
+            host?.toggleOverlayVisible(from: body["from"] as? String ?? "page")
             return nil
         case "cardAdded":
             guard let note = (body["note"] as? NSNumber)?.int64Value else { throw AppError("Missing note") }
