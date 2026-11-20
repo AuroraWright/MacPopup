@@ -61,11 +61,21 @@ def attrs(n):
 
 def rne(v):
     """Round half to even, spelled out: Core ML's GPU rounds ties away from zero once `round` is fused with the ops
-    around it. floor(v + 0.5) is exact for the values requantized here (|v| < 2^22)."""
-    f = mb.floor(x=mb.add(x=v, y=f32(0.5)))
+    around it. floor(v + 0.5) is exact for the values requantized here (|v| < 2^22); at a tie (exactly half above v),
+    the even one of it and the integer below: floor((v + 0.5) / 2) * 2."""
+    a = mb.add(x=v, y=f32(0.5))
+    f = mb.floor(x=a)
     tie = mb.equal(x=mb.sub(x=f, y=v), y=f32(0.5))
-    odd = mb.equal(x=mb.mod(x=mb.abs(x=f), y=f32(2.0)), y=f32(1.0))
-    return mb.select(cond=mb.logical_and(x=tie, y=odd), a=mb.sub(x=f, y=f32(1.0)), b=f)
+    half = mb.floor(x=mb.mul(x=a, y=f32(0.5)))
+    return mb.select(cond=tie, a=mb.add(x=half, y=half), b=f)
+
+
+class Centered:
+    """A quantized tensor carried as code - zero point (the exact detector): the zero point that one op adds and the
+    next one subtracts again then cost nothing."""
+
+    def __init__(self, var, zp):
+        self.var, self.zp = var, zp
 
 
 # -- MLAS logistic, for the QLinearSigmoid tables ------------------------------------------------------------------
@@ -132,14 +142,28 @@ class Converter:
         self.exact = exact
         self.inits = {t.name: numpy_helper.to_array(t) for t in self.g.initializer}
         self.env = {}
+        self.centered = {}  # tensors carried as Centered that an op also needed as codes
         self.shape_of = {}  # name of a Shape output -> the var whose shape it is
 
     def val(self, name):
         if name in self.env:
-            return self.env[name]
+            v = self.env[name]
+            if isinstance(v, Centered):
+                # an op that needs the codes themselves (later uses share them)
+                self.env[name] = mb.add(x=v.var, y=f32(v.zp)) if v.zp else v.var
+                self.centered[name] = v
+                return self.env[name]
+            return v
         if name in self.inits:
             return self.inits[name]
         raise KeyError(name)
+
+    def minus(self, name, z):
+        """code - z of a quantized tensor."""
+        v = self.centered.get(name) or self.env.get(name)
+        if isinstance(v, Centered):
+            return v.var if v.zp == z else mb.add(x=v.var, y=f32(v.zp - z))
+        return mb.sub(x=self.var(name), y=f32(z))
 
     def var(self, name):
         v = self.val(name)
@@ -172,6 +196,14 @@ class Converter:
             return [mb.conv(**kw)]
         if op == "Relu":
             return [mb.relu(x=self.var(I[0]))]
+        if op in ("MaxPool", "Resize") and isinstance(self.env.get(I[0]), Centered):
+            # the same with the zero point taken off
+            v = self.env[I[0]]
+            self.env[I[0]] = v.var
+            try:
+                return [Centered(self.node(n)[0], v.zp)]
+            finally:
+                self.env[I[0]] = v
         if op == "MaxPool":
             k = a["kernel_shape"]
             pads = a.get("pads", [0] * 4)
@@ -236,10 +268,10 @@ class Converter:
         if op == "QuantizeLinear":
             s, zp = float(self.const(I[1])), int(self.const(I[2]))
             q = rne(mb.real_div(x=self.var(I[0]), y=f32(s)))
-            return [mb.clip(x=mb.add(x=q, y=f32(zp)), alpha=f32(0), beta=f32(255))]
+            return [Centered(mb.clip(x=q, alpha=f32(-zp), beta=f32(255 - zp)), zp)]
         if op == "DequantizeLinear":
             s, zp = self.const(I[1]).astype(np.float32), int(self.const(I[2]))
-            return [mb.mul(x=mb.sub(x=self.var(I[0]), y=f32(zp)), y=s)]
+            return [mb.mul(x=self.minus(I[0], zp), y=s)]
         if op == "QLinearConv":
             return [self.qlinear_conv(n, a)]
         if op == "QLinearAdd":
@@ -247,13 +279,12 @@ class Converter:
             sa, sb, sc = (f32(self.const(s)) for s in (sa, sb, sc))
             za, zb, zc = (int(self.const(z)) for z in (za, zb, zc))
             ra, rb = f32(sa / sc), f32(sb / sc)
-            y = mb.add(x=mb.mul(x=mb.sub(x=self.var(xa), y=f32(za)), y=ra),
-                       y=mb.mul(x=mb.sub(x=self.var(xb), y=f32(zb)), y=rb))
-            return [mb.clip(x=mb.add(x=rne(y), y=f32(zc)), alpha=f32(0), beta=f32(255))]
+            y = mb.add(x=mb.mul(x=self.minus(xa, za), y=ra), y=mb.mul(x=self.minus(xb, zb), y=rb))
+            return [Centered(rne(mb.clip(x=y, alpha=f32(-zc), beta=f32(255 - zc))), zc)]
         if op == "QLinearSigmoid":
             xs, xz, ys, yz = (self.const(i) for i in I[1:5])
-            table = sigmoid_table(f32(xs), int(xz), f32(ys), int(yz))
-            return [mb.gather(x=table, indices=mb.cast(x=self.var(I[0]), dtype="int32"), axis=0)]
+            table = sigmoid_table(f32(xs), int(xz), f32(ys), int(yz)) - f32(int(yz))
+            return [Centered(mb.gather(x=table, indices=mb.cast(x=self.minus(I[0], 0), dtype="int32"), axis=0), int(yz))]
         raise NotImplementedError(op)
 
     def qlinear_conv(self, n, a):
@@ -269,13 +300,14 @@ class Converter:
         if wz.size == 1:
             wz = np.repeat(wz, wq.shape[0])
         wi = wq - wz[:, None, None, None]  # integer-valued weights
-        acc = mb.conv(x=mb.sub(x=self.var(x), y=f32(xz)), weight=wi, **self.conv_args(a, wq))
+        acc = mb.conv(x=self.minus(x, xz), weight=wi, **self.conv_args(a, wq))
         if B is not None:
+            # (After the convolution: with it as the convolution's bias, Core ML's GPU takes about three times as long.)
             acc = mb.add(x=acc, y=self.const(B).astype(np.float32).reshape(1, -1, 1, 1))
         scale = ((xs * ws) / ys).astype(np.float32)  # ONNX Runtime: X_scale * W_scale / Y_scale
         y = mb.mul(x=acc, y=scale.reshape(1, -1, 1, 1))
         y = mb.clip(x=y, alpha=f32(0 - yz), beta=f32(255 - yz))
-        return mb.add(x=rne(y), y=f32(yz))
+        return Centered(rne(y), yz)
 
     def input_quantization(self):
         """The detector's Sub -> Div -> QuantizeLinear on its input: (mean, std, scale, zero point, output, skipped)."""
