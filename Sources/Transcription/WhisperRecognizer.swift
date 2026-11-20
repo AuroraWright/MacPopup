@@ -24,7 +24,7 @@ final class WhisperRecognizer: Recognizer, @unchecked Sendable {
         return Set(Constants.languages.values).contains(code) ? code : nil
     }
 
-    func transcribe(_ samples: [Float], language: String) async throws -> String {
+    func transcribe(_ samples: [Float], language: String) async throws -> Transcript {
         let options = DecodingOptions(
             // anime-whisper is Japanese only; Whisper detects languages it isn't given.
             language: model == .animeWhisper ? "ja" : Self.languageCode(for: language),
@@ -33,6 +33,7 @@ final class WhisperRecognizer: Recognizer, @unchecked Sendable {
             // retry the line is empty. The audio given is speech (the voice detector's), so it's left out.
             firstTokenLogProbThreshold: nil)
         let results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
-        return results.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+        // Without times: WhisperKit's word timestamps take another pass.
+        return Transcript(text: results.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }

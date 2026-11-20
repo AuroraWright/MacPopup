@@ -3,28 +3,45 @@ import CoreML
 import Foundation
 import OCREngines
 
+/// A token and the frame it was read at.
+typealias FrameToken = (token: Int, frame: Int)
+
 /// Greedy CTC decoding: each frame's likeliest token, repeats merged, blanks dropped.
 /// - Parameters:
 ///   - logits: [frames][vocabulary] floats, `rowStride` apart.
-func ctcTokens(_ logits: UnsafePointer<Float>, frames: Int, vocabulary: Int, rowStride: Int, blank: Int) -> [Int] {
-    var tokens: [Int] = []
+func ctcTokens(_ logits: UnsafePointer<Float>, frames: Int, vocabulary: Int, rowStride: Int, blank: Int) -> [FrameToken] {
+    var tokens: [FrameToken] = []
     var previous = -1
     for frame in 0..<frames {
         var value: Float = 0
         var index: vDSP_Length = 0
         vDSP_maxvi(logits + frame * rowStride, 1, &value, &index, vDSP_Length(vocabulary))
         let token = Int(index)
-        if token != previous && token != blank { tokens.append(token) }
+        if token != previous && token != blank { tokens.append((token, frame)) }
         previous = token
     }
     return tokens
 }
 
-/// SentencePiece pieces to text: "▁" starts a word.
-func detokenize(_ tokens: [Int], vocabulary: [String]) -> String {
-    tokens.map { $0 < vocabulary.count ? vocabulary[$0] : "" }.joined()
-        .replacingOccurrences(of: "▁", with: " ")
-        .trimmingCharacters(in: .whitespaces)
+/// SentencePiece pieces to text ("▁" starts a word), each character heard when its piece was: at its frame times
+/// `seconds`, plus `offset`.
+func detokenize(_ tokens: [FrameToken], vocabulary: [String], seconds: Double, offset: Double = 0) -> Transcript {
+    var scalars = String.UnicodeScalarView()
+    var scalarTimes: [Double] = []
+    for (token, frame) in tokens where token < vocabulary.count {
+        for scalar in vocabulary[token].unicodeScalars {
+            scalars.append(scalar == "▁" ? " " : scalar)
+            scalarTimes.append(offset + Double(frame) * seconds)
+        }
+    }
+    let text = String(scalars)
+    var times: [Double] = []
+    var index = 0
+    for character in text {
+        times.append(scalarTimes[index])
+        index += character.unicodeScalars.count
+    }
+    return Transcript(text: text, times: times)
 }
 
 func loadVocabulary(_ url: URL) throws -> [String] {
@@ -205,18 +222,20 @@ final class KitsuneRecognizer: Recognizer, @unchecked Sendable {
         return Int(length)
     }
 
-    func transcribe(_ samples: [Float], language: String) async throws -> String {
-        guard let largest = buckets.last else { return "" }
+    func transcribe(_ samples: [Float], language: String) async throws -> Transcript {
+        guard let largest = buckets.last else { return Transcript() }
         let longest = (largest - 1) * hop
         var (values, frames, valid) = features(samples.count > longest ? Array(samples.prefix(longest)) : samples)
-        guard valid > 0 else { return "" }
+        guard valid > 0 else { return Transcript() }
         let bucket = buckets.first { $0 >= frames } ?? largest
         values += [Float](repeating: 0, count: (bucket - frames) * melCount)
-        return detokenize(try predict(bucket: bucket, features: values, valid: valid), vocabulary: vocabulary)
+        // An output frame is `stride` to the power of `layers` input frames, of `hop` samples at 16 kHz.
+        let seconds = Double(hop) * pow(Double(stride), Double(layers)) / 16000
+        return detokenize(try predict(bucket: bucket, features: values, valid: valid), vocabulary: vocabulary, seconds: seconds)
     }
 
     /// The tokens for features padded to `bucket` frames, of which `valid` are the audio's.
-    private func predict(bucket: Int, features: [Float], valid: Int) throws -> [Int] {
+    private func predict(bucket: Int, features: [Float], valid: Int) throws -> [FrameToken] {
         let input = try MLDictionaryFeatureProvider(dictionary: [
             "input_features": MLFeatureValue(multiArray: try multiArray(features, shape: [1, bucket, melCount])),
             "length": MLFeatureValue(multiArray: int32Array(valid)),
@@ -261,8 +280,8 @@ final class SenseVoiceRecognizer: Recognizer, @unchecked Sendable {
         vocabulary = try loadVocabulary(directory.appendingPathComponent("vocab.json"))
     }
 
-    func transcribe(_ samples: [Float], language: String) async throws -> String {
-        guard !samples.isEmpty else { return "" }
+    func transcribe(_ samples: [Float], language: String) async throws -> Transcript {
+        guard !samples.isEmpty else { return Transcript() }
         // Kaldi's scale: 16-bit sample values.
         var scaled = samples
         var scale: Float = 32768
@@ -292,10 +311,9 @@ final class SenseVoiceRecognizer: Recognizer, @unchecked Sendable {
         let tokens = try withOutput(output, "ctc_logits") { logits, shape, strides in
             ctcTokens(logits, frames: min(frames + 4, shape[1]), vocabulary: shape[2], rowStride: strides[1], blank: 0)
         }
-        var text = detokenize(tokens, vocabulary: vocabulary)
-        while let open = text.range(of: "<|"), let close = text.range(of: "|>", range: open.upperBound..<text.endIndex) {
-            text.removeSubrange(open.lowerBound..<close.upperBound)
-        }
-        return text.trimmingCharacters(in: .whitespaces)
+        // Without the tags (each a token: <|ja|> and the like); a frame is 60 ms, after the 4 tags'.
+        let spoken = tokens.filter { $0.token >= vocabulary.count || !vocabulary[$0.token].hasPrefix("<|") }
+            .map { ($0.token, max($0.frame - 4, 0)) }
+        return detokenize(spoken, vocabulary: vocabulary, seconds: 0.06)
     }
 }

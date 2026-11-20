@@ -1,4 +1,5 @@
 import Foundation
+import Transcription
 
 /// Commas and colons: a sentence that ends a row with one goes on in the next row. This is Unicode's SContinue
 /// (UAX #29) without its dashes, since a dash often ends a paragraph of dialogue.
@@ -27,11 +28,13 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     }
 
     /// When a line sent after another sent one (see Line.sent) is still that line, as the text box decides it
-    /// (Settings → Text Box): the same text again (`repeats`), or the line with more text (`grows`). Otherwise it's a
-    /// new line, however much it looks like the one before.
+    /// (Settings → Text Box): the same text again (`repeats`), or the line with more text (`grows`), or whatever its
+    /// text when it replaces the line with the id `replaces` (a transcribed line heard again) and that's still the last
+    /// one. Otherwise it's a new line, however much it looks like the one before.
     struct SentLines {
         var repeats = false
         var grows = false
+        var replaces: Int?
     }
 
     /// Where a line starts in a page's reading, in characters of its normalized text.
@@ -128,8 +131,11 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         let noted: Noted
         let isAgain = { (seen: String) in text.hasPrefix(seen) || seen.hasPrefix(text) || OCRText.isLongAndSame(text, seen) }
         let last = lines.indices.last
+        let replacesLast = !isPage && last.map { sentLines.replaces == lines[$0].id } == true
         let isSame: Bool
-        if !isPage, let last, let sent = lines[last].sent {
+        if replacesLast {
+            isSame = true
+        } else if !isPage, let last, let sent = lines[last].sent {
             isSame = (sentLines.repeats && text == sent) || (sentLines.grows && text.hasPrefix(sent))
         } else {
             isSame = last.map { lines[$0].texts.contains(where: isAgain) } ?? false
@@ -137,7 +143,7 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         if let last, isSame {
             let grew = text.count > lines[last].texts.map(\.count).max() ?? 0
             if !lines[last].texts.contains(text) { lines[last].texts.append(text) }
-            if grew { lines[last].text = shown }
+            if grew || replacesLast { lines[last].text = shown }
             noted = Noted(index: last, isNew: false, grew: grew, starts: isPage ? [(lines[last].id, 0)] : [])
         } else {
             let index = append(shown, info: info)

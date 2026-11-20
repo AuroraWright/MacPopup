@@ -49,8 +49,9 @@ public enum SpeechModel: String, CaseIterable, Sendable {
         case .whisper, .animeWhisper:
             ["coreml/MelSpectrogram.mlmodelc", "coreml/AudioEncoder.mlmodelc", "coreml/TextDecoder.mlmodelc",
              "coreml/tokenizer.json", "coreml/tokenizer_config.json", "coreml/config.json"]
-        case .kitsune: ["coreml/Kitsune.mlmodelc", "mel.bin", "vocab.json"]
-        case .senseVoice: ["coreml/SenseVoicePreprocessor.mlmodelc", "coreml/SenseVoiceSmall_int8.mlmodelc", "vocab.json"]
+        case .kitsune: ["coreml/Kitsune.mlmodelc", "kitsune.json", "mel.bin", "vocab.json"]
+        case .senseVoice:
+            ["coreml/SenseVoicePreprocessor.mlmodelc", "coreml/SenseVoiceSmall_int8.mlmodelc", "sensevoice.json", "vocab.json"]
         case .parakeet:
             ["coreml/Preprocessor.mlmodelc", "coreml/Encoder.mlmodelc", "coreml/Decoder.mlmodelc", "coreml/Joint.mlmodelc",
              "parakeet.json", "vocab.json"]
@@ -67,7 +68,28 @@ extension ConvertedModelsKind {
 
 /// What a model does: 16 kHz mono audio (-1 to 1) to text.
 protocol Recognizer: AnyObject, Sendable {
-    func transcribe(_ samples: [Float], language: String) async throws -> String
+    func transcribe(_ samples: [Float], language: String) async throws -> Transcript
+}
+
+/// A transcription, and when each of its characters was heard, for models that tell (all but Whisper's).
+public struct Transcript: Sendable, Equatable {
+    public private(set) var text = ""
+    /// Seconds into the audio, a time per Character of `text`; nil when the model doesn't tell.
+    public private(set) var times: [Double]?
+
+    public init(text: String = "", times: [Double]? = nil) {
+        (self.text, self.times) = (text, times)
+    }
+
+    mutating func append(_ character: Character, at time: Double) {
+        text.append(character)
+        times?.append(time)
+    }
+
+    mutating func append(_ other: Transcript) {
+        text += other.text
+        times = times.flatMap { mine in other.times.map { mine + $0 } }
+    }
 }
 
 /// How many speech and sentence-end models are loading, for the Floating Window's audio button: the first time, Core
@@ -113,23 +135,28 @@ public actor SpeechRecognizer: ConvertedModelsStore {
 
     /// Transcribes 16 kHz mono audio (-1 to 1, at most 30 s) in `language` (Yomitan's ISO code; models that don't
     /// read it guess), loading the models first if needed.
-    public func transcribe(_ samples: [Float], language: String) async throws -> String {
+    public func transcribe(_ samples: [Float], language: String) async throws -> Transcript {
         Self.tidied(try await recognizer().transcribe(samples, language: language))
     }
 
     /// The text without spaces next to Chinese or Japanese characters, which are written without them (SenseVoice
-    /// often puts one between Japanese words), and with one space where there were several.
+    /// often puts one between Japanese words), with one space where there were several, and none at either end.
     public static func tidied(_ text: String) -> String {
-        var result = ""
-        var space = false
-        for character in text {
+        tidied(Transcript(text: text)).text
+    }
+
+    public static func tidied(_ transcript: Transcript) -> Transcript {
+        var result = Transcript(times: transcript.times.map { _ in [] })
+        var space: Double?
+        for (index, character) in transcript.text.enumerated() {
+            let time = transcript.times?[index] ?? 0
             if character.isWhitespace {
-                space = true
+                space = space ?? time
                 continue
             }
-            if space, let last = result.last, !isCJK(last), !isCJK(character) { result.append(" ") }
-            space = false
-            result.append(character)
+            if let space, let last = result.text.last, !isCJK(last), !isCJK(character) { result.append(" ", at: space) }
+            space = nil
+            result.append(character, at: time)
         }
         return result
     }

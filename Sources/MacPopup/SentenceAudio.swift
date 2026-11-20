@@ -784,8 +784,15 @@ struct AudioClip {
     /// When the voice is clearly louder than the background (well above the music), its ends are first tightened to
     /// where it stands out.
     func trimmed(voiceFrom start: Double, to end: Double, padding: Double, startingBy latest: Double = .infinity) -> AudioClip {
+        let range = voiceRange(from: start, to: end, padding: padding, startingBy: latest)
+        return slice(from: range.lowerBound, to: range.upperBound)
+    }
+
+    /// Where `trimmed` cuts, in seconds.
+    func voiceRange(from start: Double, to end: Double, padding: Double, startingBy latest: Double = .infinity) -> ClosedRange<Double> {
         let padded = { (from: Double, to: Double) in
-            self.slice(from: max(0, min(from - padding, latest)), to: min(self.duration, to + padding))
+            let lower = max(0, min(from - padding, latest))
+            return lower...max(lower, min(self.duration, to + padding))
         }
         let step = 0.02
         let levels = rmsLevels(window: Int(format.sampleRate * step))

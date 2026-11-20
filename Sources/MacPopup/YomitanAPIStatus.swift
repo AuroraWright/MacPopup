@@ -54,9 +54,12 @@ final class YomitanAPIStatus: ObservableObject {
             // every time.
             let profileKey = version.map { "\(settings["yomitanApiUrl"] ?? "") \($0)" }
             if profileKey != profileAskedFor {
-                profileAskedFor = profileKey
+                // Only a definite answer is kept: after a failed request it's asked again at the next check.
                 let givesProfile = profileKey != nil ? await AnkiConnect.yomitanGivesProfile(settings: settings) : false
-                if givesProfile != self.givesProfile { self.givesProfile = givesProfile }
+                if let givesProfile {
+                    profileAskedFor = profileKey
+                    if givesProfile != self.givesProfile { self.givesProfile = givesProfile }
+                }
             }
             state = version.map { .reachable(version: $0) } ?? .unreachable
             checking = false

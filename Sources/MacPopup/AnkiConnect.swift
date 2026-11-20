@@ -45,19 +45,36 @@ enum AnkiConnect {
 
     /// Whether the Yomitan API has the paths displayOptions and dictionaryInfo (yomitan-api-endpoints.patch, see
     /// web/src/lib/yomitan-profile.js): an older Yomitan answers 400.
-    static func yomitanGivesProfile(settings: [String: Any]) async -> Bool {
-        (try? await yomitan("displayOptions", settings: settings, timeout: 5)) != nil
+    /// nil when it couldn't tell (not reachable, timed out or another error).
+    static func yomitanGivesProfile(settings: [String: Any]) async -> Bool? {
+        do {
+            _ = try await post(yomitanURL("displayOptions", settings: settings), body: [:], timeout: 5)
+            return true
+        } catch let error as HTTPStatus where error.status == 400 {
+            return false
+        } catch {
+            return nil
+        }
     }
 
     /// Calls the Yomitan API at the address in the settings.
     private static func yomitan(_ path: String, settings: [String: Any], timeout: TimeInterval) async throws -> Any {
-        var base = settings["yomitanApiUrl"] as? String ?? "http://127.0.0.1:19633"
-        while base.hasSuffix("/") { base.removeLast() }
         do {
-            return try await post("\(base)/\(path)", body: [:], timeout: timeout)
+            return try await post(yomitanURL(path, settings: settings), body: [:], timeout: timeout)
         } catch {
             throw AppError("Yomitan API not connected")
         }
+    }
+
+    private static func yomitanURL(_ path: String, settings: [String: Any]) -> String {
+        var base = settings["yomitanApiUrl"] as? String ?? "http://127.0.0.1:19633"
+        while base.hasSuffix("/") { base.removeLast() }
+        return "\(base)/\(path)"
+    }
+
+    private struct HTTPStatus: LocalizedError {
+        let status: Int
+        var errorDescription: String? { "HTTP \(status)" }
     }
 
     private static func post(_ urlString: String, body: [String: Any], timeout: TimeInterval) async throws -> Any {
@@ -67,7 +84,7 @@ enum AnkiConnect {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await URLSession.shared.data(for: request)
-        if let status = (response as? HTTPURLResponse)?.statusCode, status != 200 { throw AppError("HTTP \(status)") }
+        if let status = (response as? HTTPURLResponse)?.statusCode, status != 200 { throw HTTPStatus(status: status) }
         return try JSONSerialization.jsonObject(with: data)
     }
 }

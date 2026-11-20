@@ -810,10 +810,11 @@ private enum FontEffects {
 /// Receives the Fonts panel's changes for a FontControl: the typeface and size (changeFont) and the effects
 /// (changeAttributes) as NSFontManager's target, and the background color (changeDocumentBackgroundColor), which
 /// goes to the key window's responder chain, from right after the window.
-@MainActor
+///
 /// One for the Settings window, closed with it or when another section is shown: not with the Font row, which the form
 /// unloads when it's scrolled out of view. (Never freed, as the Settings window's responder chain points to it while
 /// the panel is open.)
+@MainActor
 final class FontPanelTarget: NSResponder, NSFontChanging {
     static let shared = FontPanelTarget()
 

@@ -45,9 +45,15 @@ final class ParakeetRecognizer: Recognizer, @unchecked Sendable {
         _ = try transcribeWindow([Float](repeating: 0, count: 16000))
     }
 
-    func transcribe(_ samples: [Float], language: String) async throws -> String {
-        try pieces(samples).map { try transcribeWindow(Array(samples[$0])) }
-            .filter { !$0.isEmpty }.joined(separator: " ")
+    func transcribe(_ samples: [Float], language: String) async throws -> Transcript {
+        var result = Transcript()
+        for piece in pieces(samples) {
+            let transcript = try transcribeWindow(Array(samples[piece]), offset: Double(piece.lowerBound) / 16000)
+            guard !transcript.text.isEmpty else { continue }
+            if !result.text.isEmpty { result.append(" ", at: transcript.times?.first ?? 0) }
+            result.append(transcript)
+        }
+        return result
     }
 
     /// The audio's ranges of at most `window` samples, split where it's quietest (over 0.2 s) in the stretch where
@@ -66,27 +72,9 @@ final class ParakeetRecognizer: Recognizer, @unchecked Sendable {
         return pieces
     }
 
-    /// The middle of the quietest 0.2 s (energy over 20 ms blocks) in `range`.
-    private func quietest(_ samples: [Float], in range: Range<Int>) -> Int {
-        let block = 320, span = 10
-        let energies = stride(from: range.lowerBound, to: range.upperBound - block, by: block).map { start in
-            var energy: Float = 0
-            samples.withUnsafeBufferPointer { vDSP_svesq($0.baseAddress! + start, 1, &energy, vDSP_Length(block)) }
-            return energy
-        }
-        guard energies.count > span else { return (range.lowerBound + range.upperBound) / 2 }
-        var best = 0, bestSum = Float.infinity
-        var sum = energies[0..<span].reduce(0, +)
-        for first in 0...(energies.count - span) {
-            if first > 0 { sum += energies[first + span - 1] - energies[first - 1] }
-            if sum < bestSum { (best, bestSum) = (first, sum) }
-        }
-        return range.lowerBound + (best + span / 2) * block
-    }
-
-    /// Up to `window` samples to text.
-    private func transcribeWindow(_ samples: [Float]) throws -> String {
-        guard !samples.isEmpty else { return "" }
+    /// Up to `window` samples to text, heard `offset` seconds into the audio.
+    private func transcribeWindow(_ samples: [Float], offset: Double = 0) throws -> Transcript {
+        guard !samples.isEmpty else { return Transcript() }
         var padded = samples
         padded.append(contentsOf: repeatElement(0, count: window - samples.count))
         let features = try preprocessor.prediction(from: MLDictionaryFeatureProvider(dictionary: [
@@ -111,15 +99,16 @@ final class ParakeetRecognizer: Recognizer, @unchecked Sendable {
             }
             return (frames, size)
         }
-        return detokenize(try decode(frames, hidden: hidden), vocabulary: vocabulary)
+        // An encoder frame is 80 ms (10 ms features, subsampled 8 times).
+        return detokenize(try decode(frames, hidden: hidden), vocabulary: vocabulary, seconds: 0.08, offset: offset)
     }
 
     /// Greedy TDT decoding of the encoder's frames ([frames][hidden]), as NeMo's.
-    private func decode(_ frames: [Float], hidden: Int) throws -> [Int] {
+    private func decode(_ frames: [Float], hidden: Int) throws -> [FrameToken] {
         let count = frames.count / hidden
         let step = try MLMultiArray(shape: [1, NSNumber(value: hidden), 1], dataType: .float32)
         var state = try predict(token: blank, state: nil)
-        var tokens: [Int] = []
+        var tokens: [FrameToken] = []
         var frame = 0, symbols = 0
         while frame < count {
             step.withUnsafeMutableBufferPointer(ofType: Float.self) { pointer, _ in
@@ -138,7 +127,7 @@ final class ParakeetRecognizer: Recognizer, @unchecked Sendable {
                 symbols = 0
                 continue
             }
-            tokens.append(token)
+            tokens.append((token, frame))
             state = try predict(token: token, state: state)
             symbols += 1
             if duration > 0 || symbols >= Self.maxSymbolsPerFrame {
@@ -175,4 +164,22 @@ private extension MLMultiArray {
         withUnsafeMutableBufferPointer(ofType: T.self) { pointer, _ in pointer.update(repeating: value) }
         return self
     }
+}
+
+/// The middle of the quietest `span` 20 ms blocks of 16 kHz `samples` in `range` (its middle when it's shorter).
+func quietest(_ samples: [Float], in range: Range<Int>, span: Int = 10) -> Int {
+    let block = 320
+    let energies = stride(from: range.lowerBound, to: range.upperBound - block, by: block).map { start in
+        var energy: Float = 0
+        samples.withUnsafeBufferPointer { vDSP_svesq($0.baseAddress! + start, 1, &energy, vDSP_Length(block)) }
+        return energy
+    }
+    guard energies.count > span else { return (range.lowerBound + range.upperBound) / 2 }
+    var best = 0, bestSum = Float.infinity
+    var sum = energies[0..<span].reduce(0, +)
+    for first in 0...(energies.count - span) {
+        if first > 0 { sum += energies[first + span - 1] - energies[first - 1] }
+        if sum < bestSum { (best, bestSum) = (first, sum) }
+    }
+    return range.lowerBound + best * block + span * block / 2
 }

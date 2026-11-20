@@ -225,23 +225,27 @@ function readsOcr(settings = getSettings()) {
  * it (see noteLine in AppDelegate.swift), which also gives it its id. With "Read text from OCR", if OCR already added
  * the same line, this one takes its place. Returns the line (ShownLine), whose id comes later.
  */
-function addLine(rawText, player = null, age = 0, { grows = false, shown = null, replaces = null } = {}) {
+function addLine(rawText, player = null, age = 0, { shown = null, replaces = null } = {}) {
 	const line = { id: null, player };
 	if (state.paused || typeof rawText !== 'string') return line;
 	const settings = getSettings();
 	const text = applyReplacements(rawText, settings.replacements);
-	// A grown transcript line takes the place of the box's last line, if that's still the line it grew from.
+	// A grown transcript line takes the place of the box's last line, if that's still the line it grew from (once the
+	// new one is added: the box may leave it out, see transformLine, and then the old one stays).
 	const push = () => {
-		if (replaces && state.lines.at(-1) === replaces) removeLine(replaces);
+		const replaced = replaces && state.lines.at(-1) === replaces ? replaces : null;
 		const pushed = pushLine(rawText, { line });
-		shown?.(pushed ?? null);
+		if (pushed && replaced) removeLine(replaced);
+		shown?.(pushed ?? replaced ?? null);
 	};
 	// Lines the box leaves out as not in the language (e.g. a hook's other text) aren't taken as the game's.
 	if (!notesLines(settings) || (settings.filterNonCJKLines && !isInLanguage(text, settings.language))) {
 		push();
 		return line;
 	}
-	void nativeCall('line', { text, age, grows })
+	// The host replaces its line too, by id, if it's also still its last.
+	const replacesId = replaces && state.lines.at(-1) === replaces ? replaces.shown?.id : null;
+	void nativeCall('line', { text, age, replaces: replacesId ?? undefined })
 		.catch(() => ({}))
 		.then((result) => {
 			line.id = result?.id ?? null;
@@ -1216,13 +1220,11 @@ window.__macpopupClipboard = (text) => {
 	addLine(Number.isFinite(max) && max > 0 && text.length > max ? text.slice(0, max) : text);
 };
 
-// A sentence of transcribed speech, with "Read text from audio" (see AudioTranscriber.swift), and how many seconds ago
-// its voice started.
-// "Read text from audio" (AudioTranscriber.swift): a transcribed line, or the last one grown (`grows`), which replaces
-// it in the box when it's still the last line.
+// "Read text from audio" (AudioTranscriber.swift): a transcribed line, and how many seconds ago its voice started, or
+// the last one grown (`grows`), which replaces it in the box when it's still the last line.
 window.__macpopupTranscript = (text, age, grows = false) => {
 	const previous = grows ? state.transcriptLine : null;
-	addLine(text, null, age, { grows, shown: (line) => (state.transcriptLine = line), replaces: previous });
+	addLine(text, null, age, { shown: (line) => (state.transcriptLine = line), replaces: previous });
 };
 
 // OCR: the host reads another app's window with Live Text or another OCR engine

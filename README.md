@@ -8,7 +8,8 @@ modes:
 
 - **Floating Window**: Inspired by [JL](https://github.com/rampaa/JL). Shows text in a floating text box you can
   customize, like [texthooker-ui](https://github.com/Renji-XD/texthooker-ui). The text comes from WebSockets or the
-  clipboard (from tools like Textractor, Agent or LunaTranslator), or is read from a game's window with OCR.
+  clipboard (from tools like Textractor, Agent or LunaTranslator), is read from a game's window with OCR, or is
+  transcribed from its voices.
 - **OCR overlay**: Inspired by [meikipop](https://github.com/rtr46/meikipop) and
   [GameSentenceMiner](https://github.com/bpwhelan/GameSentenceMiner). Reads the text straight from any app or game
   window, so you can point at the game's own text to look words up. It uses Apple Live Text,
@@ -66,8 +67,8 @@ The Floating Window shows the lines from every WebSocket in **Settings → WebSo
 default), as plain text or texthooker JSON (`{"sentence": "..."}`).
 
 - **Move & Resize**: Drag the text box by its top edge, and resize it from its bottom-right corner. Hover it to show
-  buttons above its top-right corner: turn clipboard reading or OCR on and off, pause new lines, clear the box, open
-  Settings, or hide the overlay.
+  buttons above its top-right corner: turn clipboard reading, OCR or audio on and off, pause new lines, clear the box,
+  open Settings, or hide the overlay.
 - **Clipboard**: Turn on **Read copied text from clipboard** (*Settings → Floating Window*) to add text you copy in
   other apps to the box. Passwords copied from password managers are skipped.
 - **Read text from OCR**: Turn on **Read text from OCR** (*Settings → Floating Window*, or the **OCR** button) to read
@@ -76,6 +77,17 @@ default), as plain text or texthooker JSON (`{"sentence": "..."}`).
   page fills up over time, as in visual novels, each new sentence or paragraph becomes its own line. Lines that
   already came over WebSocket aren't added twice. A window may not be readable while it's hidden. Lines the OCR
   overlay reads are added too, so they're there when you switch back.
+- **Read text from audio**: Turn on **Read text from audio** (*Settings → Floating Window*, or the **audio** button)
+  to transcribe what's said in the captured window's app (or in every app, if no window is captured) and add each
+  sentence to the box. Music and sound effects are skipped. MacPopup needs the **System Audio Recording** permission.
+  - *Models*: Choose one in **Settings → Transcription**. None come with MacPopup: run the `scripts/convert-*.py`
+    script named there to make a `.zip` file, and click **Load**. **Kitsune** (the default) is very fast and accurate
+    for Japanese, **anime-whisper** is the most accurate on game and anime voices but slower, **Whisper** reads 99
+    languages, **SenseVoice** Chinese, Cantonese, Japanese, Korean and English, and **Parakeet** 25 European
+    languages.
+  - *Lines*: A line ends when the speaker pauses (**Line ends after a pause of**, 1 second by default). With **End
+    lines at sentence ends** (and the SaT model, loaded the same way) and a short pause such as 200 ms, a line goes
+    on across short pauses until its sentence ends, and is transcribed again as it grows, which is more accurate.
 - **Font & Formatting**: Pick the box's font, size, color, underline, strikethrough, shadow and background in the
   macOS Fonts panel (*Settings → Floating Window → Font*). Show furigana above words (in hiragana, katakana, romaji or
   the dictionary reading), add spaces between words, show text vertically, or hide duplicate lines and lines that
@@ -372,3 +384,9 @@ The PP-OCRv6 Manga Core ML models (`vendor/ppocr-manga`) are licensed under the 
 The VOCR6 Core ML model and head (`vendor/mida-vocr6`) are licensed under the **GPL-3.0-or-later**, for
 **non-commercial use only**, and `Sources/OCREngines/MidaVOCR6.swift` is adapted from meikipop's provider and
 vita-vn-ocr's code under the **GPL-3.0-or-later** (see `vendor/mida-vocr6/README.md`). The mida model is by rtr46.
+
+The speech recognition models for **Read text from audio** don't come with MacPopup: the `scripts/convert-*.py`
+scripts download them from their authors. Kitsune is licensed under **CC BY-NC 4.0** (**non-commercial use only**),
+SenseVoice under the FunASR model licence, Parakeet under **CC BY 4.0**, and Whisper, anime-whisper and SaT under the
+**MIT License**. Whisper models run with Argmax's [WhisperKit](https://github.com/argmaxinc/WhisperKit) (**MIT
+License**).

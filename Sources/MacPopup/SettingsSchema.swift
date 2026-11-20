@@ -487,7 +487,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "transcriptionSentenceEnds", "End lines at sentence ends", .checkbox,
-                        hint: "A line keeps growing until its sentence ends, instead of ending at every pause."
+                        hint: "A line goes on after a short pause until its sentence ends, and the model hears its speech again with what follows. Set the pause below to about 200 ms: a line still ends at every longer pause."
                     ),
                     SettingsField(
                         "satModels", "SaT models", .convertedModels(.sat),
@@ -496,7 +496,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "transcriptionPause", "Line ends after a pause of (ms, 0 = off)", .number(min: 0),
-                        hint: "How long the speaker must pause before a line is added. Shorter pauses show lines sooner, but may cut sentences in two. For someone who talks without stopping, try 200, or 0 for a line about every 10 seconds."
+                        hint: "How long the speaker must pause before a line is added. Shorter pauses show lines sooner, but may cut sentences in two (unless “End lines at sentence ends” is on: then try 200). For someone who talks without stopping, try 200, or 0 for a line about every 10 seconds."
                     ),
                 ]
             ),

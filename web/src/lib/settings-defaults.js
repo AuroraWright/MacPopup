@@ -102,8 +102,8 @@ export const defaultSettings = {
 	displayIndex: 0,
 	windowLevel: 'screenSaver',
 
-	// Transcription (Settings → Transcription): 'kitsune', 'animeWhisper', 'whisper' or 'senseVoice' (SpeechModel in
-	// Sources/Transcription), and how long a pause in the voice (ms) ends a line.
+	// Transcription (Settings → Transcription): 'kitsune', 'animeWhisper', 'whisper', 'senseVoice' or 'parakeet'
+	// (SpeechModel in Sources/Transcription), and how long a pause in the voice (ms) ends a line.
 	transcriptionModel: 'kitsune',
 	transcriptionPause: 1000,
 	transcriptionSentenceEnds: false,
