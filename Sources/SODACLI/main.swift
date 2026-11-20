@@ -117,6 +117,18 @@ if args[1] == "sentence" {
     try! writeTensor(Tensor(shape: [1], data: .string([s])), args[2])
     exit(0)
 }
+if args[1] == "load" {
+    // load <model.tflite>...: loads each model (as a pack's are), printing its error if it doesn't (damaged files).
+    for path in args[2...] {
+        do {
+            _ = try Interpreter(contentsOf: URL(fileURLWithPath: path))
+            print("\(path): ok")
+        } catch {
+            print("\(path): error: \(error)")
+        }
+    }
+    exit(0)
+}
 if args[1] == "tflite" {
     // tflite <model.tflite> <out dir> <input>...: every tensor of the model's first subgraph after a run, as
     // opensoda's tflite-run --all writes them.

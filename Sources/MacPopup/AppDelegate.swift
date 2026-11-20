@@ -386,6 +386,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         if visible {
             overlay.show()
         } else {
+            // The popups close and the controller goes back to the game (else Game Pause would keep it paused).
+            overlay.evaluate("window.__macpopupReleaseForGame?.()")
             overlay.hide()
         }
         GamepadController.shared.overlayVisible = visible

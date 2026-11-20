@@ -75,11 +75,11 @@ extension ConvertedModelsKind {
 protocol Recognizer: AnyObject, Sendable {
     func transcribe(_ samples: [Float], language: String) async throws -> Transcript
     /// Loads what transcribing `language` needs, for models with a part per language.
-    func prepare(language: String) throws
+    func prepare(language: String) async throws
 }
 
 extension Recognizer {
-    func prepare(language: String) throws {}
+    func prepare(language: String) async throws {}
 }
 
 /// A transcription, and when each of its characters was heard, for models that tell (all but Whisper's).
@@ -104,7 +104,7 @@ public struct Transcript: Sendable, Equatable {
 }
 
 /// How many speech and sentence-end models are loading, for the Floating Window's audio button: the first time, Core
-/// ML takes minutes to prepare one.
+/// ML can take up to 3 minutes to prepare one.
 @MainActor public enum ModelsLoading {
     public private(set) static var count = 0
     /// Posted on the main thread when `count` changes.
@@ -181,11 +181,11 @@ public actor SpeechRecognizer: ConvertedModelsStore {
     }
 
     /// Loads the models, if they aren't yet, with their part for `language` (Live Caption's pack). The first time, Core
-    /// ML prepares them for the Neural Engine, which takes minutes for the Whisper models (macOS keeps the result, for
+    /// ML prepares them for the Neural Engine or the GPU, which takes up to 3 minutes (macOS keeps the result, for
     /// models at the same place).
     public func load(language: String? = nil) async throws {
         let recognizer = try await recognizer()
-        if let language { try recognizer.prepare(language: language) }
+        if let language { try await recognizer.prepare(language: language) }
     }
 
     /// Lets the models go, to free their memory; the next transcription loads them again.

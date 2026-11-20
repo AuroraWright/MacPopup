@@ -248,8 +248,10 @@ final class TFLiteModel: @unchecked Sendable {
         }
         let buffers = model.tables(4)
         for g in model.tables(2) {
-            let operators = g.tables(3).map { o -> Operator in
-                let (code, custom) = codes[Int(o.scalar(0, UInt32(0)))]
+            let operators = try g.tables(3).map { o -> Operator in
+                let opcode = Int(o.scalar(0, UInt32(0)))
+                guard codes.indices.contains(opcode) else { throw SODAError("\(name) is damaged") }
+                let (code, custom) = codes[opcode]
                 return Operator(code: code, custom: custom, inputs: o.scalars(1, as: Int32.self).map(Int.init),
                                 outputs: o.scalars(2, as: Int32.self).map(Int.init), options: o.table(4),
                                 customOptions: o.data(5))
@@ -298,9 +300,12 @@ final class TFLiteModel: @unchecked Sendable {
                 return TensorInfo(name: name, shape: shape, type: type, quantization: quantization, constant: constant,
                                   sparsity: sparsity, weights: weights)
             }
-            subgraphs.append(Subgraph(tensors: tensors, inputs: g.scalars(1, as: Int32.self).map(Int.init),
-                                      outputs: outputs, operators: operators))
+            let inputs = g.scalars(1, as: Int32.self).map(Int.init)
+            try Self.check(tensors: tensors, inputs: inputs, outputs: outputs, operators: operators, name: name)
+            subgraphs.append(Subgraph(tensors: tensors, inputs: inputs, outputs: outputs, operators: operators))
         }
+        // (A file cut short reads as one without any.)
+        guard !subgraphs.isEmpty, subgraphs[0].operators.count > 0 else { throw SODAError("\(name) is damaged") }
     }
 
     deinit {
@@ -308,6 +313,63 @@ final class TFLiteModel: @unchecked Sendable {
             munmap(UnsafeMutableRawPointer(mutating: storage.baseAddress), storage.count)
         } else {
             storage.deallocate()
+        }
+    }
+
+    /// Checks that a subgraph's ops take tensors it has and that its constants hold as many values as their shapes
+    /// say, which the kernels rely on: a damaged file throws here rather than crash later.
+    private static func check(tensors: [TensorInfo], inputs: [Int], outputs: [Int], operators: [Operator],
+                              name: String) throws {
+        let damaged = SODAError("\(name) is damaged")
+        let all = tensors.indices
+        // An op's missing optional input is -1.
+        guard inputs.allSatisfy(all.contains), outputs.allSatisfy(all.contains),
+              operators.allSatisfy({ $0.inputs.allSatisfy { $0 == -1 || all.contains($0) } && $0.outputs.allSatisfy(all.contains) }) else {
+            throw damaged
+        }
+        for t in tensors where t.constant != nil || t.weights != nil {
+            guard t.shape.allSatisfy({ $0 >= 0 }) else { throw damaged }
+            var count = 1
+            for size in t.shape {
+                let (product, overflow) = count.multipliedReportingOverflow(by: size)
+                guard !overflow else { throw damaged }
+                count = product
+            }
+            if let sparsity = t.sparsity {
+                // Rows of 16-column blocks: a segment start per row and one past the last, indices of blocks within a row.
+                guard t.shape.count == 2, t.shape[1] % 16 == 0, sparsity.segments.count == t.shape[0] + 1,
+                      sparsity.segments.first == 0, sparsity.segments.last == Int32(clamping: sparsity.blocks),
+                      zip(sparsity.segments, sparsity.segments.dropFirst()).allSatisfy({ $0 <= $1 }),
+                      (0..<sparsity.blocks).allSatisfy({ blockIndex(sparsity, $0) < t.shape[1] / 16 }) else {
+                    throw damaged
+                }
+                count = sparsity.blocks * 16
+            }
+            if let weights = t.weights {
+                // int8, or 4-bit packed two a byte.
+                guard weights.count >= (t.type == .int4 ? (count + 1) / 2 : count) else { throw damaged }
+            } else if let constant = t.constant {
+                let stored: Int? = switch constant.data {
+                case .float(let v): v.count
+                case .int32(let v): v.count
+                case .int64(let v): v.count
+                case .uint8(let v): v.count
+                case .int8(let v): v.count
+                case .int16(let v): v.count
+                case .bool(let v): v.count
+                case .string, .resource: nil
+                }
+                if let stored, stored < count { throw damaged }
+            }
+        }
+    }
+
+    private static func blockIndex(_ sparsity: BlockSparsity, _ block: Int) -> Int {
+        let at = block * sparsity.indexSize
+        return switch sparsity.indexSize {
+        case 1: Int(sparsity.indices[at])
+        case 2: Int(sparsity.indices.loadUnaligned(fromByteOffset: at, as: UInt16.self))
+        default: Int(sparsity.indices.loadUnaligned(fromByteOffset: at, as: UInt32.self))
         }
     }
 
@@ -389,7 +451,11 @@ final class TFLiteModel: @unchecked Sendable {
             Int(UInt32(bytes[at]) | UInt32(bytes[at + 1]) << 8 | UInt32(bytes[at + 2]) << 16 | UInt32(bytes[at + 3]) << 24)
         }
         let count = int(0)
-        return (0..<count).map { i in Array(bytes[int(4 + 4 * i)..<int(8 + 4 * i)]) }
+        // (None, from a damaged tensor whose offsets point outside it.)
+        guard count <= (bytes.count - 8) / 4 else { return [] }
+        let ranges = (0..<count).map { i in int(4 + 4 * i)..<max(int(4 + 4 * i), int(8 + 4 * i)) }
+        guard ranges.allSatisfy({ $0.upperBound <= bytes.count }) else { return [] }
+        return ranges.map { Array(bytes[$0]) }
     }
 }
 

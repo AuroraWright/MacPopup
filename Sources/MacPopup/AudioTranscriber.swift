@@ -23,6 +23,8 @@ final class AudioTranscriber {
     private var listener: SpeechListener?
     private var source: Source?
     private var model: SpeechModel?
+    /// Settings → General → language, as the model was last loaded for.
+    private var language: String?
     /// Stretches of speech waiting to be transcribed, oldest first.
     private var pending: [SpeechListener.Speech] = []
     private var transcribing = false
@@ -69,7 +71,9 @@ final class AudioTranscriber {
     private func applySettings() {
         let enabled = settings["floatingWindowAudio"] as? Bool ?? false
         let model = enabled ? SpeechModel(rawValue: settings["transcriptionModel"] as? String ?? "") ?? .kitsune : nil
-        if model != self.model {
+        let language = settings["language"] as? String ?? "ja"
+        let modelChanged = model != self.model
+        if modelChanged {
             if let old = self.model {
                 let recognizer = SpeechRecognizer.shared(old)
                 Task { await recognizer.unload() }
@@ -78,21 +82,22 @@ final class AudioTranscriber {
             shownError = nil
             pending.removeAll()
             linesBroken = true
-            if let model {
-                // Now, so the first line isn't late (the first time, Core ML takes long to prepare a model).
-                let recognizer = SpeechRecognizer.shared(model)
-                let language = settings["language"] as? String ?? "ja"
-                Task {
-                    do {
-                        let started = Date()
-                        try await recognizer.load(language: language)
-                        transcriptionLog(String(format: "%@ loaded in %.1f s", model.kind.name, Date().timeIntervalSince(started)))
-                    } catch {
-                        self.report(error)
-                    }
+        }
+        // Now, so the first line isn't late (the first time, Core ML takes long to prepare a model), and again for
+        // another language (Live Caption has a pack per language).
+        if let model, modelChanged || language != self.language {
+            let recognizer = SpeechRecognizer.shared(model)
+            Task {
+                do {
+                    let started = Date()
+                    try await recognizer.load(language: language)
+                    transcriptionLog(String(format: "%@ loaded in %.1f s", model.kind.name, Date().timeIntervalSince(started)))
+                } catch {
+                    self.report(error)
                 }
             }
         }
+        self.language = model == nil ? nil : language
         let wantsSentenceEnds = enabled && findsSentenceEnds
         if wantsSentenceEnds != self.wantsSentenceEnds {
             self.wantsSentenceEnds = wantsSentenceEnds

@@ -48,7 +48,8 @@ public final class SODAPack: @unchecked Sendable {
     /// Recognizes 16 kHz mono audio (-1 to 1) as one stretch: its final result, with each word's start. The audio is
     /// put on 16-bit samples first, as libsoda takes it.
     public func recognize(_ samples: [Float]) throws -> SODAResult {
-        let pcm = samples.map { Float(Int16(clamping: Int(($0 * 32768).rounded()))) }
+        // Clamped as floats: Int() of a NaN or infinite sample would crash.
+        let pcm = samples.map { $0.isNaN ? 0 : min(max(($0 * 32768).rounded(), -32768), 32767) }
         lock.lock()
         defer { lock.unlock() }
         return try recognizer.recognize(pcm)

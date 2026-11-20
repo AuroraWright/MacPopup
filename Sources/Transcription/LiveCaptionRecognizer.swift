@@ -34,32 +34,37 @@ final class LiveCaptionRecognizer: Recognizer, @unchecked Sendable {
         self.installed = installed
     }
 
-    func prepare(language: String) throws {
-        _ = try pack(for: language)
+    func prepare(language: String) async throws {
+        _ = try await pack(for: language)
     }
 
     func transcribe(_ samples: [Float], language: String) async throws -> Transcript {
-        let result = try pack(for: language).recognize(samples)
+        let result = try await pack(for: language).recognize(samples)
         return Self.transcript(result)
     }
 
-    /// The pack for `language`, loading it in place of the last one if needed. A language Live Caption doesn't read
-    /// gets the first pack.
-    private func pack(for language: String) throws -> SODAPack {
+    /// The pack for `language`, loading it in place of the last one if needed (counted in ModelsLoading, as a model's
+    /// loading). A language Live Caption doesn't read gets the first pack.
+    private func pack(for language: String) async throws -> SODAPack {
         let wanted = Self.locales[language]
         guard let locale = wanted.map({ $0.first(where: installed.contains) }) ?? installed.first else {
             let name = Locale(identifier: "en").localizedString(forLanguageCode: language) ?? language
             throw ConvertedModelsKind.Failure(
                 "The Live Caption .zip file has no \(name) pack. Make one with \(ConvertedModelsKind.soda.script) \(wanted?.first ?? language), then load it in Settings → Transcription.")
         }
-        lock.lock()
-        defer { lock.unlock() }
-        if let loaded, loaded.locale == locale { return loaded.pack }
-        // The last pack goes first, so that two aren't in memory at once.
-        loaded = nil
-        let pack = try SODAPack(directory: directory.appendingPathComponent(locale, isDirectory: true))
-        loaded = (locale, pack)
-        return pack
+        if let pack = lock.withLock({ loaded?.locale == locale ? loaded?.pack : nil }) { return pack }
+        return try await ModelsLoading.counting { try load(locale) }
+    }
+
+    private func load(_ locale: String) throws -> SODAPack {
+        try lock.withLock {
+            if let loaded, loaded.locale == locale { return loaded.pack }
+            // The last pack goes first, so that two aren't in memory at once.
+            loaded = nil
+            let pack = try SODAPack(directory: directory.appendingPathComponent(locale, isDirectory: true))
+            loaded = (locale, pack)
+            return pack
+        }
     }
 
     /// The result's text, its characters timed from the words' starts: each word's characters spread evenly until the
