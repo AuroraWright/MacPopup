@@ -136,6 +136,11 @@ final class SODARecognizer {
 
     /// Receives each encoder output frame (pass 0: the encoder, 1: the cascaded encoder), for checks.
     var encoderTap: ((Int, [Float]) -> Void)?
+    /// How recognize encodes a stretch: 0, as libsoda does audio arriving in 100 ms pieces (mostly 2 frames a call),
+    /// with libsoda's results; more, the whole stretch's frames this many at a time. The int8 layers' activation scales
+    /// then come from more frames, so results differ slightly (16: 105 of 1,000 Japanese clips by a few characters,
+    /// as often better as worse, 13.51% vs 13.56% CER), but the encoder takes much less time (median 227 vs 340 ms).
+    var wholeStretchBatch = 0
 
     // Streaming state (reset by `reset()`).
     private var frontend: Frontend
@@ -172,13 +177,13 @@ final class SODARecognizer {
     }
 
     /// Takes 16 kHz samples on the 16-bit scale, encoding and decoding the frames that are ready.
-    func accept(_ samples: [Float]) throws {
+    func accept(_ samples: [Float], encoding: Bool = true) throws {
         var audio = samples
         gain.process(&audio)
         var frames: [[Float]] = []
         frontend.accept(audio, into: &frames)
         enqueue(frames)
-        try runEncoder(flush: false)
+        if encoding { try runEncoder(flush: false) }
     }
 
     /// The stretch's result, once all its samples are in: its finals (`finals`) joined.
@@ -235,7 +240,7 @@ final class SODARecognizer {
     func recognize(_ samples: [Float]) throws -> SODAResult {
         reset()
         for start in stride(from: 0, to: samples.count, by: 1600) {
-            try accept(Array(samples[start..<min(start + 1600, samples.count)]))
+            try accept(Array(samples[start..<min(start + 1600, samples.count)]), encoding: wholeStretchBatch == 0)
         }
         return try finish()
     }
@@ -258,9 +263,11 @@ final class SODARecognizer {
         while !pending.isEmpty {
             let ready = pending.count
             var n = Self.batchSize(config.encoder, ready, closed: flush)
+            if wholeStretchBatch > 0 && flush {
+                n = wholeStretchBatch
             // Where the segmenter gates 10 ms frames (ko-KR, hi-IN, pt-BR, cmn-Hans-CN), libsoda's encoder encodes
             // the smallest batch first and then the largest batches that fit the backlog (opensoda's RunEncoder).
-            if firstBatch && n > 0 && config.frontend.subsampleAfterGate {
+            } else if firstBatch && n > 0 && config.frontend.subsampleAfterGate {
                 backlog = ready - n
             } else if backlog > 0 && n > 0 {
                 for b in config.encoder.timeBatchSizes where b <= backlog { n = max(n, b) }

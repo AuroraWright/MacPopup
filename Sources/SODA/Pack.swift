@@ -20,6 +20,8 @@ public final class SODAPack: @unchecked Sendable {
         let cascade = config.cascade.encoder.file.isEmpty ? nil : try encoder(config.cascade.encoder)
         recognizer = try SODARecognizer(models: directory, config: config, symbols: symbols,
                                         encoder: try encoder(config.encoder), cascadeEncoder: cascade)
+        // The whole stretch is here at once: its frames are encoded 16 at a time (see wholeStretchBatch).
+        recognizer.wholeStretchBatch = 16
     }
 
     /// Throws unless the folder has a pack's config, symbol table (as JSON) and encoder: quicker than loading it.
