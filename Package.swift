@@ -78,8 +78,30 @@ let package = Package(
         // scripts/convert-{whisper,anime-whisper,kitsune,sensevoice,parakeet,sat}.py, loaded like the OCR engines' (ConvertedModels).
         .target(
             name: "Transcription",
-            dependencies: ["OCREngines", .product(name: "WhisperKit", package: "argmax-oss-swift")],
+            dependencies: ["OCREngines", "SODA", .product(name: "WhisperKit", package: "argmax-oss-swift")],
             path: "Sources/Transcription"
+        ),
+        // Chrome's on-device speech recognition (SODA, Live Caption) as opensoda reimplements it, the packs' models run
+        // by a small TFLite interpreter with libsoda's kernels' arithmetic (the int8 ones in SODAKernels).
+        .target(
+            name: "SODAKernels",
+            path: "Sources/SODAKernels",
+            // No fused multiply-adds the source doesn't ask for: the float results must match TFLite's bit for bit.
+            cSettings: [.unsafeFlags(["-ffp-contract=off"]),
+                        .unsafeFlags(["-mcpu=apple-a14"], .when(platforms: [.iOS]))]
+        ),
+        .target(
+            name: "SODA",
+            dependencies: ["SODAKernels"],
+            path: "Sources/SODA",
+            // soda-cli reaches the stages' internals with @testable import.
+            swiftSettings: [.unsafeFlags(["-enable-testing"])]
+        ),
+        // Runs SODA's stages on audio files (for checking the port against opensoda).
+        .executableTarget(
+            name: "soda-cli",
+            dependencies: ["SODA"],
+            path: "Sources/SODACLI"
         ),
         // Transcribes audio files (for checking the recognizers against the Python ones).
         .executableTarget(

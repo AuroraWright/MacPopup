@@ -457,8 +457,9 @@ enum SettingsSchema {
                             SettingsOption("whisper", "Whisper large-v3 turbo"),
                             SettingsOption("senseVoice", "SenseVoice Small"),
                             SettingsOption("parakeet", "Parakeet TDT 0.6B v3"),
+                            SettingsOption("soda", "Live Caption (Chrome)"),
                         ]),
-                        hint: "Kitsune (by Multy123): Japanese, very fast. Non-commercial use only. anime-whisper (by litagin): Japanese, the most accurate on game and anime voices, but slower. Whisper (OpenAI): 99 languages, about a second per line. SenseVoice (Alibaba): Chinese, Cantonese, Japanese, Korean and English, the fastest. Parakeet (NVIDIA): 25 European languages, very fast.",
+                        hint: "Kitsune (by Multy123): Japanese, very fast. Non-commercial use only. anime-whisper (by litagin): Japanese, the most accurate on game and anime voices, but slower. Whisper (OpenAI): 99 languages, about a second per line. SenseVoice (Alibaba): Chinese, Cantonese, Japanese, Korean and English, the fastest. Parakeet (NVIDIA): 25 European languages, very fast. Live Caption (Google, from Chrome): 16 languages, including Hindi, Thai, Vietnamese, Indonesian and Turkish, fast, with punctuation.",
                         warning: { settings in
                             let language = settings["language"] as? String ?? "ja"
                             guard let model = SpeechModel(rawValue: settings["transcriptionModel"] as? String ?? "kitsune") else { return nil }
@@ -474,6 +475,7 @@ enum SettingsSchema {
                             case .senseVoice: "SenseVoice only transcribes Chinese, Cantonese, Japanese, Korean and English."
                             case .whisper: "Whisper doesn’t transcribe it."
                             case .parakeet: "Parakeet only transcribes 25 European languages."
+                            case .soda: "Live Caption doesn’t transcribe it."
                             }
                             return "Your language is \(name) (Settings → General). \(reads)"
                         }
@@ -502,6 +504,11 @@ enum SettingsSchema {
                         "parakeetModels", "Parakeet models", .convertedModels(.parakeet),
                         hint: "Run scripts/convert-parakeet.py to make a .zip file, then click Load.",
                         showIf: { $0["transcriptionModel"] as? String == "parakeet" }
+                    ),
+                    SettingsField(
+                        "sodaModels", "Live Caption models", .convertedModels(.soda),
+                        hint: "Run scripts/convert-soda.py with the languages you want (such as ja-JP en-US) to download Chrome’s language packs and make a .zip file, then click Load.",
+                        showIf: { $0["transcriptionModel"] as? String == "soda" }
                     ),
                     SettingsField(
                         "transcriptionSentenceEnds", "End lines at sentence ends", .checkbox,

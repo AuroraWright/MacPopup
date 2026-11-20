@@ -1,4 +1,4 @@
-// transcribe-cli <whisper|animeWhisper|kitsune|senseVoice|parakeet> <unpacked zip> <samples folder> <results folder> [domain ...]:
+// transcribe-cli <whisper|animeWhisper|kitsune|senseVoice|parakeet|soda> <unpacked zip> <samples folder> <results folder> [domain ...]:
 // transcribes samples/<domain>/*.wav (16 kHz mono 16-bit, listed in truth.jsonl) with the app's speech recognizers and
 // writes <results folder>/<domain>.jsonl ({"file", "text", "ms"}), for checking them against the Python ones
 // (scratch-tools/asr). Japanese, except eu-<language>_<region> domains (FLEURS's European languages, e.g. eu-es_419).

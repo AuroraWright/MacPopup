@@ -84,8 +84,8 @@ default), as plain text or texthooker JSON (`{"sentence": "..."}`).
   - *Models*: Choose one in **Settings → Transcription**. None come with MacPopup: run the `scripts/convert-*.py`
     script named there to make a `.zip` file, and click **Load**. **Kitsune** (the default) is very fast and accurate
     for Japanese, **anime-whisper** is the most accurate on game and anime voices but slower, **Whisper** reads 99
-    languages, **SenseVoice** Chinese, Cantonese, Japanese, Korean and English, and **Parakeet** 25 European
-    languages.
+    languages, **SenseVoice** Chinese, Cantonese, Japanese, Korean and English, **Parakeet** 25 European
+    languages, and **Live Caption** (Chrome's on-device speech recognition) 16 languages, with punctuation.
   - *Lines*: A line ends when the speaker pauses (**Line ends after a pause of**, 1 second by default). With **End
     lines at sentence ends** (and the SaT model, loaded the same way) and a short pause such as 200 ms, a line goes
     on across short pauses until its sentence ends, and is transcribed again as it grows, which is more accurate.
@@ -390,4 +390,6 @@ The speech recognition models for **Read text from audio** don't come with MacPo
 scripts download them from their authors. Kitsune is licensed under **CC BY-NC 4.0** (**non-commercial use only**),
 SenseVoice under the FunASR model licence, Parakeet under **CC BY 4.0**, and Whisper, anime-whisper and SaT under the
 **MIT License**. Whisper models run with Argmax's [WhisperKit](https://github.com/argmaxinc/WhisperKit) (**MIT
-License**).
+License**). Live Caption's language packs are Google's: `scripts/convert-soda.py` downloads them from Chrome's update
+server for your own use (don't share them or the `.zip` file), and MacPopup runs them itself (`Sources/SODA`), without
+Chrome.

@@ -5,7 +5,7 @@ import Foundation
 /// The OCR engines, speech recognition models and SaT (sentence ends in transcriptions), whose models can't come with MacPopup: a script converts or packs them
 /// on the user's Mac into a zip, which Settings → OCR or Transcription loads into Application Support.
 public enum ConvertedModelsKind: String, CaseIterable {
-    case screenAI, oneOCR, whisper, animeWhisper, kitsune, senseVoice, parakeet, sat
+    case screenAI, oneOCR, whisper, animeWhisper, kitsune, senseVoice, parakeet, soda, sat
 
     /// The OCR engines' (the iPhone app's).
     public static let ocr: [ConvertedModelsKind] = [.screenAI, .oneOCR]
@@ -19,6 +19,7 @@ public enum ConvertedModelsKind: String, CaseIterable {
         case .kitsune: "Kitsune"
         case .senseVoice: "SenseVoice"
         case .parakeet: "Parakeet"
+        case .soda: "Live Caption"
         case .sat: "SaT"
         }
     }
@@ -33,6 +34,7 @@ public enum ConvertedModelsKind: String, CaseIterable {
         case .kitsune: "Kitsune"
         case .senseVoice: "SenseVoice"
         case .parakeet: "Parakeet"
+        case .soda: "SODA"
         case .sat: "SaT"
         }
     }
@@ -47,9 +49,13 @@ public enum ConvertedModelsKind: String, CaseIterable {
         case .kitsune: "scripts/convert-kitsune.py"
         case .senseVoice: "scripts/convert-sensevoice.py"
         case .parakeet: "scripts/convert-parakeet.py"
+        case .soda: "scripts/convert-soda.py"
         case .sat: "scripts/convert-sat.py"
         }
     }
+
+    /// Whether the zip has Core ML models (in coreml/): all but Live Caption's, which are TFLite models run by MacPopup.
+    var hasCoreMLModels: Bool { self != .soda }
 
     /// The file the script writes at the zip's root, with the format's version.
     var infoFileName: String {
@@ -121,6 +127,7 @@ public enum ConvertedModelsKind: String, CaseIterable {
             guard info["format"] as? Int == 1 else {
                 throw Failure("These models were converted by a newer version of \(script) than this version of MacPopup reads.")
             }
+            guard hasCoreMLModels else { return staging }
             let coreml = staging.appendingPathComponent("coreml", isDirectory: true)
             let models = (try? manager.contentsOfDirectory(at: coreml, includingPropertiesForKeys: nil))?
                 .filter { ["mlpackage", "mlmodelc"].contains($0.pathExtension) } ?? []

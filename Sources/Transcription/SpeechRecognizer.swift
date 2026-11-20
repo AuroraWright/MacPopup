@@ -14,6 +14,8 @@ public enum SpeechModel: String, CaseIterable, Sendable {
     case senseVoice
     /// NVIDIA's Parakeet TDT 0.6B v3: 25 European languages, fast.
     case parakeet
+    /// Google's speech recognition for Chrome's Live Caption (SODA), from Chrome's language packs: 16 languages.
+    case soda
 
     public var kind: ConvertedModelsKind {
         switch self {
@@ -22,6 +24,7 @@ public enum SpeechModel: String, CaseIterable, Sendable {
         case .kitsune: .kitsune
         case .senseVoice: .senseVoice
         case .parakeet: .parakeet
+        case .soda: .soda
         }
     }
 
@@ -32,6 +35,7 @@ public enum SpeechModel: String, CaseIterable, Sendable {
         case .animeWhisper, .kitsune: language == "ja"
         case .senseVoice: SenseVoiceRecognizer.languageIndex[language] != nil
         case .parakeet: ParakeetRecognizer.languages.contains(language)
+        case .soda: LiveCaptionRecognizer.locales[language] != nil
         }
     }
 
@@ -55,6 +59,7 @@ public enum SpeechModel: String, CaseIterable, Sendable {
         case .parakeet:
             ["coreml/Preprocessor.mlmodelc", "coreml/Encoder.mlmodelc", "coreml/Decoder.mlmodelc", "coreml/Joint.mlmodelc",
              "parakeet.json", "vocab.json"]
+        case .soda: ["soda.json"]
         }
     }
 }
@@ -69,6 +74,12 @@ extension ConvertedModelsKind {
 /// What a model does: 16 kHz mono audio (-1 to 1) to text.
 protocol Recognizer: AnyObject, Sendable {
     func transcribe(_ samples: [Float], language: String) async throws -> Transcript
+    /// Loads what transcribing `language` needs, for models with a part per language.
+    func prepare(language: String) throws
+}
+
+extension Recognizer {
+    func prepare(language: String) throws {}
 }
 
 /// A transcription, and when each of its characters was heard, for models that tell (all but Whisper's).
@@ -169,10 +180,12 @@ public actor SpeechRecognizer: ConvertedModelsStore {
             || (0x20000...0x3FFFF).contains(scalar)
     }
 
-    /// Loads the models, if they aren't yet. The first time, Core ML prepares them for the Neural Engine, which takes
-    /// minutes for the Whisper models (macOS keeps the result, for models at the same place).
-    public func load() async throws {
-        _ = try await recognizer()
+    /// Loads the models, if they aren't yet, with their part for `language` (Live Caption's pack). The first time, Core
+    /// ML prepares them for the Neural Engine, which takes minutes for the Whisper models (macOS keeps the result, for
+    /// models at the same place).
+    public func load(language: String? = nil) async throws {
+        let recognizer = try await recognizer()
+        if let language { try recognizer.prepare(language: language) }
     }
 
     /// Lets the models go, to free their memory; the next transcription loads them again.
@@ -193,6 +206,7 @@ public actor SpeechRecognizer: ConvertedModelsStore {
                 case .kitsune: return try KitsuneRecognizer(directory: directory)
                 case .senseVoice: return try SenseVoiceRecognizer(directory: directory)
                 case .parakeet: return try ParakeetRecognizer(directory: directory)
+                case .soda: return try LiveCaptionRecognizer(directory: directory)
                 }
             }
         }

@@ -81,10 +81,11 @@ final class AudioTranscriber {
             if let model {
                 // Now, so the first line isn't late (the first time, Core ML takes long to prepare a model).
                 let recognizer = SpeechRecognizer.shared(model)
+                let language = settings["language"] as? String ?? "ja"
                 Task {
                     do {
                         let started = Date()
-                        try await recognizer.load()
+                        try await recognizer.load(language: language)
                         transcriptionLog(String(format: "%@ loaded in %.1f s", model.kind.name, Date().timeIntervalSince(started)))
                     } catch {
                         self.report(error)
