@@ -19,6 +19,7 @@ import { getSettings, resolveTheme, setLocalSettings } from './lib/settings.js';
 import { ankiFields, dictionaryMedia, kanjiEntries } from './lib/yomitan-api.js';
 import { getAudio, getAudioSources, getLoadedInfoList, startAudio } from './lib/audio-sources.js';
 import { cursorAt } from './lib/cursor.js';
+import { clearChildren } from './lib/dom.js';
 import { Tooltip } from './lib/tooltip.js';
 
 const overlay = () => window.parent.macpopupOverlay;
@@ -341,7 +342,7 @@ class Popup {
 		overlay()?.closePopupsAbove(this.depth);
 		this.contentManager.unloadAll();
 		this.overflowController.clearElements();
-		this.container.textContent = '';
+		clearChildren(this.container);
 		this.entryNodes = [];
 		this.noteDetails.clear();
 		this.dictionaryMediaPromise = null;
@@ -424,7 +425,7 @@ class Popup {
 		this.renderToken = null;
 		this.contentManager.unloadAll();
 		this.overflowController.clearElements();
-		this.container.textContent = '';
+		clearChildren(this.container);
 		this.entryNodes = [];
 	}
 
@@ -778,7 +779,7 @@ class Popup {
 
 	renderAudioMenu(menu, sources, term, reading) {
 		const body = menu.bodyNode;
-		body.replaceChildren();
+		clearChildren(body);
 		let showIcons = false;
 		const primary = this.primaryCardAudio.get(`${term}\u0000${reading}`) ?? null;
 		for (const source of sources) {

@@ -12,6 +12,7 @@ import { applyReplacements } from './lib/replacements.js';
 import { isInLanguage } from './lib/languages.js';
 import { popupHotkeyActions } from './lib/settings-defaults.js';
 import { cursorAt } from './lib/cursor.js';
+import { clearChildren } from './lib/dom.js';
 import { Tooltip } from './lib/tooltip.js';
 import { getSettings, loadSettings, onSettingsChanged, resolveTheme, saveSettings } from './lib/settings.js';
 import { ankiCardFormats, kanjiEntries, termEntries, tokenize, YomitanAPITimeout } from './lib/yomitan-api.js';
@@ -307,7 +308,7 @@ function clearLines() {
 	state.lines = [];
 	state.ocrLine = null;
 	state.lineTextCounts.clear();
-	linesElement.textContent = '';
+	clearChildren(linesElement);
 	popupManager.closeAll();
 }
 
@@ -415,7 +416,7 @@ function createLineElement(line, animate) {
 function rerenderLines() {
 	const settings = getSettings();
 	state.lineLayout = { reverseLineOrder: settings.reverseLineOrder, displayVertical: settings.displayVertical };
-	linesElement.textContent = '';
+	clearChildren(linesElement);
 	const ordered = settings.reverseLineOrder ? [...state.lines].reverse() : state.lines;
 	for (const line of ordered) {
 		line.element = createLineElement(line, false);
@@ -1335,7 +1336,7 @@ function clearOcrText() {
 	ocr.deferred = null;
 	ocr.stale = false;
 	clearMainScan();
-	$('#ocr-text').textContent = '';
+	clearChildren($('#ocr-text'));
 }
 
 /** Shows what was kept for when the popups closed (see ocr.deferred). */
