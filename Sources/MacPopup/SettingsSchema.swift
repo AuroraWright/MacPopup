@@ -457,9 +457,9 @@ enum SettingsSchema {
                             SettingsOption("whisper", "Whisper large-v3 turbo"),
                             SettingsOption("senseVoice", "SenseVoice Small"),
                             SettingsOption("parakeet", "Parakeet TDT 0.6B v3"),
-                            SettingsOption("soda", "Live Caption (Chrome)"),
+                            SettingsOption("soda", "Live Caption"),
                         ]),
-                        hint: "Kitsune (by Multy123): Japanese, very fast. Non-commercial use only. anime-whisper (by litagin): Japanese, the most accurate on game and anime voices, but slower. Whisper (OpenAI): 99 languages, about a second per line. SenseVoice (Alibaba): Chinese, Cantonese, Japanese, Korean and English, the fastest. Parakeet (NVIDIA): 25 European languages, very fast. Live Caption (Google, from Chrome): 16 languages, including Hindi, Thai, Vietnamese, Indonesian and Turkish, fast, with punctuation.",
+                        hint: "Kitsune (Multy123): Japanese, very fast, non-commercial use only. anime-whisper (litagin): Japanese, best on game and anime voices, slower. Whisper (OpenAI): 99 languages, about a second per line. SenseVoice (Alibaba): Chinese, Cantonese, Japanese, Korean and English, the fastest. Parakeet (NVIDIA): 25 European languages, very fast. Live Caption (Google): 16 languages, fast, with punctuation.",
                         warning: { settings in
                             let language = settings["language"] as? String ?? "ja"
                             guard let model = SpeechModel(rawValue: settings["transcriptionModel"] as? String ?? "kitsune") else { return nil }
