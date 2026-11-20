@@ -88,12 +88,15 @@ func int32Array(_ value: Int) -> MLMultiArray {
 }
 
 /// Kitsune-Transcribe P-0.3B (scripts/convert-kitsune.py): Parakeet's log-mel features, computed here as transformers'
-/// ParakeetFeatureExtractor does, then the encoder and CTC head on the GPU. The model has one fixed-length function per
-/// bucket of input lengths (with flexible lengths Core ML ran it all on the CPU); on the Neural Engine, macOS 15 loads
-/// no function of a model with several, and the GPU is about as fast. Transcriptions may run at the same time: nothing
-/// changes after init.
+/// ParakeetFeatureExtractor does, then the encoder and CTC head on the Neural Engine. The model has one fixed-length
+/// function per bucket of input lengths (with flexible lengths Core ML ran it all on the CPU). Only the longest bucket's
+/// function is loaded, all audio padded to it, with the same text as with the bucket of each line's length (198 of 200
+/// game clips; the others a character apart). On the Neural Engine it takes 84 ms (M1 Max; first load 20 s) and 68 MB,
+/// leaving the GPU to the game; on the GPU, 43 ms but 710 MB. Transcriptions may run at the same time: nothing changes
+/// after init.
 final class KitsuneRecognizer: Recognizer, @unchecked Sendable {
-    private let buckets: [Int]
+    /// The input frames the model takes, the longest bucket's.
+    private let frames: Int
     private let blank: Int
     private let kernel, stride, layers: Int
     private let preemphasis: Float
@@ -103,18 +106,18 @@ final class KitsuneRecognizer: Recognizer, @unchecked Sendable {
     private let vocabulary: [String]
     private let hann: [Float]
     private let fft: FFTSetup
-    /// Each bucket's function, loaded in init and only read after.
-    private let models: [Int: MLModel]
+    /// The longest bucket's function, loaded in init and only read after.
+    private let model: MLModel
 
     init(directory: URL) throws {
         guard let info = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("kitsune.json"))) as? [String: Any],
-              let buckets = info["buckets"] as? [Int], let blank = info["blank"] as? Int,
+              let frames = (info["buckets"] as? [Int])?.max(), let blank = info["blank"] as? Int,
               let subsampling = info["subsampling"] as? [String: Int], let kernel = subsampling["kernel"],
               let stride = subsampling["stride"], let layers = subsampling["layers"],
               let preemphasis = info["preemphasis"] as? Double, let fftSize = info["nFFT"] as? Int,
               let window = info["window"] as? Int, let hop = info["hop"] as? Int, info["sampleRate"] as? Int == 16000
         else { throw ConvertedModelsKind.kitsune.unexpectedModels }
-        self.buckets = buckets.sorted()
+        self.frames = frames
         self.blank = blank
         (self.kernel, self.stride, self.layers) = (kernel, stride, layers)
         self.preemphasis = Float(preemphasis)
@@ -134,16 +137,12 @@ final class KitsuneRecognizer: Recognizer, @unchecked Sendable {
             return Float(0.5 - 0.5 * cos(2 * Double.pi * Double(n) / Double(window - 1)))
         }
         fft = vDSP_create_fftsetup(vDSP_Length(fftSize.trailingZeroBitCount), FFTRadix(kFFTRadix2))!
-        models = try Dictionary(uniqueKeysWithValues: self.buckets.map { bucket in
-            let configuration = MLModelConfiguration()
-            configuration.computeUnits = .cpuAndGPU
-            configuration.functionName = "b\(bucket)"
-            return (bucket, try MLModel(contentsOf: directory.appendingPathComponent("coreml/Kitsune.mlmodelc"), configuration: configuration))
-        })
-        // Each bucket with a prediction, as the first one takes seconds longer (Core ML prepares the GPU's work).
-        for bucket in self.buckets {
-            _ = try predict(bucket: bucket, features: [Float](repeating: 0, count: bucket * melCount), valid: 1)
-        }
+        let configuration = MLModelConfiguration()
+        configuration.computeUnits = .cpuAndNeuralEngine
+        configuration.functionName = "b\(frames)"
+        model = try MLModel(contentsOf: directory.appendingPathComponent("coreml/Kitsune.mlmodelc"), configuration: configuration)
+        // A prediction now, as the first one takes longer.
+        _ = try predict(features: [Float](repeating: 0, count: frames * melCount), valid: 1)
     }
 
     deinit {
@@ -223,24 +222,21 @@ final class KitsuneRecognizer: Recognizer, @unchecked Sendable {
     }
 
     func transcribe(_ samples: [Float], language: String) async throws -> Transcript {
-        guard let largest = buckets.last else { return Transcript() }
-        let longest = (largest - 1) * hop
-        var (values, frames, valid) = features(samples.count > longest ? Array(samples.prefix(longest)) : samples)
+        let longest = (frames - 1) * hop
+        var (values, count, valid) = features(samples.count > longest ? Array(samples.prefix(longest)) : samples)
         guard valid > 0 else { return Transcript() }
-        let bucket = buckets.first { $0 >= frames } ?? largest
-        values += [Float](repeating: 0, count: (bucket - frames) * melCount)
+        values += [Float](repeating: 0, count: (frames - count) * melCount)
         // An output frame is `stride` to the power of `layers` input frames, of `hop` samples at 16 kHz.
         let seconds = Double(hop) * pow(Double(stride), Double(layers)) / 16000
-        return detokenize(try predict(bucket: bucket, features: values, valid: valid), vocabulary: vocabulary, seconds: seconds)
+        return detokenize(try predict(features: values, valid: valid), vocabulary: vocabulary, seconds: seconds)
     }
 
-    /// The tokens for features padded to `bucket` frames, of which `valid` are the audio's.
-    private func predict(bucket: Int, features: [Float], valid: Int) throws -> [FrameToken] {
+    /// The tokens for features padded to `frames` frames, of which `valid` are the audio's.
+    private func predict(features: [Float], valid: Int) throws -> [FrameToken] {
         let input = try MLDictionaryFeatureProvider(dictionary: [
-            "input_features": MLFeatureValue(multiArray: try multiArray(features, shape: [1, bucket, melCount])),
+            "input_features": MLFeatureValue(multiArray: try multiArray(features, shape: [1, frames, melCount])),
             "length": MLFeatureValue(multiArray: int32Array(valid)),
         ])
-        guard let model = models[bucket] else { throw ConvertedModelsKind.Failure("Kitsune has no model for \(bucket) frames.") }
         let output = try model.prediction(from: input)
         return try withOutput(output, "logits") { logits, shape, strides in
             ctcTokens(logits, frames: min(outputFrames(valid), shape[1]), vocabulary: shape[2], rowStride: strides[1], blank: blank)

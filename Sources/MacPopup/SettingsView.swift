@@ -566,7 +566,7 @@ private struct ConvertedModelsControl: View {
                 notLoaded.hidden()
                 loading.hidden()
                 if models.busy {
-                    // Speech models take minutes the first time, while Core ML prepares them.
+                    // Speech models can take up to 3 minutes the first time, while Core ML prepares them.
                     loading
                 } else if let converted = models.converted {
                     loaded.help("Converted \(converted.formatted(date: .abbreviated, time: .shortened))")

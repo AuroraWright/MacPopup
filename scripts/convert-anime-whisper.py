@@ -11,8 +11,10 @@ Needs Python 3.11 (whisperkittools pins its own versions of torch and transforme
 """
 # How the conversion works:
 # whisperkittools converts with its tests, which check each converted model against PyTorch and only then keep it.
-# They run on the CPU here: on the Neural Engine, where they run by default, loading each model first takes 15 minutes
-# or more. anime-whisper's decoder keeps kotoba-whisper's 2 layers but its settings name word-timing attention heads of
+# They run on the CPU here. The audio encoder's attention is split per head but not along the audio
+# (whisperkittools splits it into 256-frame pieces too): Core ML's first preparation of it for the Neural Engine then
+# takes under 2 minutes rather than 15 or more (M1 Max), and it runs about as fast.
+# anime-whisper's decoder keeps kotoba-whisper's 2 layers but its settings name word-timing attention heads of
 # large-v3's 32, so word timings (which MacPopup doesn't use) are left out of the decoder. The tokenizer is Whisper
 # large-v3's: anime-whisper has the same vocabulary but only the older tokenizer files, and WhisperKit reads
 # tokenizer.json.
@@ -29,7 +31,7 @@ from types import SimpleNamespace
 
 try:
     import coremltools as ct
-    from argmaxtools import test_utils
+    from argmaxtools import _sdpa, test_utils
     from huggingface_hub import hf_hub_download, snapshot_download
     from tests import test_audio_encoder, test_text_decoder
 except ImportError as e:
@@ -68,6 +70,7 @@ def main():
         test_text_decoder.main(args)
         print("Audio encoder", flush=True)
         args.sdpa_implementation = "SplitHeadsQ"
+        _sdpa.SplitHeadsQ.chunk_size = 1500  # Whisper's 30 s of audio: one piece
         args.melspectrogram_tests = True
         test_audio_encoder.main(args)
         for name in MODELS:
@@ -83,7 +86,8 @@ def main():
             shutil.copyfile(hf_hub_download(TOKENIZER_REPO, name, revision=TOKENIZER_REVISION), models / name)
         shutil.copyfile(source / "README.md", root / "README.md")
         (root / "animewhisper.json").write_text(json.dumps(
-            {"format": 1, "model": REPO, "revision": REVISION, "license": "MIT"}, indent=1))
+            {"format": 1, "model": REPO, "revision": REVISION, "license": "MIT", "encoderOnNeuralEngine": True},
+            indent=1))
         partial = output.with_name(output.name + ".partial")
         with zipfile.ZipFile(partial, "w", zipfile.ZIP_DEFLATED) as z:
             for path in sorted(root.rglob("*")):

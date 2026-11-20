@@ -58,7 +58,7 @@ public enum ConvertedModelsKind: String, CaseIterable {
     var hasCoreMLModels: Bool { self != .soda }
 
     /// The file the script writes at the zip's root, with the format's version.
-    var infoFileName: String {
+    public var infoFileName: String {
         "\(folderName.lowercased()).json"
     }
 

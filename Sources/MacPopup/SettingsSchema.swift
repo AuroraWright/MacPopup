@@ -487,12 +487,12 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "animeWhisperModels", "anime-whisper models", .convertedModels(.animeWhisper),
-                        hint: "Run scripts/convert-anime-whisper.py to make a .zip file, then click Load. The first load takes up to 20 minutes.",
+                        hint: "Run scripts/convert-anime-whisper.py to make a .zip file, then click Load. The first load takes about 2 minutes.",
                         showIf: { $0["transcriptionModel"] as? String == "animeWhisper" }
                     ),
                     SettingsField(
                         "whisperModels", "Whisper models", .convertedModels(.whisper),
-                        hint: "Run scripts/convert-whisper.py to make a .zip file (add --full for the slightly more accurate 1.6 GB version), then click Load. The first load takes about 10 minutes.",
+                        hint: "Run scripts/convert-whisper.py to make a .zip file (add --full for the slightly more accurate 1.6 GB version), then click Load. The first load takes about 3 minutes.",
                         showIf: { $0["transcriptionModel"] as? String == "whisper" }
                     ),
                     SettingsField(
