@@ -4,34 +4,56 @@ import CoreML
 import Foundation
 import OCRLineCache
 
-/// Text recognition with mida and VOCR6.2-L, as meikipop's "mida + VOCR6 (local)" provider has them
-/// (github.com/rtr46/meikipop pull 131), run with Core ML (converted by scripts/convert-mida-vocr6.py, see
-/// vendor/mida-vocr6): mida (rtr46's line detector) finds the horizontal text lines, and VOCR6 (from
-/// github.com/bee-san/vita-vn-ocr) reads each, with a cell along the line for each character. Horizontal text only.
+/// Text recognition with mida, VOCR6.2-L and VOCR6-V, as meikipop's "mida + VOCR6 (local)" provider has them
+/// (github.com/rtr46/meikipop, as of commit c5ca5b1), run with Core ML (converted by scripts/convert-mida-vocr6.py, see
+/// vendor/mida-vocr6): mida (rtr46's line detector) finds the text lines, horizontal and vertical, and VOCR6 (from
+/// github.com/bee-san/vita-vn-ocr) reads each, with a cell along the line for each character: VOCR6.2-L the
+/// horizontal lines, VOCR6-V the vertical ones, turned anticlockwise.
 ///
-/// This follows the provider's mida_detector.py and vocr_onnx.py step by step, with their integer arithmetic: OpenCV's
-/// resizing of 8-bit images for the detector, vita-vn-ocr's copy of it for the lines, its grey, its check for dark text,
-/// and its character cells (with the provider's calibration).
+/// This follows the provider's mida_detector.py, line_crops.py and vocr_onnx.py step by step, with their integer
+/// arithmetic: OpenCV's INTER_AREA resizing of 8-bit images for the detector, vita-vn-ocr's copy of OpenCV's bilinear
+/// resizing for the lines, its grey, its check for dark text, and its character cells (with VOCR6-V's own calibration,
+/// and for VOCR6.2-L the provider's earlier refit of its own: see scripts/convert-mida-vocr6.py).
 public final class MidaVOCR6: @unchecked Sendable {
     public static let shared = MidaVOCR6()
 
     private struct Models {
         let detection: MLModel
-        let recognition: MLModel
+        let horizontal: Recognizer, vertical: Recognizer
+    }
+
+    private struct Recognizer {
+        let model: MLModel
         let head: Head
     }
 
-    /// The detector's input: the picture fit inside this (scaled up or down).
-    private static let detectionSize = (width: 960.0, height: 544.0)
+    /// The detector's input: the picture, made smaller (never larger) to at most this many pixels.
+    private static let detectionPixels = 600_000
+    /// The converted detector's longest side (longer strips are made smaller still).
+    private static let detectionSide = 4096
     /// The detector's output has a cell for each 8 x 8 pixels of its input.
     private static let detectionStride = 8
-    /// Lines with fewer cells are left out.
-    private static let minimumCells = 2
-    /// Each end of a line is widened by this times its height, plus a few pixels (endPadding, for a picture 544 high):
-    /// the recognizer reads better with a little room. Not across the line, so lines keep the text's height.
-    private static let endGrowth = 0.4, endPadding = 4.0
+    /// A cell is in a line where its line kernel's probability is over this; a line needs this many cells, this
+    /// confidence (its cells' average probability) and to be this wide across (in the detector's pixels). At most
+    /// maximumLines are kept, the most confident.
+    private static let kernelThreshold = 0.5, minimumCells = 2, minimumConfidence = 0.5, minimumAcross = 2.0
+    private static let maximumLines = 256
     /// How many lines are read at once.
     private static let concurrentLines = 4
+
+    /// How a detected line becomes the part of the picture its recognizer reads (line_crops.py's CropConfig): its
+    /// ends widened by `endGrowth` times its thickness plus `endPadding` pixels, its sides by `acrossGrowth` times
+    /// its thickness, then moved across by `shift`. Lines less confident, shorter or thinner (in pixels) are left out.
+    private struct CropSettings {
+        let endGrowth: Double, endPadding: Double, acrossGrowth: Double, shift: Double
+        let minimumConfidence: Double, minimumLength: Double, minimumThickness: Double
+    }
+
+    /// line_crops.py's DEFAULT_H and DEFAULT_V.
+    private static let horizontalCrop = CropSettings(endGrowth: 0.4, endPadding: 4, acrossGrowth: 0, shift: 0,
+                                                     minimumConfidence: 0.5, minimumLength: 12, minimumThickness: 4)
+    private static let verticalCrop = CropSettings(endGrowth: 0.15, endPadding: 4, acrossGrowth: 0.2, shift: 2,
+                                                   minimumConfidence: 0.5, minimumLength: 12, minimumThickness: 4)
 
     /// Predictions run one at a time, off the main thread.
     private let queue = DispatchQueue(label: "MidaVOCR6", qos: .userInitiated)
@@ -85,13 +107,21 @@ public final class MidaVOCR6: @unchecked Sendable {
             configuration.computeUnits = computeUnits
             return try MLModel(contentsOf: url, configuration: configuration)
         }
-        // The recognizer runs on the CPU, several lines at once.
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent("MidaVOCR6.json")),
+              let info = try? JSONDecoder().decode([String: Head.Info].self, from: data),
+              let horizontal = info["horizontal"], let vertical = info["vertical"] else {
+            throw Failure(errorDescription: "The VOCR6 heads are missing")
+        }
+        // The recognizers run on the CPU, several lines at once.
         let loaded = Models(
             detection: try load("MidaDetection", on: OCRCompute.units(.cpuAndGPU)),
-            recognition: try load("VOCR6Recognition", on: .cpuOnly),
-            head: try Head(directory: directory)
+            horizontal: Recognizer(model: try load("VOCR6Recognition", on: .cpuOnly),
+                                   head: try Head(horizontal, weights: directory.appendingPathComponent("VOCR6Head.bin"))),
+            vertical: Recognizer(model: try load("VOCR6VerticalRecognition", on: .cpuOnly),
+                                 head: try Head(vertical, weights: directory.appendingPathComponent("VOCR6VerticalHead.bin")))
         )
-        for (model, name, shape) in [(loaded.detection, "images", [1, 3, 544, 960]), (loaded.recognition, "grey", [1, 1, 32, 256])] {
+        for (model, name, shape) in [(loaded.detection, "images", [1, 3, 544, 960]), (loaded.horizontal.model, "grey", [1, 1, 32, 256]),
+                                     (loaded.vertical.model, "grey", [1, 1, 32, 256])] {
             let input = try MLMultiArray(shape: shape as [NSNumber], dataType: .float32)
             input.withUnsafeMutableBufferPointer(ofType: Float.self) { buffer, _ in buffer.initialize(repeating: 0) }
             _ = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: [name: input]))
@@ -102,7 +132,8 @@ public final class MidaVOCR6: @unchecked Sendable {
 
     // MARK: Pipeline
 
-    /// A character and its cell along the line, in the line's pixels.
+    /// A character and its cell along the line, in the line's pixels (from the left of the turned crop in vertical
+    /// lines: from their top).
     private struct LineCharacter {
         let text: String
         let x0: Double
@@ -115,7 +146,9 @@ public final class MidaVOCR6: @unchecked Sendable {
         let normalize = { (x0: Double, y0: Double, x1: Double, y1: Double) in
             CGRect(x: x0 / width, y: y0 / height, width: (x1 - x0) / width, height: (y1 - y0) / height)
         }
-        let crops = try detectLines(image, model: models.detection)
+        let crops = try detectLines(image, model: models.detection).compactMap {
+            crop($0, settings: $0.vertical ? verticalCrop : horizontalCrop, width: image.width, height: image.height)
+        }
         var lines = [RecognizedLine?](repeating: nil, count: crops.count)
         var failure: Error?
         let lock = NSLock()
@@ -124,22 +157,30 @@ public final class MidaVOCR6: @unchecked Sendable {
                 let crop = crops[index]
                 let characters: [LineCharacter]
                 do {
-                    let grey = image.grey(x: crop.x, y: crop.y, width: crop.width, height: crop.height)
-                    let key = grey.withUnsafeBytes { LineCache<[LineCharacter]>.Key($0, [crop.width, crop.height]) }
+                    var grey = image.grey(x: crop.x, y: crop.y, width: crop.width, height: crop.height)
+                    var (lineWidth, lineHeight) = (crop.width, crop.height)
+                    if crop.vertical {
+                        grey = turnedAnticlockwise(grey, width: crop.width, height: crop.height)
+                        (lineWidth, lineHeight) = (crop.height, crop.width)
+                    }
+                    let recognizer = crop.vertical ? models.vertical : models.horizontal
+                    let key = grey.withUnsafeBytes { LineCache<[LineCharacter]>.Key($0, [lineWidth, lineHeight, crop.vertical ? 1 : 0]) }
                     characters = try cache.value(key) {
-                        try read(grey, width: crop.width, height: crop.height, models: models)
+                        try read(grey, width: lineWidth, height: lineHeight, recognizer: recognizer)
                     }
                 } catch {
                     lock.withLock { failure = error }
                     return
                 }
                 guard !characters.isEmpty else { continue }
-                let (x, y) = (Double(crop.x), Double(crop.y))
-                let bottom = y + Double(crop.height)
-                // At least a pixel wide.
-                let words = characters.map { ($0.text, normalize(x + $0.x0, y, x + max($0.x1, $0.x0 + 1), bottom)) }
-                let line = RecognizedLine(text: characters.map(\.text).joined(),
-                                          box: normalize(x, y, x + Double(crop.width), bottom), words: words)
+                let (x0, y0) = (Double(crop.x), Double(crop.y))
+                let (x1, y1) = (x0 + Double(crop.width), y0 + Double(crop.height))
+                // At least a pixel long.
+                let words = characters.map { character in
+                    let (start, end) = (character.x0, max(character.x1, character.x0 + 1))
+                    return (character.text, crop.vertical ? normalize(x0, y0 + start, x1, y0 + end) : normalize(x0 + start, y0, x0 + end, y1))
+                }
+                let line = RecognizedLine(text: characters.map(\.text).joined(), box: normalize(x0, y0, x1, y1), words: words)
                 lock.withLock { lines[index] = line }
             }
         }
@@ -148,35 +189,89 @@ public final class MidaVOCR6: @unchecked Sendable {
         return lines.compactMap { $0 }
     }
 
-    private struct Crop {
-        let x: Int, y: Int, width: Int, height: Int
+    /// A text line as the detector finds it, in the picture's pixels.
+    private struct DetectedLine {
+        let x0: Double, y0: Double, x1: Double, y1: Double
+        let vertical: Bool
+        let confidence: Double
     }
 
-    /// The horizontal text lines (mida_detector.py's detect), top to bottom.
-    private static func detectLines(_ image: RGBImage, model: MLModel) throws -> [Crop] {
+    private struct Crop {
+        let x: Int, y: Int, width: Int, height: Int
+        let vertical: Bool
+    }
+
+    /// The part of the picture a line's recognizer reads (line_crops.py's make_crop), or nil to leave it out.
+    private static func crop(_ line: DetectedLine, settings: CropSettings, width: Int, height: Int) -> Crop? {
+        var (x0, y0, x1, y1) = (line.x0, line.y0, line.x1, line.y1)
+        let (length, thickness) = line.vertical ? (y1 - y0, x1 - x0) : (x1 - x0, y1 - y0)
+        guard line.confidence >= settings.minimumConfidence, length >= settings.minimumLength,
+              thickness >= settings.minimumThickness else { return nil }
+        let end = settings.endGrowth * thickness + settings.endPadding
+        let across = settings.acrossGrowth * thickness
+        if line.vertical {
+            (x0, x1) = (x0 - across + settings.shift, x1 + across + settings.shift)
+            (y0, y1) = (y0 - end, y1 + end)
+        } else {
+            (x0, x1) = (x0 - end, x1 + end)
+            (y0, y1) = (y0 - across + settings.shift, y1 + across + settings.shift)
+        }
+        let left = max(0, Int(x0.rounded(.down))), top = max(0, Int(y0.rounded(.down)))
+        let right = min(width, Int(x1.rounded(.up))), bottom = min(height, Int(y1.rounded(.up)))
+        guard right > left, bottom > top else { return nil }
+        return Crop(x: left, y: top, width: right - left, height: bottom - top, vertical: line.vertical)
+    }
+
+    /// `grey` (`width` x `height`) turned a quarter anticlockwise (numpy's rot90): `height` x `width`, its top on the
+    /// left.
+    private static func turnedAnticlockwise(_ grey: [UInt8], width: Int, height: Int) -> [UInt8] {
+        var out = [UInt8](repeating: 0, count: grey.count)
+        for row in 0..<width {
+            for column in 0..<height { out[row * height + column] = grey[column * width + width - 1 - row] }
+        }
+        return out
+    }
+
+    /// The picture's size for the detector (mida_detector.py's target_size): at most `maximumPixels`, the sides
+    /// shrunk by the same factor and rounded down, then the longer one less a pixel at a time while it's too many.
+    static func detectionSize(width: Int, height: Int, maximumPixels: Int) -> (width: Int, height: Int) {
+        var (w, h) = (width, height)
+        guard w * h > maximumPixels else { return (w, h) }
+        let factor = (Double(maximumPixels) / Double(w * h)).squareRoot()
+        (w, h) = (max(1, Int(Double(w) * factor)), max(1, Int(Double(h) * factor)))
+        while w * h > maximumPixels && (w > 1 || h > 1) {
+            if w >= h && w > 1 { w -= 1 } else if h > 1 { h -= 1 }
+        }
+        return (w, h)
+    }
+
+    /// The text lines (mida_detector.py's detect), the most confident first.
+    private static func detectLines(_ image: RGBImage, model: MLModel) throws -> [DetectedLine] {
         let (w, h) = (image.width, image.height)
-        let scale = min(detectionSize.width / Double(w), detectionSize.height / Double(h))
-        let inputHeight = max(1, Int((Double(h) * scale).rounded(.toNearestOrEven)))
-        let inputWidth = max(1, Int((Double(w) * Double(inputHeight) / Double(h)).rounded(.toNearestOrEven)))
+        var (inputWidth, inputHeight) = detectionSize(width: w, height: h, maximumPixels: detectionPixels)
+        if max(inputWidth, inputHeight) > detectionSide {
+            let factor = Double(detectionSide) / Double(max(w, h))
+            (inputWidth, inputHeight) = (max(1, min(detectionSide, Int(Double(w) * factor))),
+                                         max(1, min(detectionSide, Int(Double(h) * factor))))
+        }
         // The converted model's smallest input.
         guard inputWidth >= 16, inputHeight >= 16 else { return [] }
         let sameSize = (inputWidth, inputHeight) == (w, h)
         let resized = sameSize
             ? image.pixels
-            : OpenCVResize.linear(image.pixels, width: w, height: h, pixelSize: 4, channels: 3, toWidth: inputWidth,
-                                  toHeight: inputHeight, areaWhenHalved: true)
+            : OpenCVResize.area(image.pixels, width: w, height: h, pixelSize: 4, channels: 3, toWidth: inputWidth, toHeight: inputHeight)
         let pixelSize = sameSize ? 4 : 3
         let input = try MLMultiArray(shape: [1, 3, inputHeight, inputWidth] as [NSNumber], dataType: .float32)
+        // Red, green, blue, from 0 to 1 (each value / 255, looked up).
+        let levels = (0..<256).map { Float($0) / 255 }
         input.withUnsafeMutableBufferPointer(ofType: Float.self) { output, strides in
             resized.withUnsafeBufferPointer { resized in
                 let (channelStride, rowStride) = (strides[1], strides[2])
-                for y in 0..<inputHeight {
-                    for x in 0..<inputWidth {
-                        let pixel = (y * inputWidth + x) * pixelSize
-                        // Blue, green, red, from 0 to 1.
-                        for channel in 0..<3 {
-                            output[channel * channelStride + y * rowStride + x] = Float(resized[pixel + 2 - channel]) / 255
-                        }
+                for channel in 0..<3 {
+                    for y in 0..<inputHeight {
+                        let source = resized.baseAddress! + y * inputWidth * pixelSize + channel
+                        let target = output.baseAddress! + channel * channelStride + y * rowStride
+                        for x in 0..<inputWidth { target[x] = levels[Int(source[x * pixelSize])] }
                     }
                 }
             }
@@ -185,33 +280,37 @@ public final class MidaVOCR6: @unchecked Sendable {
         guard let maps = output.featureValue(for: "maps")?.multiArrayValue else {
             throw Failure(errorDescription: "Unexpected detection output")
         }
-        return MLShapedArray<Float>(converting: maps).withUnsafeShapedBufferPointer { values, shape, strides in
-            decode(values: values, rows: shape[2], columns: shape[3], strides: strides,
-                   fx: Double(inputWidth) / Double(w), fy: Double(inputHeight) / Double(h), width: w, height: h)
+        let lines = MLShapedArray<Float>(converting: maps).withUnsafeShapedBufferPointer { values, shape, strides in
+            decode(values: values, rows: shape[2], columns: shape[3], strides: strides, width: inputWidth, height: inputHeight)
+        }
+        let (sx, sy) = (Double(inputWidth) / Double(w), Double(inputHeight) / Double(h))
+        return lines.map {
+            DetectedLine(x0: $0.x0 / sx, y0: $0.y0 / sy, x1: $0.x1 / sx, y1: $0.y1 / sy, vertical: $0.vertical, confidence: $0.confidence)
         }
     }
 
-    /// The detector's maps as lines: each 4-connected region of cells whose line kernel is positive (map 0), unless
-    /// it's vertical (map 1); its top and bottom are its cells' average distances to them (maps 2 and 3), its ends are
-    /// its cells', widened.
+    /// The detector's maps as lines in its input's pixels (`width` x `height`), the most confident first
+    /// (mida_detector.py's decode). Each 4-connected region of cells whose line kernel (map 0) is likely is a line,
+    /// vertical if its cells' orientation (map 1) is on average; across, its sides are its cells' average distances
+    /// to them (maps 2 and 3), and along, its ends are its cells'.
     private static func decode(values: UnsafeBufferPointer<Float>, rows: Int, columns: Int, strides: [Int],
-                               fx: Double, fy: Double, width: Int, height: Int) -> [Crop] {
-        let value = { (map: Int, row: Int, column: Int) in Double(values[map * strides[1] + row * strides[2] + column * strides[3]]) }
-        let padding = max(2, (endPadding * Double(height) / detectionSize.height).rounded(.toNearestOrEven))
-        var label = [Bool](repeating: false, count: rows * columns)
-        for row in 0..<rows {
-            for column in 0..<columns where value(0, row, column) > 0 { label[row * columns + column] = true }
+                               width: Int, height: Int) -> [DetectedLine] {
+        let value = { (map: Int, index: Int) in
+            Double(values[map * strides[1] + index / columns * strides[2] + index % columns * strides[3]])
         }
-        var crops: [Crop] = []
+        let sigmoid = { (x: Double) in 1 / (1 + exp(-x)) }
+        let kernel = (0..<rows * columns).map { sigmoid(value(0, $0)) }
+        var label = kernel.map { $0 > kernelThreshold }
+        var lines: [DetectedLine] = []
         var stack: [Int] = []
         let stride = Double(detectionStride)
         for start in 0..<label.count where label[start] {
             label[start] = false
             stack.append(start)
-            var cells: [(row: Int, column: Int)] = []
+            var cells: [Int] = []
             while let index = stack.popLast() {
+                cells.append(index)
                 let (row, column) = (index / columns, index % columns)
-                cells.append((row, column))
                 for (dr, dc) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
                     let (r, c) = (row + dr, column + dc)
                     guard r >= 0, r < rows, c >= 0, c < columns, label[r * columns + c] else { continue }
@@ -219,35 +318,42 @@ public final class MidaVOCR6: @unchecked Sendable {
                     stack.append(r * columns + c)
                 }
             }
-            guard cells.count >= minimumCells, cells.reduce(0.0, { $0 + value(1, $1.row, $1.column) }) <= 0 else { continue }
-            var topSum = 0.0, bottomSum = 0.0
+            // Added up in the provider's order (by row, then column).
+            cells.sort()
+            let count = Double(cells.count)
+            let confidence = cells.reduce(0.0) { $0 + kernel[$1] } / count
+            let vertical = cells.reduce(0.0) { $0 + sigmoid(value(1, $1)) } / count > 0.5
+            var nearSum = 0.0, farSum = 0.0
             var first = Int.max, last = Int.min
-            for (row, column) in cells {
-                let centre = stride * Double(row) + (stride - 1) / 2
-                topSum += centre - stride * value(2, row, column)
-                bottomSum += centre + stride * value(3, row, column)
-                first = min(first, column)
-                last = max(last, column)
+            for index in cells {
+                let (row, column) = (index / columns, index % columns)
+                let (across, along) = vertical ? (column, row) : (row, column)
+                let centre = stride * Double(across) + (stride - 1) / 2
+                nearSum += centre - value(2, index) * stride
+                farSum += centre + value(3, index) * stride
+                first = min(first, along)
+                last = max(last, along)
             }
-            let top = topSum / Double(cells.count) / fy, bottom = bottomSum / Double(cells.count) / fy
-            guard bottom - top >= 1 else { continue }
-            let left = stride * Double(first) / fx, right = stride * Double(last + 1) / fx
-            let growth = endGrowth * (bottom - top) * fy / fx + padding
-            let x0 = max(0, Int((left - growth).rounded(.down))), x1 = min(width, Int((right + growth).rounded(.up)))
-            let y0 = max(0, Int(top.rounded(.down))), y1 = min(height, Int(bottom.rounded(.up)))
+            let near = nearSum / count, far = farSum / count
+            guard cells.count >= minimumCells, confidence >= minimumConfidence, far - near >= minimumAcross else { continue }
+            let (start, end) = (stride * Double(first), stride * Double(last + 1))
+            var (x0, y0, x1, y1) = vertical ? (near, start, far, end) : (start, near, end, far)
+            (x0, y0, x1, y1) = (max(0, x0), max(0, y0), min(Double(width), x1), min(Double(height), y1))
             guard x1 > x0, y1 > y0 else { continue }
-            crops.append(Crop(x: x0, y: y0, width: x1 - x0, height: y1 - y0))
+            lines.append(DetectedLine(x0: x0, y0: y0, x1: x1, y1: y1, vertical: vertical, confidence: confidence))
         }
-        return crops.sorted { ($0.y, $0.x) < ($1.y, $1.x) }
+        // Most confident first; equally confident ones in the order found.
+        let order = lines.indices.sorted { (lines[$0].confidence, $1) > (lines[$1].confidence, $0) }
+        return order.prefix(maximumLines).map { lines[$0] }
     }
 
-    /// The characters of a line (`grey`, `width` x `height`), each with its cell (vocr_onnx.py's Recognizer.read, with
-    /// the provider's check for dark text).
-    private static func read(_ grey: [UInt8], width: Int, height: Int, models: Models) throws -> [LineCharacter] {
-        let head = models.head
+    /// The characters of a line (`grey`, `width` x `height`, vertical ones turned), each with its cell
+    /// (vocr_onnx.py's Recognizer.read, with the provider's check for dark text).
+    private static func read(_ grey: [UInt8], width: Int, height: Int, recognizer: Recognizer) throws -> [LineCharacter] {
+        let head = recognizer.head
         let (input, resizedWidth) = try lineInput(grey, width: width, height: height,
                                                   invert: isDark(grey, width: width, height: height), head: head)
-        let output = try models.recognition.prediction(from: MLDictionaryFeatureProvider(dictionary: ["grey": input]))
+        let output = try recognizer.model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["grey": input]))
         guard let features = output.featureValue(for: "features")?.multiArrayValue else {
             throw Failure(errorDescription: "Unexpected recognition output")
         }
@@ -307,7 +413,7 @@ public final class MidaVOCR6: @unchecked Sendable {
         resized = max(head.minWidth, min(head.maxWidth, resized))
         let padded = (resized + head.stride - 1) / head.stride * head.stride
         let line = OpenCVResize.linear(source, width: width, height: height, pixelSize: 1, channels: 1, toWidth: resized,
-                                       toHeight: head.height, areaWhenHalved: false)
+                                       toHeight: head.height)
         let input = try MLMultiArray(shape: [1, 1, head.height as NSNumber, padded as NSNumber], dataType: .float32)
         input.withUnsafeMutableBufferPointer(ofType: Float.self) { output, strides in
             for y in 0..<head.height {
@@ -326,7 +432,7 @@ public final class MidaVOCR6: @unchecked Sendable {
         let q = 16
         func divided(_ a: Int, _ b: Int) -> Int { a >= 0 ? (a + b / 2) / b : -((-a + b / 2) / b) }
         let centres = spans.map { span -> Int in
-            let r = q * head.stride * (span.first + span.last + 1) / 2 + Head.calibration[0] + Head.calibration[1 + head.groups[span.index]]
+            let r = q * head.stride * (span.first + span.last + 1) / 2 + head.calibration[0] + head.calibration[1 + head.groups[span.index]]
             return min(max(divided(r * width, resizedWidth), 0), width * q)
         }
         let distances = zip(centres, centres.dropFirst()).map { $1 - $0 }.sorted()
@@ -342,19 +448,22 @@ public final class MidaVOCR6: @unchecked Sendable {
 
     // MARK: The recognizer's head
 
-    /// The recognizer's last step, which the Core ML model leaves out (see scripts/convert-mida-vocr6.py): each frame's
-    /// features score the common characters; a small gate decides from them whether the frame also scores the rare
-    /// ones (the "fast" head that the provider runs).
+    /// A recognizer's last step, which the Core ML model leaves out (see scripts/convert-mida-vocr6.py): each frame's
+    /// features score the characters. VOCR6.2-L's scores its common characters, and a small gate decides from them
+    /// whether the frame also scores the rare ones (the "fast" head that the provider runs); VOCR6-V's scores all.
     private struct Head {
         let vocabulary: [String]
         /// Each character's kind, for its cell's calibration (vocr_onnx.py's char_group).
         let groups: [Int]
         let height: Int, stride: Int, minWidth: Int, maxWidth: Int
+        /// Where characters are, in 1/16 resized pixels: for all of them, then by kind (VOCR6-V's own vocr.charbox_cal,
+        /// as the provider uses; for VOCR6.2-L, pull 131's refit, which places them better than its own).
+        let calibration: [Int]
         let commonClasses: Int
         /// The common and the rare characters' weights ([features][their classes]), and a bias per class.
         let commonWeights: [Float], rareWeights: [Float], bias: [Float]
         let classCount: Int
-        let gate: Gate
+        let gate: Gate?
 
         struct Gate: Decodable {
             /// [features][units], integers.
@@ -363,30 +472,33 @@ public final class MidaVOCR6: @unchecked Sendable {
             let outputBias: Float, threshold: Float
         }
 
-        private struct Info: Decodable {
+        /// MidaVOCR6.json's "horizontal" and "vertical" (only L has common classes and a gate).
+        struct Info: Decodable {
             let vocabulary: [String]
-            let height: Int, stride: Int, minWidth: Int, maxWidth: Int, commonClasses: Int
-            let gate: Gate
+            let height: Int, stride: Int, minWidth: Int, maxWidth: Int
+            let calibration: [Int]
+            let commonClasses: Int?
+            let gate: Gate?
         }
 
-        /// The provider's calibration of where characters are, in 1/16 resized pixels: for all of them, then by
-        /// kind (vocr_onnx.py's CHARBOX_CAL, refit on VOCR6.2-L).
-        static let calibration = [-107, 0, 183, 4, 38, 7, -4, 44, 8]
         static let featureCount = 96
 
-        init(directory: URL) throws {
-            guard let data = try? Data(contentsOf: directory.appendingPathComponent("MidaVOCR6.json")),
-                  let info = try? JSONDecoder().decode(Info.self, from: data),
-                  let weightData = try? Data(contentsOf: directory.appendingPathComponent("VOCR6Head.bin")) else {
-                throw Failure(errorDescription: "The VOCR6 head is missing")
+        /// The head of `info`, with its weights from `weights` (little-endian floats: [96][classes], then a bias per
+        /// class).
+        init(_ info: Info, weights: URL) throws {
+            guard let weightData = try? Data(contentsOf: weights) else {
+                throw Failure(errorDescription: "The VOCR6 head \(weights.lastPathComponent) is missing")
             }
             vocabulary = info.vocabulary
             classCount = info.vocabulary.count
-            guard weightData.count == (Self.featureCount + 1) * classCount * 4, info.gate.weights.count == Self.featureCount else {
-                throw Failure(errorDescription: "The VOCR6 head doesn't fit its characters")
+            guard weightData.count == (Self.featureCount + 1) * classCount * 4, info.calibration.count == 9,
+                  info.gate.map({ $0.weights.count == Self.featureCount }) ?? true else {
+                throw Failure(errorDescription: "The VOCR6 head \(weights.lastPathComponent) doesn't fit its characters")
             }
             let floats = weightData.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
-            (height, stride, minWidth, maxWidth, commonClasses) = (info.height, info.stride, info.minWidth, info.maxWidth, info.commonClasses)
+            (height, stride, minWidth, maxWidth) = (info.height, info.stride, info.minWidth, info.maxWidth)
+            calibration = info.calibration
+            commonClasses = info.commonClasses ?? classCount
             let classes = classCount, common = commonClasses
             commonWeights = (0..<Self.featureCount).flatMap { floats[$0 * classes..<$0 * classes + common] }
             rareWeights = (0..<Self.featureCount).flatMap { floats[$0 * classes + common..<($0 + 1) * classes] }
@@ -422,7 +534,9 @@ public final class MidaVOCR6: @unchecked Sendable {
             var gated: [Int] = []
             for t in 0..<frames {
                 let row = Array(common[t * commonClasses..<(t + 1) * commonClasses])
-                if passes(Array(transposed[t * Self.featureCount..<(t + 1) * Self.featureCount]), common: row) { gated.append(t) }
+                if let gate, passes(Array(transposed[t * Self.featureCount..<(t + 1) * Self.featureCount]), common: row, gate: gate) {
+                    gated.append(t)
+                }
                 best[t] = Self.argmax(row)
             }
             guard !gated.isEmpty else { return best }
@@ -463,7 +577,7 @@ public final class MidaVOCR6: @unchecked Sendable {
 
         /// Whether the gate lets a frame score the rare characters, from its features and its common characters'
         /// scores. Its first layer is an integer product: the features scaled to ±32767 and rounded, as the graph does.
-        private func passes(_ features: [Float], common: [Float]) -> Bool {
+        private func passes(_ features: [Float], common: [Float], gate: Gate) -> Bool {
             let largest = features.reduce(Float(0)) { max($0, abs($1)) }
             let factor = Float(32767) / (largest > 0 ? largest : 1)
             let quantized = features.map { value -> Int32 in
@@ -511,8 +625,9 @@ extension RGBImage {
     }
 }
 
-/// OpenCV's resizing of 8-bit images with INTER_LINEAR (cv::resize), in its fixed-point arithmetic, so the detector sees
-/// what the provider's cv2.resize gives it, and lines what vita-vn-ocr's copy of it gives (vocr_onnx.py's preprocess).
+/// OpenCV's resizing of 8-bit images (cv::resize), in its arithmetic: with INTER_AREA, for the detector, as the
+/// provider's cv2.resize gives it; with INTER_LINEAR, for the lines, as vita-vn-ocr's copy of it does
+/// (vocr_onnx.py's preprocess).
 enum OpenCVResize {
     /// Each output index's first source index and the two 11-bit weights: OpenCV's (float) coordinates, rounded as it
     /// does. Columns (`clamped`) move to the edge with all the weight on it outside the image; rows keep their
@@ -529,31 +644,11 @@ enum OpenCVResize {
         }
     }
 
-    /// The first `channels` of `pixels` (`width` x `height`, `pixelSize` bytes each) resized, interleaved. With
-    /// `areaWhenHalved`, an exact halving of both sides averages 2 x 2 pixels instead, as cv::resize does for
-    /// INTER_LINEAR.
-    static func linear(_ pixels: [UInt8], width: Int, height: Int, pixelSize: Int, channels: Int, toWidth: Int, toHeight: Int,
-                       areaWhenHalved: Bool) -> [UInt8] {
+    /// The first `channels` of `pixels` (`width` x `height`, `pixelSize` bytes each) resized with INTER_LINEAR,
+    /// interleaved.
+    static func linear(_ pixels: [UInt8], width: Int, height: Int, pixelSize: Int, channels: Int, toWidth: Int, toHeight: Int) -> [UInt8] {
         var out = [UInt8](repeating: 0, count: toWidth * toHeight * channels)
         let rowSize = width * pixelSize, outRowSize = toWidth * channels
-        if areaWhenHalved && width == 2 * toWidth && height == 2 * toHeight {
-            pixels.withUnsafeBufferPointer { pixels in
-                out.withUnsafeMutableBufferPointer { out in
-                    for y in 0..<toHeight {
-                        let row0 = pixels.baseAddress! + 2 * y * rowSize, row1 = row0 + rowSize
-                        let target = out.baseAddress! + y * outRowSize
-                        for x in 0..<toWidth {
-                            let a = 2 * x * pixelSize, b = a + pixelSize
-                            for c in 0..<channels {
-                                let sum = Int32(row0[a + c]) + Int32(row0[b + c]) + Int32(row1[a + c]) + Int32(row1[b + c])
-                                target[x * channels + c] = UInt8(truncatingIfNeeded: (sum + 2) >> 2)
-                            }
-                        }
-                    }
-                }
-            }
-            return out
-        }
         let rows = coefficients(toHeight, height, clamped: false)
         let columns = coefficients(toWidth, width, clamped: true)
         // Each column's two source offsets and weights.
@@ -594,5 +689,108 @@ enum OpenCVResize {
             }
         }
         return out
+    }
+
+    /// The first `channels` of `pixels` (`width` x `height`, `pixelSize` bytes each) made smaller with INTER_AREA,
+    /// interleaved: each output pixel the average of the input pixels it covers, parts of pixels weighted by how much
+    /// of them it covers (in floats, as OpenCV adds them up), or, when both sides shrink by whole factors, of whole
+    /// pixels (in integers; halved, rounded as its vectorized code does).
+    static func area(_ pixels: [UInt8], width: Int, height: Int, pixelSize: Int, channels: Int, toWidth: Int, toHeight: Int) -> [UInt8] {
+        let scaleX = 1 / (Double(toWidth) / Double(width)), scaleY = 1 / (Double(toHeight) / Double(height))
+        let wholeX = Int(scaleX.rounded(.toNearestOrEven)), wholeY = Int(scaleY.rounded(.toNearestOrEven))
+        let whole = abs(scaleX - Double(wholeX)) < .ulpOfOne && abs(scaleY - Double(wholeY)) < .ulpOfOne
+        let rowSize = width * pixelSize, outRowSize = toWidth * channels
+        let columns = whole ? [] : areaTable(width, toWidth, scale: scaleX)
+        let rows = whole ? [] : areaTable(height, toHeight, scale: scaleY)
+        // Where each output row's entries start in `rows`.
+        var rowStarts = [Int](repeating: rows.count, count: toHeight + 1)
+        for (k, entry) in rows.enumerated() where k == 0 || entry.output != rows[k - 1].output { rowStarts[entry.output] = k }
+        var out = [UInt8](repeating: 0, count: toWidth * toHeight * channels)
+        // In bands of output rows, as OpenCV runs it (the same result).
+        let bands = min(toHeight, 8)
+        out.withUnsafeMutableBufferPointer { out in
+            // Each band writes its own rows.
+            nonisolated(unsafe) let out = out
+            pixels.withUnsafeBufferPointer { pixels in
+                DispatchQueue.concurrentPerform(iterations: bands) { band in
+                    let (first, end) = (toHeight * band / bands, toHeight * (band + 1) / bands)
+                    if whole {
+                        let halved = wholeX == 2 && wholeY == 2
+                        let scale = 1 / Float(wholeX * wholeY)
+                        var sums = [Int32](repeating: 0, count: outRowSize)
+                        for y in first..<end {
+                            for i in 0..<outRowSize { sums[i] = 0 }
+                            for dy in 0..<wholeY {
+                                let source = pixels.baseAddress! + (y * wholeY + dy) * rowSize
+                                for x in 0..<toWidth {
+                                    for dx in 0..<wholeX {
+                                        let pixel = source + (x * wholeX + dx) * pixelSize
+                                        for c in 0..<channels { sums[x * channels + c] += Int32(pixel[c]) }
+                                    }
+                                }
+                            }
+                            for i in 0..<outRowSize {
+                                out[y * outRowSize + i] = halved ? UInt8(truncatingIfNeeded: (sums[i] + 2) >> 2) : rounded(Float(sums[i]) * scale)
+                            }
+                        }
+                        return
+                    }
+                    let across = UnsafeMutablePointer<Float>.allocate(capacity: outRowSize)
+                    let sum = UnsafeMutablePointer<Float>.allocate(capacity: outRowSize)
+                    defer { across.deallocate(); sum.deallocate() }
+                    sum.initialize(repeating: 0, count: outRowSize)
+                    var acrossRow = -1
+                    var outputRow = rows[rowStarts[first]].output
+                    func write(_ row: Int) {
+                        for i in 0..<outRowSize { out[row * outRowSize + i] = rounded(sum[i]) }
+                    }
+                    columns.withUnsafeBufferPointer { columns in
+                        for k in rowStarts[first]..<rowStarts[end] {
+                            let entry = rows[k]
+                            // An input row across (the same for the two output rows it can fall in).
+                            if entry.input != acrossRow {
+                                acrossRow = entry.input
+                                let source = pixels.baseAddress! + entry.input * rowSize
+                                across.initialize(repeating: 0, count: outRowSize)
+                                for column in columns {
+                                    let (s, d) = (source + column.input * pixelSize, across + column.output * channels)
+                                    for c in 0..<channels { d[c] = d[c] + Float(s[c]) * column.alpha }
+                                }
+                            }
+                            if entry.output != outputRow {
+                                write(outputRow)
+                                for i in 0..<outRowSize { sum[i] = entry.alpha * across[i] }
+                                outputRow = entry.output
+                            } else {
+                                for i in 0..<outRowSize { sum[i] += entry.alpha * across[i] }
+                            }
+                        }
+                    }
+                    write(outputRow)
+                }
+            }
+        }
+        return out
+    }
+
+    /// OpenCV's computeResizeAreaTab: for each output index, the input indices it covers and how much of it each is.
+    private static func areaTable(_ inputCount: Int, _ outputCount: Int, scale: Double) -> [(output: Int, input: Int, alpha: Float)] {
+        var table: [(output: Int, input: Int, alpha: Float)] = []
+        for d in 0..<outputCount {
+            let start = Double(d) * scale, end = start + scale
+            let cellWidth = min(scale, Double(inputCount) - start)
+            var last = Int(end.rounded(.down))
+            last = min(last, inputCount - 1)
+            let first = min(Int(start.rounded(.up)), last)
+            if Double(first) - start > 1e-3 { table.append((d, first - 1, Float((Double(first) - start) / cellWidth))) }
+            for s in stride(from: first, to: last, by: 1) { table.append((d, s, Float(1.0 / cellWidth))) }
+            if end - Double(last) > 1e-3 { table.append((d, last, Float(min(min(end - Double(last), 1), cellWidth) / cellWidth))) }
+        }
+        return table
+    }
+
+    /// OpenCV's saturate_cast<uchar> of a float: rounded to the nearest (halves to even), within 0...255.
+    private static func rounded(_ value: Float) -> UInt8 {
+        UInt8(min(max(value.rounded(.toNearestOrEven), 0), 255))
     }
 }

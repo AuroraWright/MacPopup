@@ -211,7 +211,7 @@ Choose the engine in **Settings → OCR → Text recognition engine**. Lines wit
 - **PP-OCRv6 Manga**: Built-in Core ML models by Kellenok, fine-tuned from PaddleOCR's PP-OCRv6 for manga and anime:
   vertical text in speech bubbles, and sound effects (Japanese and Chinese).
 - **mida + VOCR6**: Built-in Core ML models: rtr46's mida finds the lines and vita-vn-ocr's VOCR6 reads them, as in
-  meikipop. About twice as fast as meikiocr, for Japanese game text, but horizontal text only.
+  meikipop. Faster than meikiocr, for Japanese game text, horizontal and vertical.
 - **Screen AI**: Google Chrome's own OCR engine, running on Core ML. Reads most scripts, and works out the layout and
   reading order by itself.
   - *Setup*: Make sure Chrome has downloaded its Screen AI component (`~/Library/Application
@@ -381,7 +381,7 @@ The `meikiocr` Core ML models (`vendor/meikiocr`) are licensed under the **LGPL-
 The PP-OCRv6 Manga Core ML models (`vendor/ppocr-manga`) are licensed under the **Apache License 2.0** (see
 `vendor/ppocr-manga/README.md`).
 
-The VOCR6 Core ML model and head (`vendor/mida-vocr6`) are licensed under the **GPL-3.0-or-later**, for
+The VOCR6 Core ML models and heads (`vendor/mida-vocr6`) are licensed under the **GPL-3.0-or-later**, for
 **non-commercial use only**, and `Sources/OCREngines/MidaVOCR6.swift` is adapted from meikipop's provider and
 vita-vn-ocr's code under the **GPL-3.0-or-later** (see `vendor/mida-vocr6/README.md`). The mida model is by rtr46.
 

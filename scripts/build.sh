@@ -110,7 +110,7 @@ mkdir -p "$APP/Contents/Resources/Models"
 for model in vendor/meikiocr/*.mlpackage vendor/ppocr-manga/*.mlpackage vendor/mida-vocr6/*.mlpackage; do
     xcrun coremlcompiler compile "$model" "$APP/Contents/Resources/Models" >/dev/null
 done
-cp vendor/ppocr-manga/PPOCRMangaCharacters.txt vendor/mida-vocr6/MidaVOCR6.json vendor/mida-vocr6/VOCR6Head.bin \
+cp vendor/ppocr-manga/PPOCRMangaCharacters.txt vendor/mida-vocr6/MidaVOCR6.json vendor/mida-vocr6/VOCR6Head.bin vendor/mida-vocr6/VOCR6VerticalHead.bin \
     "$APP/Contents/Resources/Models/"
 # Signed with a certificate, macOS keeps the privacy permissions (Screen Recording, Accessibility) across
 # builds; ad-hoc signatures change with every build, so they'd be asked for again.
