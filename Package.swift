@@ -39,11 +39,7 @@ let package = Package(
         // oneocr (the Windows Snipping Tool's OCR), ported to Swift; models converted by scripts/convert-oneocr.py.
         .target(
             name: "OneOCRKernels",
-            path: "Sources/OneOCRKernels",
-            // iOS builds default to the A7's instruction set, without the dot product instructions the kernels use. The
-            // iOS app's oldest device is the iPhone 13 mini (A15); the A14 is the Apple Silicon Mac's core, for the
-            // simulator.
-            cSettings: [.unsafeFlags(["-mcpu=apple-a14"], .when(platforms: [.iOS]))]
+            path: "Sources/OneOCRKernels"
         ),
         .target(
             name: "OneOCR",

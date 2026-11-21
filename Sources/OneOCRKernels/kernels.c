@@ -1,8 +1,13 @@
 #include "OneOCRKernels.h"
 
+#if defined(__aarch64__)
 #include <arm_neon.h>
 
-void oneocr_dot_u8_rows(const uint8_t *q, const uint8_t *w, int rows, int n, uint32_t *out) {
+// The dot product instructions, which iOS builds otherwise leave out (they default to the A7's instruction set). The
+// iOS app's oldest device (the A15) and all Apple Silicon Macs have them.
+#define DOTPROD __attribute__((target("dotprod")))
+
+DOTPROD void oneocr_dot_u8_rows(const uint8_t *q, const uint8_t *w, int rows, int n, uint32_t *out) {
     for (int r = 0; r < rows; r++) {
         const uint8_t *wr = w + (long)r * n;
         uint32x4_t acc0 = vdupq_n_u32(0), acc1 = vdupq_n_u32(0);
@@ -16,7 +21,7 @@ void oneocr_dot_u8_rows(const uint8_t *q, const uint8_t *w, int rows, int n, uin
     }
 }
 
-void oneocr_dot_u8_rows4(const uint8_t *q, const uint8_t *w, int rows, int n, uint32_t *out) {
+DOTPROD void oneocr_dot_u8_rows4(const uint8_t *q, const uint8_t *w, int rows, int n, uint32_t *out) {
     int r = 0;
     // Four rows at a time: each load feeds four products rather than one or two.
     for (; r + 4 <= rows; r += 4) {
@@ -53,3 +58,20 @@ void oneocr_dot_u8_rows4(const uint8_t *q, const uint8_t *w, int rows, int n, ui
         out[3 * rows + r] = vaddvq_u32(a3);
     }
 }
+
+#else
+// Other architectures (the iOS Simulator on an Intel Mac): the same sums, in plain C (integers, so in any order).
+
+void oneocr_dot_u8_rows(const uint8_t *q, const uint8_t *w, int rows, int n, uint32_t *out) {
+    for (int r = 0; r < rows; r++) {
+        const uint8_t *wr = w + (long)r * n;
+        uint32_t sum = 0;
+        for (int k = 0; k < n; k++) sum += (uint32_t)q[k] * wr[k];
+        out[r] = sum;
+    }
+}
+
+void oneocr_dot_u8_rows4(const uint8_t *q, const uint8_t *w, int rows, int n, uint32_t *out) {
+    for (int j = 0; j < 4; j++) oneocr_dot_u8_rows(q + (long)j * n, w, rows, n, out + (long)j * rows);
+}
+#endif
