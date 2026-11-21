@@ -7,21 +7,18 @@
 // transcribe-cli install <model|sat> <zip>: loads the zip as Settings' Load button does, into MACPOPUP_MODELS_DIRECTORY
 // (set it, or it's Application Support's).
 //
-// transcribe-cli lines <model> <unpacked zip> <recording, 16 kHz mono> <summary.log> <language> <out.jsonl>
-// <setting> ...: the lines "End lines at sentence ends" makes (GrowingLines) from the stretches of speech an
-// app run logged (scratch-tools/transcribe/run.sh) of the recording, for each setting of GrowingLines'
-// atPause:atLongPause:withoutPause[:keptWhenHeardAgain] (":old" at the end: without hearing lines again): a row per setting, with the lines'
-// starts (seconds) and text. LINES_DEBUG=1 prints each transcript with when its characters were heard.
+// transcribe-cli replay <model> <unpacked zip> <recording> <out.jsonl> <settings JSON> ...: "Read text from audio"
+// simulated on the recording (any sound file, played as a test run's MACPOPUP_TEST_TRANSCRIPTION_FILE is) as fast as
+// the model goes, with the app's code on a simulated clock (see Replay), for each settings JSON (Replay.Settings: the
+// app's transcriptionPause, transcriptionSentenceEnds, transcriptionLive and language, GrowingLines' settings, label,
+// chunk, timed): a row per setting with the box's lines ({"text", "start", "shown"}: seconds into the recording), each
+// stretch's live words ("stretches": {"partials": [[seconds, text]], "final"}, as transcribe-cli live's rows were), the
+// stretches dropped, the log and the time each kind of work took. SaT's models from MACPOPUP_MODELS_DIRECTORY.
 //
 // transcribe-cli ends <model> <unpacked zip> <recording> <summary.log> <language> <out.json>: where sentences start in
 // the recording, as a model that punctuates well hears it (SenseVoice), with the stretches transcribed together up to
 // 28 s: after its 。！？ and where the voice starts again ("starts", seconds); and its text, with when each character
 // was heard ("times").
-//
-// transcribe-cli live <model> <unpacked zip> <recording, 16 kHz mono> <summary.log> <language> <out.jsonl>: each
-// stretch an app run logged, fed to the model's words as they're heard (LiveTranscription) 100 ms at a time, as a row
-// with its partial texts ([seconds into the recording, text] when it changed) and its final text. Prints the time per
-// 100 ms piece.
 //
 // transcribe-cli sat <talk.jsonl> <out.jsonl>: SaT's sentence end probabilities for each row's "bare" text
 // (scratch-tools/punct/make-talk.py), as {"p": [per character]}, for checking against wtpsplit.
@@ -55,7 +52,25 @@ if arguments.count == 4, arguments[1] == "sat" {
     print(String(format: "%.1f ms per text", total / Double(rows.count) * 1000))
     exit(0)
 }
-if arguments.count >= 9 && arguments[1] == "lines" || arguments.count == 8 && arguments[1] == "ends", let model = SpeechModel(rawValue: arguments[2]) {
+if arguments.count >= 7, arguments[1] == "replay", let model = SpeechModel(rawValue: arguments[2]) {
+    let recognizer = SpeechRecognizer(model, directory: URL(fileURLWithPath: arguments[3]))
+    let settings = try arguments.dropFirst(6).map {
+        Replay.Settings(try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] ?? [:])
+    }
+    var out = ""
+    for setting in settings {
+        try await recognizer.load(language: setting.language)
+        if setting.growing { try await SentenceEnds.shared.load() }
+        let live = setting.live ? try await recognizer.live(language: setting.language) : nil
+        let row = try await Replay(setting, recognizer: recognizer, live: live).run(URL(fileURLWithPath: arguments[4]))
+        out += String(decoding: try JSONSerialization.data(withJSONObject: row), as: UTF8.self) + "\n"
+        print(String(format: "%@: %d lines, %.1f s of audio in %.1f s", setting.label, (row["lines"] as? [Any])?.count ?? 0,
+                     row["audio"] as? Double ?? 0, row["wall"] as? Double ?? 0))
+    }
+    try out.write(toFile: arguments[5], atomically: true, encoding: .utf8)
+    exit(0)
+}
+if arguments.count == 8, arguments[1] == "ends", let model = SpeechModel(rawValue: arguments[2]) {
     let recognizer = SpeechRecognizer(model, directory: URL(fileURLWithPath: arguments[3]))
     let audio = try read(URL(fileURLWithPath: arguments[4]))
     let stretches = try loggedStretches(arguments[5])
@@ -73,7 +88,7 @@ if arguments.count >= 9 && arguments[1] == "lines" || arguments.count == 8 && ar
         let start = samplesStart(stretch), end = min(stretch.end + padding, stretch.before)
         return Array(audio[min(Int(start * 16000), audio.count)..<min(Int(max(start, end) * 16000), audio.count)])
     }
-    if arguments[1] == "ends" {
+    do {
         // The stretches transcribed together, up to 28 s or where the voice stopped.
         var group: [LoggedStretch] = []
         var starts: [Double] = []
@@ -104,68 +119,6 @@ if arguments.count >= 9 && arguments[1] == "lines" || arguments.count == 8 && ar
         }
         try await transcribeGroup()
         out = try json(["starts": starts, "text": text, "times": times])
-    } else {
-        for setting in arguments.dropFirst(8) {
-            let values = setting.split(separator: ":").compactMap { Float($0) }
-            var lines = GrowingLines()
-            (lines.endAtPause, lines.endAtLongPause, lines.endWithoutPause) = (values[0], values[1], values[2])
-            if values.count > 3 { lines.keptWhenHeardAgain = Double(values[3]) }
-            // ":old": the lines without hearing them again (as for a model that doesn't tell when it heard what).
-            let old = setting.hasSuffix(":old")
-            var shown: [[String: Any]] = []
-            /// Times hearing the shown line again gave under 80% of its characters (punctuation aside) for its speech,
-            /// and the characters lost.
-            var shrunk = 0, lost = 0
-            let spoken = { (text: String) in text.count { !$0.isPunctuation && !$0.isWhitespace } }
-            for stretch in stretches {
-                let speech = samples(stretch)
-                guard !speech.isEmpty else {
-                    // Too quiet to transcribe.
-                    if stretch.endsVoice { lines.end() }
-                    continue
-                }
-                var earlier = lines.earlier(before: speech)
-                var transcript = try await recognizer.transcribe((earlier ?? []) + speech, language: language)
-                if let folder = ProcessInfo.processInfo.environment["LINES_DUMP"], earlier != nil {
-                    // The audio heard again with the stretch, as 16-bit 16 kHz WAV.
-                    let samples = ((earlier ?? []) + speech).map { Int16(max(-1, min(1, $0)) * 32767) }
-                    var wav = Data("RIFF".utf8)
-                    let size = UInt32(samples.count * 2)
-                    for value in [36 + size] { withUnsafeBytes(of: value.littleEndian) { wav.append(contentsOf: $0) } }
-                    wav.append(contentsOf: Data("WAVEfmt ".utf8))
-                    for value: UInt32 in [16, 1 | 1 << 16, 16000, 32000, 2 | 16 << 16] { withUnsafeBytes(of: value.littleEndian) { wav.append(contentsOf: $0) } }
-                    wav.append(contentsOf: Data("data".utf8))
-                    withUnsafeBytes(of: size.littleEndian) { wav.append(contentsOf: $0) }
-                    samples.withUnsafeBytes { wav.append(contentsOf: $0) }
-                    try wav.write(to: URL(fileURLWithPath: folder).appendingPathComponent(String(format: "%.2f+%.2f.wav", stretch.start, Double(earlier!.count) / 16000)))
-                }
-                if old { transcript = Transcript(text: transcript.text) }
-                if ProcessInfo.processInfo.environment["LINES_DEBUG"] != nil {
-                    let timed = zip(transcript.text, transcript.times ?? []).map { String(format: "%@%.2f", String($0), $1) }
-                    FileHandle.standardError.write(Data(String(format: "%.2f s (+%.2f s again): %@\n", stretch.start,
-                        Double(earlier?.count ?? 0) / 16000, timed.joined(separator: " ")).utf8))
-                }
-                if let earlier, let last = shown.last?["text"] as? String {
-                    let seconds = Double(earlier.count) / 16000
-                    let join = transcript.times?.firstIndex { $0 >= seconds } ?? transcript.text.count
-                    let heard = spoken(String(transcript.text.prefix(join)))
-                    if Double(heard) < Double(spoken(last)) * 0.8 { (shrunk, lost) = (shrunk + 1, lost + spoken(last) - heard) }
-                }
-                if earlier != nil, lines.heardWorse(transcript) {
-                    let unheard = lines.unheard()
-                    earlier = unheard
-                    transcript = try await recognizer.transcribe(unheard + speech, language: language)
-                }
-                let joined = lines.join(transcript, earlier: earlier, stretchDuration: Double(speech.count) / 16000)
-                let probabilities = joined.text.isEmpty ? nil : try await SentenceEnds.shared.probabilities(joined.text)
-                for line in lines.add(joined, probabilities: probabilities, stretch: speech, start: samplesStart(stretch),
-                                      pause: stretch.pause, language: language) {
-                    let row: [String: Any] = ["start": line.start, "text": line.text]
-                    if line.grows, !shown.isEmpty { shown[shown.count - 1] = row } else { shown.append(row) }
-                }
-            }
-            out += try json(["setting": setting, "lines": shown, "shrunk": shrunk, "lost": lost])
-        }
     }
     try out.write(toFile: arguments[7], atomically: true, encoding: .utf8)
     exit(0)
@@ -194,37 +147,6 @@ func loggedStretches(_ path: String) throws -> [LoggedStretch] {
     }
 }
 
-if arguments.count == 8, arguments[1] == "live", let model = SpeechModel(rawValue: arguments[2]) {
-    let recognizer = SpeechRecognizer(model, directory: URL(fileURLWithPath: arguments[3]))
-    let audio = try read(URL(fileURLWithPath: arguments[4]))
-    let language = arguments[6]
-    guard let live = try await recognizer.live(language: language) else {
-        FileHandle.standardError.write(Data("\(model.kind.name) gives no words as they're heard\n".utf8))
-        exit(1)
-    }
-    var out = "", pieces = 0, total = 0.0
-    for stretch in try loggedStretches(arguments[5]) where stretch.end > stretch.start {
-        // From the voice (with the app's 0.2 s before it, after the last stretch) to where the stretch was cut.
-        let from = max(stretch.after, stretch.start - 0.2), to = stretch.before.isFinite ? stretch.before : stretch.end
-        live.start()
-        var partials: [[Any]] = []
-        for at in stride(from: from, to: to, by: 0.1) {
-            let range = Int(at * 16000)..<min(audio.count, Int(min(at + 0.1, to) * 16000))
-            guard !range.isEmpty else { break }
-            let started = Date()
-            let text = try await live.accept(Array(audio[range]))
-            total += Date().timeIntervalSince(started)
-            pieces += 1
-            if text != (partials.last?[1] as? String ?? "") { partials.append([((at + 0.1) * 100).rounded() / 100, text]) }
-        }
-        let final = try await recognizer.transcribe(Array(audio[Int(stretch.start * 16000)..<min(audio.count, Int(stretch.end * 16000))]), language: language)
-        let row: [String: Any] = ["start": from, "end": to, "partials": partials, "final": final.text]
-        out += String(decoding: try JSONSerialization.data(withJSONObject: row), as: UTF8.self) + "\n"
-    }
-    try out.write(toFile: arguments[7], atomically: true, encoding: .utf8)
-    print(String(format: "%.1f ms per 100 ms of audio", total / Double(max(1, pieces)) * 1000))
-    exit(0)
-}
 if arguments.count == 4, arguments[1] == "install", let model = SpeechModel(rawValue: arguments[2]) {
     let started = Date()
     try await SpeechRecognizer(model).installModels(from: URL(fileURLWithPath: arguments[3]))
