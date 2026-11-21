@@ -326,7 +326,7 @@ function animatesLines(settings) {
 
 // Whether the model chosen gives words as they're heard (SpeechModel.hearsLive: not Whisper's).
 function hearsLive(settings) {
-	return !['whisper', 'animeWhisper'].includes(settings.transcriptionModel ?? 'kitsune');
+	return !['whisper', 'animeWhisper'].includes(settings.transcriptionModel ?? 'soda');
 }
 
 function removeLine(line) {

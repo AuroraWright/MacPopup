@@ -92,7 +92,7 @@ final class AudioTranscriber: StretchTranscriberHost {
 
     private func applySettings() {
         let enabled = settings["floatingWindowAudio"] as? Bool ?? false
-        let model = enabled ? SpeechModel(rawValue: settings["transcriptionModel"] as? String ?? "") ?? .kitsune : nil
+        let model = enabled ? SpeechModel(rawValue: settings["transcriptionModel"] as? String ?? "") ?? .soda : nil
         let language = settings["language"] as? String ?? "ja"
         let modelChanged = model != self.model
         if modelChanged {

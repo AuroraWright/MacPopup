@@ -80,10 +80,10 @@ default), as plain text or texthooker JSON (`{"sentence": "..."}`).
   to add what's said in the captured window's app (or in any app, if no window is captured) to the box, a sentence
   per line. Music and sound effects are skipped. MacPopup needs the **System Audio Recording** permission.
   - *Models*: Choose one in *Settings → Transcription*. None come with MacPopup: make a `.zip` file with the
-    `scripts/convert-*.py` script named there, and click **Load**. **Kitsune** (the default) is fast and accurate for
-    Japanese, **anime-whisper** is the most accurate for game and anime voices but slower, **Whisper** covers 99
-    languages, **SenseVoice** Chinese, Cantonese, Japanese, Korean and English, **Parakeet** 25 European languages,
-    and **Live Caption** (Chrome's speech recognition) 16 languages.
+    `scripts/convert-*.py` script named there, and click **Load**. **Live Caption** (the default, Chrome's speech
+    recognition) covers 16 languages, **Kitsune** is fast and accurate for Japanese, **SenseVoice** covers Chinese,
+    Cantonese, Japanese, Korean and English, **Parakeet** 25 European languages, **Whisper** 99 languages, and
+    **anime-whisper** is the most accurate for game and anime voices but slower.
   - *Lines*: A new line starts when the speaker pauses for a second (change it with **Line ends after a pause of**).
     To end lines where sentences end instead, which is also more accurate, turn on **Detect sentence ends**, load the
     SaT model the same way, and set the pause to 200. To see the words as they're spoken, turn on **Show words as

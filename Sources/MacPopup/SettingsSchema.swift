@@ -452,17 +452,17 @@ enum SettingsSchema {
                     SettingsField(
                         "transcriptionModel", "Speech recognition model",
                         .select([
+                            SettingsOption("soda", "Live Caption"),
                             SettingsOption("kitsune", "Kitsune P-0.3B"),
-                            SettingsOption("animeWhisper", "anime-whisper"),
-                            SettingsOption("whisper", "Whisper large-v3 turbo"),
                             SettingsOption("senseVoice", "SenseVoice Small"),
                             SettingsOption("parakeet", "Parakeet TDT 0.6B v3"),
-                            SettingsOption("soda", "Live Caption"),
+                            SettingsOption("whisper", "Whisper large-v3 turbo"),
+                            SettingsOption("animeWhisper", "anime-whisper"),
                         ]),
-                        hint: "Kitsune (Multy123): Japanese, very fast, non-commercial use only. anime-whisper (litagin): Japanese, best on game and anime voices, slower. Whisper (OpenAI): 99 languages, about a second per line. SenseVoice (Alibaba): Chinese, Cantonese, Japanese, Korean and English, the fastest. Parakeet (NVIDIA): 25 European languages, very fast. Live Caption (Google): 16 languages, fast, with punctuation.",
+                        hint: "Live Caption (Google): 16 languages, fast, with punctuation. Kitsune (Multy123): Japanese, very fast, non-commercial use only. SenseVoice (Alibaba): Chinese, Cantonese, Japanese, Korean and English, the fastest. Parakeet (NVIDIA): 25 European languages, very fast. Whisper (OpenAI): 99 languages, about a second per line. anime-whisper (litagin): Japanese, best on game and anime voices, slower.",
                         warning: { settings in
                             let language = settings["language"] as? String ?? "ja"
-                            guard let model = SpeechModel(rawValue: settings["transcriptionModel"] as? String ?? "kitsune") else { return nil }
+                            guard let model = SpeechModel(rawValue: settings["transcriptionModel"] as? String ?? "soda") else { return nil }
                             let name = support.languages.first { $0.iso == language }?.name ?? language
                             // Parakeet reads its languages about as well as Whisper, 10 times faster.
                             if model == .whisper && SpeechModel.parakeet.reads(language) {
@@ -483,7 +483,7 @@ enum SettingsSchema {
                     SettingsField(
                         "kitsuneModels", "Kitsune models", .convertedModels(.kitsune),
                         hint: "Run scripts/convert-kitsune.py to make a .zip file, then click Load.",
-                        showIf: { ($0["transcriptionModel"] as? String ?? "kitsune") == "kitsune" }
+                        showIf: { $0["transcriptionModel"] as? String == "kitsune" }
                     ),
                     SettingsField(
                         "animeWhisperModels", "anime-whisper models", .convertedModels(.animeWhisper),
@@ -508,12 +508,12 @@ enum SettingsSchema {
                     SettingsField(
                         "sodaModels", "Live Caption models", .convertedModels(.soda),
                         hint: "Run scripts/convert-soda.py with the languages you want (such as ja-JP en-US) to download Chrome’s language packs and make a .zip file, then click Load.",
-                        showIf: { $0["transcriptionModel"] as? String == "soda" }
+                        showIf: { ($0["transcriptionModel"] as? String ?? "soda") == "soda" }
                     ),
                     SettingsField(
                         "transcriptionLive", "Show words as they’re heard", .checkbox,
                         hint: "Lines are filled in real time as the speaker talks and are then corrected after a pause. Disabled with Whisper and anime-whisper, as they’re not fast enough.",
-                        showIf: { (SpeechModel(rawValue: $0["transcriptionModel"] as? String ?? "") ?? .kitsune).hearsLive }
+                        showIf: { (SpeechModel(rawValue: $0["transcriptionModel"] as? String ?? "") ?? .soda).hearsLive }
                     ),
                     SettingsField(
                         "transcriptionSentenceEnds", "Detect sentence ends", .checkbox,
