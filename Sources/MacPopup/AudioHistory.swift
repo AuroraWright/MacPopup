@@ -1,5 +1,6 @@
 import Accelerate
 import AVFoundation
+import Transcription
 
 /// Keeps the last few minutes of the game's audio (see AudioTap) in memory as 16-bit samples, about 11 MB a minute for
 /// stereo at 48 kHz. This lets SentenceAudioController take a line's voice after the line was shown, without replaying
