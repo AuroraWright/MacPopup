@@ -97,8 +97,10 @@ public protocol LiveTranscription: AnyObject, Sendable {
 
 /// Words as they're heard from a model that transcribes whole stretches: the stretch so far, transcribed again each
 /// time `interval` seconds more of it were heard. Without the characters heard in its last 0.25 s (when the model
-/// tells when they were heard): the last word is often cut there, and the model's guess at it changes as more is heard
-/// (on a talk, with SenseVoice, 0.31 characters of the text shown changed per update rather than 0.56).
+/// tells when they were heard): the last word is often cut there, and the model's guess at it changes as more is heard.
+/// Text two passes in a row agree on stays as it is, and later passes only add what follows it: earlier words don't
+/// change while the speaker goes on (the stretch's line replaces them all). On a talk, with SenseVoice, 0.18 characters
+/// of the text shown changed per update rather than 0.56, and its last text was 13.2% off the line's rather than 10.3%.
 final class RepeatedTranscription: LiveTranscription, @unchecked Sendable {
     private static let heldBack = 0.25
 
@@ -107,26 +109,54 @@ final class RepeatedTranscription: LiveTranscription, @unchecked Sendable {
     private let interval: Int
     private var samples: [Float] = []
     private var transcribed = 0
-    private var text = ""
+    /// The text that stays, and what followed it in the last pass.
+    private var fixed: [Character] = [], rest: [Character] = []
 
     init(_ recognizer: any Recognizer, language: String, interval: Double) {
         (self.recognizer, self.language, self.interval) = (recognizer, language, Int(interval * 16000))
     }
 
     func start() {
-        (samples, transcribed, text) = ([], 0, "")
+        (samples, transcribed, fixed, rest) = ([], 0, [], [])
     }
 
     func accept(_ samples: [Float]) async throws -> String {
         self.samples += samples
-        guard self.samples.count - transcribed >= interval else { return text }
+        guard self.samples.count - transcribed >= interval else { return String(fixed + rest) }
+        let first = transcribed == 0
         transcribed = self.samples.count
         let transcript = SpeechRecognizer.tidied(try await recognizer.transcribe(self.samples, language: language))
         let heard = Double(self.samples.count) / 16000 - Self.heldBack
-        text = transcript.times.map { String(zip(transcript.text, $0).prefix { $0.1 < heard }.map(\.0)) } ?? transcript.text
+        var text = transcript.times.map { Array(zip(transcript.text, $0).prefix { $0.1 < heard }.map(\.0)) }
+            ?? Array(transcript.text)
         // The models end the stretch's sentence (SenseVoice and Parakeet), which goes on.
         while let last = text.last, "。．.？?！!".contains(last) { text.removeLast() }
-        return text
+        var next = Array(text[Self.end(of: fixed, in: text)...])
+        if !first {
+            let agreed = zip(rest, next).prefix { $0 == $1 }.count
+            fixed += next[..<agreed]
+            next.removeFirst(agreed)
+        }
+        rest = next
+        return String(fixed + rest)
+    }
+
+    /// Where `fixed` ends in a pass's text: the end of the start of `text` closest to it (by edit distance), the
+    /// longest of equally close ones.
+    private static func end(of fixed: [Character], in text: [Character]) -> Int {
+        guard !fixed.isEmpty else { return 0 }
+        var row = Array(0...text.count)
+        for character in fixed {
+            var diagonal = row[0]
+            row[0] += 1
+            for (j, other) in zip(1..., text) {
+                let above = row[j]
+                row[j] = min(row[j] + 1, row[j - 1] + 1, diagonal + (other == character ? 0 : 1))
+                diagonal = above
+            }
+        }
+        let best = row.min()!
+        return row.lastIndex(of: best)!
     }
 }
 
@@ -300,6 +330,7 @@ public actor SpeechRecognizer: ConvertedModelsStore {
         defer { try? FileManager.default.removeItem(at: staging) }
         try Self.check(model, staging)
         unload()
+        defer { postModelsChanged() }
         try kind.moveIn(staging)
         do {
             try await load()
@@ -312,8 +343,18 @@ public actor SpeechRecognizer: ConvertedModelsStore {
 
     public func removeModels() async throws {
         unload()
+        defer { postModelsChanged() }
         if FileManager.default.fileExists(atPath: directory.path) {
             try FileManager.default.removeItem(at: directory)
         }
+    }
+
+    /// Posted on the main thread when a model's files were replaced or removed (the SpeechModel is the object): what
+    /// was loaded from the old ones (as a LiveTranscription) is outdated.
+    public static let modelsChanged = Notification.Name("MacPopupSpeechModelsChanged")
+
+    private nonisolated func postModelsChanged() {
+        let model = model
+        Task { @MainActor in NotificationCenter.default.post(name: Self.modelsChanged, object: model) }
     }
 }

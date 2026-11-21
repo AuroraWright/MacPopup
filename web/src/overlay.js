@@ -83,8 +83,10 @@ const state = {
 	ocrLine: null,
 	// The box line of the last transcribed line ("Read text from audio"), which may grow.
 	transcriptLine: null,
-	// A speech recognition model is loading (see ModelsLoading in SpeechRecognizer.swift).
+	// A speech recognition model is loading (see ModelsLoading in SpeechRecognizer.swift), or the one chosen couldn't
+	// be loaded (e.g. its models aren't loaded in Settings).
 	audioLoading: false,
+	audioUnavailable: false,
 	renderKey: '',
 	// The order and writing direction the lines are laid out in, which settings can have changed since.
 	lineLayout: { reverseLineOrder: false, displayVertical: false },
@@ -2570,15 +2572,23 @@ function renderAudioButton() {
 	const button = $('#audio-button');
 	const enabled = !!getSettings().floatingWindowAudio;
 	const loading = enabled && state.audioLoading;
+	const unavailable = enabled && !loading && state.audioUnavailable;
 	button.innerHTML = icon(mdiAccountVoice);
-	button.title = loading ? 'Audio (loading…)' : 'Audio';
-	button.classList.toggle('text-green-700', enabled && !loading);
+	button.title = loading ? 'Audio (loading…)' : unavailable ? 'Audio (not loaded)' : 'Audio';
+	button.classList.toggle('text-green-700', enabled && !loading && !unavailable);
 	button.classList.toggle('text-warning', loading);
+	button.classList.toggle('text-red-500', unavailable);
 }
 
 // From the host (AudioTranscriber.swift): whether a speech recognition model is loading.
 window.__macpopupAudioLoading = (loading) => {
 	state.audioLoading = loading;
+	renderAudioButton();
+};
+
+// From the host: whether the model chosen couldn't be loaded.
+window.__macpopupAudioUnavailable = (unavailable) => {
+	state.audioUnavailable = unavailable;
 	renderAudioButton();
 };
 

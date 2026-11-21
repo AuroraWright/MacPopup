@@ -49,6 +49,8 @@ final class AudioTranscriber {
     /// when not wanted, or nil from models that don't give them).
     private var live: (any LiveTranscription)?
     private var liveLanguage: String?
+    /// Why `live` couldn't be had last time, logged once.
+    private var liveError: String?
     /// Whether `live` is working out words, and the audio heard meanwhile, given to it next in one piece: a model
     /// that takes longer than the audio does falls behind by a piece at most.
     private var liveBusy = false
@@ -68,6 +70,18 @@ final class AudioTranscriber {
         NotificationCenter.default.addObserver(forName: ModelsLoading.changed, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.showLoading() }
         }
+        // The live words come from the new models (or none).
+        NotificationCenter.default.addObserver(forName: SpeechRecognizer.modelsChanged, object: nil, queue: .main) { [weak self] note in
+            let model = note.object as? SpeechModel
+            MainActor.assumeIsolated {
+                guard let self, model == self.model else { return }
+                // Loaded again (see applySettings), with its live words.
+                self.language = nil
+                self.live = nil
+                self.liveLanguage = nil
+                self.applySettings()
+            }
+        }
         applySettings()
         // Checks again now and then, since the captured window's app may start, quit or open the window later.
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -82,9 +96,19 @@ final class AudioTranscriber {
         overlay.evaluate("window.__macpopupAudioLoading?.(\(ModelsLoading.count > 0))")
     }
 
+    /// The model chosen couldn't be loaded (its last load or transcription failed), shown on the box's audio button.
+    private var unavailable = false {
+        didSet { if unavailable != oldValue { showUnavailable() } }
+    }
+
+    private func showUnavailable() {
+        overlay.evaluate("window.__macpopupAudioUnavailable?.(\(unavailable))")
+    }
+
     /// The box's page (re)loaded.
     func pageReady() {
         showLoading()
+        showUnavailable()
     }
 
     private func applySettings() {
@@ -99,6 +123,7 @@ final class AudioTranscriber {
             }
             self.model = model
             shownError = nil
+            unavailable = false
             pending.removeAll()
             linesBroken = true
             live = nil
@@ -114,7 +139,9 @@ final class AudioTranscriber {
                     let started = Date()
                     try await recognizer.load(language: language)
                     transcriptionLog(String(format: "%@ loaded in %.1f s", model.kind.name, Date().timeIntervalSince(started)))
+                    if self.model == model { self.unavailable = false }
                 } catch {
+                    if self.model == model { self.unavailable = true }
                     self.report(error)
                 }
             }
@@ -149,9 +176,18 @@ final class AudioTranscriber {
                     guard self.model == model, self.liveLanguage == language else { return }
                     self.live = live
                     self.liveStretch = nil
+                    self.liveError = nil
+                    // The model loaded for it.
+                    self.unavailable = false
                     if live != nil { transcriptionLog("\(model.kind.name) gives words as they're heard") }
                 } catch {
-                    self.report(error)
+                    // Tried again with the settings (at least every 5 seconds), e.g. once the models are loaded. The
+                    // stretches' transcription shows the error.
+                    if self.liveLanguage == language { self.liveLanguage = nil }
+                    if error.localizedDescription != self.liveError {
+                        transcriptionLog("no words as they're heard yet: \(error.localizedDescription)")
+                    }
+                    self.liveError = error.localizedDescription
                 }
             }
         } else if !wantsLive {
@@ -263,12 +299,14 @@ final class AudioTranscriber {
                                             Double(unheard.count) / SpeechListener.sampleRate, transcript.text))
                 }
             } catch {
+                if self.model == model { unavailable = true }
                 report(error)
                 return
             }
             // Turned off or switched to another model meanwhile.
             guard self.model == model else { return }
             shownError = nil
+            unavailable = false
             guard growing else {
                 lines.end()
                 let sentences = Self.sentences(transcript.text, language: language)
