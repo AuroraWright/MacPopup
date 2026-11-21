@@ -147,8 +147,14 @@ public actor SpeechRecognizer: ConvertedModelsStore {
     /// Transcribes 16 kHz mono audio (-1 to 1, at most 30 s) in `language` (Yomitan's ISO code; models that don't
     /// read it guess), loading the models first if needed.
     public func transcribe(_ samples: [Float], language: String) async throws -> Transcript {
-        Self.tidied(try await recognizer().transcribe(samples, language: language))
+        let silence = max(0, min(Self.trailingSilence, 30 * 16000 - samples.count))
+        return Self.tidied(try await recognizer().transcribe(samples + repeatElement(0, count: silence), language: language))
     }
+
+    /// Silence put after the speech (0.6 s): the models write a word only once they've heard a little past it, and a
+    /// stretch cut at a short pause ends right after its last word. Live Caption, Whisper and anime-whisper otherwise
+    /// lost the last syllables (on a talk, CER 11.5 → 8.3%, 9.7 → 7.3%, 13.3 → 11.1%); Kitsune and SenseVoice gain less.
+    static let trailingSilence = 9600
 
     /// The text without spaces next to Chinese or Japanese characters, which are written without them (SenseVoice
     /// often puts one between Japanese words), with one space where there were several, and none at either end.
