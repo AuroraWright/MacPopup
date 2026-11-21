@@ -96,7 +96,8 @@ const state = {
 const live = {
 	// Each stretch's line, oldest first: {element, text}.
 	lines: new Map(),
-	// Changes to lines a popup's word is in, made once the popups close: id → text, or null to remove it.
+	// Changes to lines a popup's word is in (or the word being looked up), made once the popups close: id → text, or
+	// null to remove it.
 	held: new Map(),
 };
 
@@ -1013,6 +1014,9 @@ const scan = {
 	// Depth of the popup under the cursor, -1 when none.
 	overDepth: -1,
 	pending: false,
+	// The scan's token from the start of its lookup until its popup is shown or nothing was found: its word's live line
+	// stays as it is meanwhile, so the popup shows where the word is (see liveLineInUse).
+	looking: null,
 };
 
 function clearMainScan() {
@@ -1020,6 +1024,14 @@ function clearMainScan() {
 	scan.source = null;
 	scan.token++;
 	setHighlight(null);
+	endLooking(scan.looking);
+}
+
+/** The scan with `token` is done (see scan.looking). */
+function endLooking(token) {
+	if (token === null || token !== scan.looking) return;
+	scan.looking = null;
+	applyHeldLive();
 }
 
 function scanBox(x, y, mods) {
@@ -1064,6 +1076,7 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
 	const previous = scan.source;
 	scan.source = source;
 	const token = ++scan.token;
+	scan.looking = token;
 	let result;
 	scan.pending = true;
 	try {
@@ -1073,6 +1086,7 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
 		log('Lookup failed', e);
 		showToast(`Yomitan API: ${e.message ?? e}`);
 		if (quiet && token === scan.token) scan.source = previous;
+		endLooking(token);
 		return false;
 	} finally {
 		if (token === scan.token) scan.pending = false;
@@ -1081,6 +1095,7 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
 	if (result === null) {
 		if (quiet) scan.source = previous;
 		else onSearchEmpty();
+		endLooking(token);
 		return false;
 	}
 	stopHideDelayed();
@@ -1091,11 +1106,13 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
 		return popupManager.show(0, result, rects, vertical);
 	};
 	if (delay > 0) {
-		setTimeout(() => {
-			if (token === scan.token) void show();
+		setTimeout(async () => {
+			if (token === scan.token) await show();
+			endLooking(token);
 		}, delay);
 	} else {
 		await show();
+		endLooking(token);
 	}
 	return true;
 }
@@ -1292,7 +1309,7 @@ function setLiveLine(id, text) {
 	// No new words while the box is paused (its live lines still go).
 	if (state.paused && text !== null) return;
 	const shown = live.lines.get(id);
-	if (shown && liveLineUnderPopup(shown.element)) {
+	if (shown && liveLineInUse(shown.element)) {
 		live.held.set(id, text);
 		return;
 	}
@@ -1320,10 +1337,13 @@ function setLiveLine(id, text) {
 	if (atEnd) scrollToEnd();
 }
 
-/** Whether an open popup's word is in a live line's `element`: its text then waits for the popups to close. */
-function liveLineUnderPopup(element) {
+/**
+ * Whether an open popup's word, or the word being looked up, is in a live line's `element`: its text then waits for
+ * the popups to close (or the lookup to find nothing).
+ */
+function liveLineInUse(element) {
 	const range = scan.source?.range;
-	return popupManager.visiblePopups().length > 0 && !!range && element.contains(range.startContainer);
+	return (popupManager.visiblePopups().length > 0 || scan.looking !== null) && !!range && element.contains(range.startContainer);
 }
 
 /** Makes the changes to live lines that waited for the popups to close (see live.held). */
