@@ -12,7 +12,8 @@ import PauseHelperInterface
 /// A tap keeps recording the processes it was made with: Core Audio doesn't follow changes to them while
 /// it runs. So when the processes to record change (a process is added to the ones Core Audio knows
 /// when it first plays sound), or the default output device does, the tap is made again, which leaves a
-/// gap of a few milliseconds.
+/// gap of a few milliseconds. Its buffers keep the first tap's format: another output device can have
+/// another sample rate (or, for a tap of the device, other channels), and then they're converted.
 ///
 /// A tap only records while its processes play sound. So that the recording keeps time (as for how long
 /// to wait for a voice), silence stands in for the time they don't.
@@ -129,6 +130,10 @@ final class AudioTap {
     private let onBuffer: (AVAudioPCMBuffer) -> Void
     private let bufferFrames: UInt32?
     private var recorder: Recorder?
+    /// The format of the buffers given (the first recorder's), and the recorder's converter to it if it records
+    /// another one.
+    private var format: AVAudioFormat?
+    private var converter: AVAudioConverter?
     private var listener: AudioObjectPropertyListenerBlock?
     /// Whether processesChanged is due: changes come in bursts (each sound that starts or ends is one), so they're
     /// checked at most every quarter second rather than each time.
@@ -195,12 +200,44 @@ final class AudioTap {
     }
 
     private func makeRecorder(exclusive: Bool, objects: [AudioObjectID]) throws -> Recorder {
-        try Recorder(exclusive: exclusive, objects: objects, bufferFrames: bufferFrames, queue: queue) { [weak self] buffer in
-            guard let self else { return }
+        let recorder = try Recorder(exclusive: exclusive, objects: objects, bufferFrames: bufferFrames, queue: queue) { [weak self] buffer in
+            // Buffers come on the queue, after makeRecorder has set the converter.
+            guard let self, let buffer = converted(buffer) else { return }
             lastBufferTime = .now()
             duration += Double(buffer.frameLength) / buffer.format.sampleRate
             onBuffer(buffer)
         }
+        let format = format ?? recorder.format
+        self.format = format
+        converter = nil
+        if recorder.format != format {
+            sentenceAudioLog(String(format: "recording %.0f Hz, %d channels, converted to the first recording's %.0f Hz, %d channels",
+                                    recorder.format.sampleRate, recorder.format.channelCount, format.sampleRate, format.channelCount))
+            converter = AVAudioConverter(from: recorder.format, to: format)
+            converter?.downmix = recorder.format.channelCount > format.channelCount
+        }
+        return recorder
+    }
+
+    /// The buffer in `format`, if it's in another one (or nil if it can't be converted).
+    private func converted(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let converter, buffer.format == converter.inputFormat else { return buffer.format == format ? buffer : nil }
+        let ratio = converter.outputFormat.sampleRate / converter.inputFormat.sampleRate
+        guard let output = AVAudioPCMBuffer(pcmFormat: converter.outputFormat,
+                                            frameCapacity: AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1024) else { return nil }
+        var given = false
+        var error: NSError?
+        // No more for now (rather than the end of the stream): the converter keeps what it needs of this buffer.
+        converter.convert(to: output, error: &error) { _, status in
+            if given {
+                status.pointee = .noDataNow
+                return nil
+            }
+            given = true
+            status.pointee = .haveData
+            return buffer
+        }
+        return error == nil && output.frameLength > 0 ? output : nil
     }
 
     /// Fills the time since the tap last gave sound with silence, once it has stopped.
@@ -208,7 +245,7 @@ final class AudioTap {
         let now = DispatchTime.now()
         let gap = Double(now.uptimeNanoseconds - startTime.uptimeNanoseconds) / 1e9 - duration
         guard Double(now.uptimeNanoseconds - lastBufferTime.uptimeNanoseconds) / 1e9 > 0.25, gap > 0.05,
-              let format = recorder?.format,
+              let format,
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(gap * format.sampleRate)),
               let channels = buffer.floatChannelData else { return }
         buffer.frameLength = buffer.frameCapacity
