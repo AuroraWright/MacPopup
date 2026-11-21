@@ -4,7 +4,7 @@ import Foundation
 
 /// The OCR engines, speech recognition models and SaT (sentence ends in transcriptions), whose models can't come with MacPopup: a script converts or packs them
 /// on the user's Mac into a zip, which Settings → OCR or Transcription loads into Application Support.
-public enum ConvertedModelsKind: String, CaseIterable {
+public enum ConvertedModelsKind: String, CaseIterable, Sendable {
     case screenAI, oneOCR, whisper, animeWhisper, kitsune, senseVoice, parakeet, soda, sat
 
     /// The OCR engines' (the iPhone app's).

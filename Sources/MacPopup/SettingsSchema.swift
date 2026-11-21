@@ -181,12 +181,12 @@ enum SettingsSchema {
     ]
 
     /// Whether Anki Audio's Visual novel backlog capture is on.
-    private static func capturesBacklog(_ values: [String: Any]) -> Bool {
+    nonisolated private static func capturesBacklog(_ values: [String: Any]) -> Bool {
         values["sentenceAudioBacklog"] as? Bool ?? true
     }
 
     /// Whether Anki Audio looks for the voice: in the kept audio, or in a backlog recording with speech detection on.
-    private static func detectsVoice(_ values: [String: Any]) -> Bool {
+    nonisolated private static func detectsVoice(_ values: [String: Any]) -> Bool {
         ((values["sentenceAudioHistory"] as? NSNumber)?.doubleValue ?? 5) > 0
             || (capturesBacklog(values) && values["sentenceAudioDetectVoice"] as? Bool ?? true)
     }

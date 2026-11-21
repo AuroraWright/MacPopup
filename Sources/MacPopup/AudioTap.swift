@@ -333,7 +333,7 @@ final class AudioTap {
 
     /// The process macOS holds responsible for `pid` (for privacy permissions), which for an app's helpers
     /// is the app. Not in the SDK, so it's looked up, and -1 without it.
-    private static let responsiblePID: (pid_t) -> pid_t = {
+    private static let responsiblePID: @Sendable (pid_t) -> pid_t = {
         typealias Function = @convention(c) (pid_t) -> pid_t
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_get_pid_responsible_for_pid") else {
             return { _ in -1 }

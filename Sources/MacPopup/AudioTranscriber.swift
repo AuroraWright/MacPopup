@@ -172,7 +172,7 @@ final class AudioTranscriber: StretchTranscriberHost {
             transcriber.live = nil
             liveLanguage = nil
         }
-        let source = enabled ? Source(processes: processes(), pause: Double(settings["transcriptionPause"] as? NSNumber ?? 1000) / 1000,
+        let source = enabled ? Source(processes: processes(), pause: ((settings["transcriptionPause"] as? NSNumber)?.doubleValue ?? 1000) / 1000,
                                       live: wantsLive) : nil
         guard source != self.source else { return }
         self.source = source

@@ -117,7 +117,7 @@ final class ParakeetRecognizer: Recognizer, @unchecked Sendable {
         var frame = 0, symbols = 0
         while frame < count {
             step.withUnsafeMutableBufferPointer(ofType: Float.self) { pointer, _ in
-                frames.withUnsafeBufferPointer { memcpy(pointer.baseAddress!, $0.baseAddress! + frame * hidden, hidden * 4) }
+                frames.withUnsafeBufferPointer { _ = memcpy(pointer.baseAddress!, $0.baseAddress! + frame * hidden, hidden * 4) }
             }
             let decision = try joint.prediction(from: MLDictionaryFeatureProvider(dictionary: [
                 "encoder_step": MLFeatureValue(multiArray: step),

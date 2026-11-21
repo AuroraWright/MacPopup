@@ -476,7 +476,7 @@ private struct DisplayPicker<Label: View>: View {
     var body: some View {
         LabeledContent {
             SteadyMenu(labels: displays + [disconnected]) {
-                Picker("Display", selection: Binding(get: { index }, set: commit)) {
+                Picker("Display", selection: Binding(get: { index }, set: { commit($0) })) {
                     ForEach(displays.indices, id: \.self) { Text(displays[$0]).tag($0) }
                     // Kept until another is chosen: the overlay goes back to it when it's connected again.
                     if !displays.indices.contains(index) {
@@ -631,7 +631,7 @@ private struct AnkiFieldPicker<Label: View>: View {
     private func picker(_ fields: [String]) -> some View {
         LabeledContent {
             SteadyMenu(labels: fields + ["Choose a field", "\(name) (not found)"]) {
-                Picker("Field", selection: Binding(get: { name }, set: commit)) {
+                Picker("Field", selection: Binding(get: { name }, set: { commit($0) })) {
                     if name.isEmpty { Text("Choose a field").tag("") }
                     ForEach(fields, id: \.self) { Text($0).tag($0) }
                     // Kept until another is chosen.
@@ -1101,7 +1101,7 @@ private struct NumberField: View {
     let commit: (Any) -> Void
 
     var body: some View {
-        TextField("", value: Binding(get: { value }, set: save), format: .number.grouping(.never).precision(.fractionLength(0...(decimals ? 3 : 0))))
+        TextField("", value: Binding(get: { value }, set: { save($0) }), format: .number.grouping(.never).precision(.fractionLength(0...(decimals ? 3 : 0))))
             .labelsHidden()
             .multilineTextAlignment(.trailing)
             .frame(width: 90)

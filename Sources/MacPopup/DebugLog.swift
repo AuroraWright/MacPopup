@@ -90,7 +90,7 @@ enum DebugLog {
     }
 
     /// A record (its type and fields), with the time.
-    static func record(_ fields: [String: Any]) {
+    @MainActor static func record(_ fields: [String: Any]) {
         let record = fields.merging(["time": timeFormat.string(from: OCRClock.now)]) { $1 }
         guard let data = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -166,7 +166,8 @@ enum DebugLog {
     }
 
     /// As the page's records (toISOString).
-    private static let timeFormat: ISO8601DateFormatter = {
+    /// On the main actor: ISO8601DateFormatter isn't documented as safe to share between threads.
+    @MainActor private static let timeFormat: ISO8601DateFormatter = {
         let format = ISO8601DateFormatter()
         format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return format

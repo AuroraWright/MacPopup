@@ -5,8 +5,8 @@ import WebKit
 /// Serves the bundled web assets under `macpopup://app/`, so root-relative URLs
 /// used by Yomitan's CSS and templates (`/images/...`, `/css/...`) resolve.
 final class WebAssetsSchemeHandler: NSObject, WKURLSchemeHandler {
-    static let scheme = "macpopup"
-    static let baseURL = URL(string: "\(scheme)://app/")!
+    nonisolated static let scheme = "macpopup"
+    nonisolated static let baseURL = URL(string: "\(scheme)://app/")!
 
     private let root: URL
 

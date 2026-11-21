@@ -712,7 +712,8 @@ enum OpenCVResize {
             // Each band writes its own rows.
             nonisolated(unsafe) let out = out
             pixels.withUnsafeBufferPointer { pixels in
-                DispatchQueue.concurrentPerform(iterations: bands) { band in
+                nonisolated(unsafe) let pixels = pixels
+                DispatchQueue.concurrentPerform(iterations: bands) { [rowStarts] band in
                     let (first, end) = (toHeight * band / bands, toHeight * (band + 1) / bands)
                     if whole {
                         let halved = wholeX == 2 && wholeY == 2

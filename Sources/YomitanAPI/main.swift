@@ -177,7 +177,8 @@ final class Request {
 
 /// The requests waiting for Yomitan and those it works on, with the browser's replies, read as they come so the host
 /// quits when the browser closes stdin.
-final class Requests {
+/// Its state is only touched with `condition` locked.
+final class Requests: @unchecked Sendable {
     private let condition = NSCondition()
     private var lastId = 0
     private var waiting: [Request] = []

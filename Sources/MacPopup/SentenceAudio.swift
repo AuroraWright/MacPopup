@@ -380,7 +380,7 @@ final class SentenceAudioController {
         if switched || string("sentenceAudioApp", "captured") == "none" {
             try? await Task.sleep(for: .milliseconds(Int(number("sentenceAudioKeyDelay", 1000))))
         }
-        guard AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary) else {
+        guard Permission.askForAccessibility() else {
             showToast("Allow MacPopup in System Settings → Privacy & Security → Accessibility to press keys")
             return
         }
