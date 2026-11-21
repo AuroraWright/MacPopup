@@ -335,7 +335,7 @@ enum SettingsSchema {
                 SettingsField("reverseLineOrder", "Show newest lines at the top", .checkbox, hint: "Adds new lines at the top of the text box instead of the bottom."),
                 SettingsField("displayVertical", "Vertical text layout", .checkbox, hint: "Shows lines from top to bottom, in columns from right to left, as Japanese books do."),
                 SettingsField("showLinePoints", "Show bullet beside each line", .checkbox, hint: "Puts a faint • before each line, which shows fully while the pointer is on that line."),
-                SettingsField("enableLineAnimation", "Animate new lines", .checkbox, hint: "New lines slide in instead of appearing all at once."),
+                SettingsField("enableLineAnimation", "Animate new lines", .checkbox, hint: "New lines slide in instead of appearing all at once (not while transcription shows words as they’re heard)."),
                 SettingsField("showFurigana", "Show furigana above words", .checkbox, hint: "Shows readings above words with kanji, in the Furigana style set in Settings → General. Needs the Yomitan API, which splits lines into words."),
                 SettingsField("termSpacing", "Add spaces between parsed words", .checkbox, hint: "Leaves a small gap between words, as Yomitan splits the line, so you can see where each word ends. Needs the Yomitan API."),
                 SettingsField("customCSS", "Custom CSS (text box)", .textarea, hint: "Your own CSS for the text box, on top of the theme (for example, #lines { line-height: 1.8; })."),
@@ -508,6 +508,11 @@ enum SettingsSchema {
                     SettingsField(
                         "sodaModels", "Live Caption models", .convertedModels(.soda),
                         hint: "Run scripts/convert-soda.py with the languages you want (such as ja-JP en-US) to download Chrome’s language packs and make a .zip file, then click Load.",
+                        showIf: { $0["transcriptionModel"] as? String == "soda" }
+                    ),
+                    SettingsField(
+                        "transcriptionLive", "Show words as they’re heard", .checkbox,
+                        hint: "The line fills in while the speaker talks, then the model’s line takes its place after the pause. Live Caption only.",
                         showIf: { $0["transcriptionModel"] as? String == "soda" }
                     ),
                     SettingsField(

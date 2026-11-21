@@ -107,6 +107,7 @@ export const defaultSettings = {
 	transcriptionModel: 'kitsune',
 	transcriptionPause: 1000,
 	transcriptionSentenceEnds: false,
+	transcriptionLive: false,
 
 	// OCR: the text of another app's window, read with ocrEngine (see lib/ocr-layer.js).
 	ocrMode: false,

@@ -18,6 +18,11 @@
 // 28 s: after its 。！？ and where the voice starts again ("starts", seconds); and its text, with when each character
 // was heard ("times").
 //
+// transcribe-cli live <model> <unpacked zip> <recording, 16 kHz mono> <summary.log> <language> <out.jsonl>: each
+// stretch an app run logged, fed to the model's words as they're heard (LiveTranscription) 100 ms at a time, as a row
+// with its partial texts ([seconds into the recording, text] when it changed) and its final text. Prints the time per
+// 100 ms piece.
+//
 // transcribe-cli sat <talk.jsonl> <out.jsonl>: SaT's sentence end probabilities for each row's "bare" text
 // (scratch-tools/punct/make-talk.py), as {"p": [per character]}, for checking against wtpsplit.
 import Foundation
@@ -186,6 +191,37 @@ func loggedStretches(_ path: String) throws -> [LoggedStretch] {
     }
 }
 
+if arguments.count == 8, arguments[1] == "live", let model = SpeechModel(rawValue: arguments[2]) {
+    let recognizer = SpeechRecognizer(model, directory: URL(fileURLWithPath: arguments[3]))
+    let audio = try read(URL(fileURLWithPath: arguments[4]))
+    let language = arguments[6]
+    guard let live = try await recognizer.live(language: language) else {
+        FileHandle.standardError.write(Data("\(model.kind.name) gives no words as they're heard\n".utf8))
+        exit(1)
+    }
+    var out = "", pieces = 0, total = 0.0
+    for stretch in try loggedStretches(arguments[5]) where stretch.end > stretch.start {
+        // From the voice (with the app's 0.2 s before it, after the last stretch) to where the stretch was cut.
+        let from = max(stretch.after, stretch.start - 0.2), to = stretch.before.isFinite ? stretch.before : stretch.end
+        live.start()
+        var partials: [[Any]] = []
+        for at in stride(from: from, to: to, by: 0.1) {
+            let range = Int(at * 16000)..<min(audio.count, Int(min(at + 0.1, to) * 16000))
+            guard !range.isEmpty else { break }
+            let started = Date()
+            let text = try live.accept(Array(audio[range]))
+            total += Date().timeIntervalSince(started)
+            pieces += 1
+            if text != (partials.last?[1] as? String ?? "") { partials.append([((at + 0.1) * 100).rounded() / 100, text]) }
+        }
+        let final = try await recognizer.transcribe(Array(audio[Int(stretch.start * 16000)..<min(audio.count, Int(stretch.end * 16000))]), language: language)
+        let row: [String: Any] = ["start": from, "end": to, "partials": partials, "final": final.text]
+        out += String(decoding: try JSONSerialization.data(withJSONObject: row), as: UTF8.self) + "\n"
+    }
+    try out.write(toFile: arguments[7], atomically: true, encoding: .utf8)
+    print(String(format: "%.1f ms per 100 ms of audio", total / Double(max(1, pieces)) * 1000))
+    exit(0)
+}
 if arguments.count == 4, arguments[1] == "install", let model = SpeechModel(rawValue: arguments[2]) {
     let started = Date()
     try await SpeechRecognizer(model).installModels(from: URL(fileURLWithPath: arguments[3]))

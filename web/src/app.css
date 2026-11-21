@@ -120,6 +120,11 @@ body {
 	opacity: 1;
 }
 
+/* A stretch of speech's words while it's heard ("Show words as they're heard"), until its line replaces it. */
+#lines .live-line {
+	opacity: 0.7;
+}
+
 #box-buttons .header-button.pointer-hover {
 	color: hsl(var(--p));
 }

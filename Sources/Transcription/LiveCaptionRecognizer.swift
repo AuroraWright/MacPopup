@@ -2,6 +2,8 @@ import Foundation
 import OCREngines
 import SODA
 
+extension SODAStream: LiveTranscription {}
+
 /// Chrome's Live Caption (SODA), from the language packs scripts/convert-soda.py downloads from Chrome's update server:
 /// a folder per pack (Chrome's locale) with Chrome's files, the packs listed in soda.json. A language's pack is loaded
 /// when it's first needed, one at a time (each takes 150-400 MB).
@@ -18,6 +20,8 @@ final class LiveCaptionRecognizer: Recognizer, @unchecked Sendable {
     private let installed: [String]
     private let lock = NSLock()
     private var loaded: (locale: String, pack: SODAPack)?
+    /// The pack's recognizer for words as they're heard, once they're wanted.
+    private var stream: (locale: String, stream: SODAStream)?
 
     init(directory: URL) throws {
         self.directory = directory
@@ -43,24 +47,45 @@ final class LiveCaptionRecognizer: Recognizer, @unchecked Sendable {
         return Self.transcript(result)
     }
 
+    func live(language: String) async throws -> (any LiveTranscription)? {
+        let locale = try locale(for: language)
+        if let stream = lock.withLock({ stream?.locale == locale ? stream?.stream : nil }) { return stream }
+        return try await ModelsLoading.counting {
+            try lock.withLock {
+                if let stream, stream.locale == locale { return stream.stream }
+                self.stream = nil
+                let stream = try SODAStream(directory: directory.appendingPathComponent(locale, isDirectory: true))
+                self.stream = (locale, stream)
+                return stream
+            }
+        }
+    }
+
     /// The pack for `language`, loading it in place of the last one if needed (counted in ModelsLoading, as a model's
-    /// loading). A language Live Caption doesn't read gets the first pack.
+    /// loading).
     private func pack(for language: String) async throws -> SODAPack {
+        let locale = try locale(for: language)
+        if let pack = lock.withLock({ loaded?.locale == locale ? loaded?.pack : nil }) { return pack }
+        return try await ModelsLoading.counting { try load(locale) }
+    }
+
+    /// The pack that reads `language`; a language Live Caption doesn't read gets the first pack.
+    private func locale(for language: String) throws -> String {
         let wanted = Self.locales[language]
         guard let locale = wanted.map({ $0.first(where: installed.contains) }) ?? installed.first else {
             let name = Locale(identifier: "en").localizedString(forLanguageCode: language) ?? language
             throw ConvertedModelsKind.Failure(
                 "The Live Caption .zip file has no \(name) pack. Make one with \(ConvertedModelsKind.soda.script) \(wanted?.first ?? language), then load it in Settings → Transcription.")
         }
-        if let pack = lock.withLock({ loaded?.locale == locale ? loaded?.pack : nil }) { return pack }
-        return try await ModelsLoading.counting { try load(locale) }
+        return locale
     }
 
     private func load(_ locale: String) throws -> SODAPack {
         try lock.withLock {
             if let loaded, loaded.locale == locale { return loaded.pack }
-            // The last pack goes first, so that two aren't in memory at once.
+            // The last pack goes first, so that two aren't in memory at once (with its recognizer for live words).
             loaded = nil
+            if stream?.locale != locale { stream = nil }
             let pack = try SODAPack(directory: directory.appendingPathComponent(locale, isDirectory: true))
             loaded = (locale, pack)
             return pack

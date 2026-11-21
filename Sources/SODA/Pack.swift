@@ -8,6 +8,14 @@ public final class SODAPack: @unchecked Sendable {
 
     /// Loads the pack's models; throws if a file is missing or unreadable.
     public init(directory: URL) throws {
+        recognizer = try Self.recognizer(directory, live: false)
+        // The whole stretch is here at once: its frames are encoded 16 at a time (see wholeStretchBatch).
+        recognizer.wholeStretchBatch = 16
+    }
+
+    /// The pack's recognizer; `live`: for words as they're heard, the first pass only (en-US's second pass gives
+    /// finals), without punctuation.
+    static func recognizer(_ directory: URL, live: Bool) throws -> SODARecognizer {
         let config = try Self.config(directory)
         let symbolsFile = directory.appendingPathComponent(config.symbolsFile)
         let symbolsJSON = symbolsFile.deletingPathExtension().appendingPathExtension("json")
@@ -17,11 +25,9 @@ public final class SODAPack: @unchecked Sendable {
             if e.defaultDomainID >= 0 { encoder.domainID = e.domainIDs["CAPTION"] ?? e.defaultDomainID }
             return encoder
         }
-        let cascade = config.cascade.encoder.file.isEmpty ? nil : try encoder(config.cascade.encoder)
-        recognizer = try SODARecognizer(models: directory, config: config, symbols: symbols,
-                                        encoder: try encoder(config.encoder), cascadeEncoder: cascade)
-        // The whole stretch is here at once: its frames are encoded 16 at a time (see wholeStretchBatch).
-        recognizer.wholeStretchBatch = 16
+        let cascade = live || config.cascade.encoder.file.isEmpty ? nil : try encoder(config.cascade.encoder)
+        return try SODARecognizer(models: directory, config: config, symbols: symbols, encoder: try encoder(config.encoder),
+                                  cascadeEncoder: cascade, punctuation: !live)
     }
 
     /// Throws unless the folder has a pack's config, symbol table (as JSON) and encoder: quicker than loading it.
@@ -50,10 +56,37 @@ public final class SODAPack: @unchecked Sendable {
     /// Recognizes 16 kHz mono audio (-1 to 1) as one stretch: its final result, with each word's start. The audio is
     /// put on 16-bit samples first, as libsoda takes it.
     public func recognize(_ samples: [Float]) throws -> SODAResult {
-        // Clamped as floats: Int() of a NaN or infinite sample would crash.
-        let pcm = samples.map { $0.isNaN ? 0 : min(max(($0 * 32768).rounded(), -32768), 32767) }
+        let pcm = Self.pcm(samples)
         lock.lock()
         defer { lock.unlock() }
         return try recognizer.recognize(pcm)
+    }
+
+    /// Samples from -1 to 1 on the 16-bit scale, clamped as floats: Int() of a NaN or infinite sample would crash.
+    static func pcm(_ samples: [Float]) -> [Float] {
+        samples.map { $0.isNaN ? 0 : min(max(($0 * 32768).rounded(), -32768), 32767) }
+    }
+}
+
+/// A pack's words as a stretch of speech is heard, for showing its line while it's said (as Chrome's partial
+/// results, without their formatting); the line's text comes from SODAPack.recognize once the stretch has ended. A
+/// recognizer of its own, so that it goes on with the next stretch while SODAPack transcribes the last one. One
+/// stretch at a time, from one thread at a time.
+public final class SODAStream: @unchecked Sendable {
+    private let recognizer: SODARecognizer
+
+    public init(directory: URL) throws {
+        recognizer = try SODAPack.recognizer(directory, live: true)
+    }
+
+    /// Starts a new stretch.
+    public func start() {
+        recognizer.reset()
+    }
+
+    /// Takes the stretch's next 16 kHz mono samples (-1 to 1), and returns its words so far.
+    public func accept(_ samples: [Float]) throws -> String {
+        try recognizer.accept(SODAPack.pcm(samples))
+        return recognizer.partialText
     }
 }

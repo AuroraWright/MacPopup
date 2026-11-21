@@ -11,12 +11,15 @@ import Transcription
 /// without pauses (transcriptionPause 0).
 /// It's transcribed with the model chosen in Settings → Transcription, a stretch at a time and in order, and the text is
 /// split into sentences. With "End lines at sentence ends", as with OCR's lines (ShownLines), a line grows with the
-/// next stretch while its sentence goes on (GrowingLines).
+/// next stretch while its sentence goes on (GrowingLines). With "Show words as they're heard", the model's words for the
+/// stretch being heard are shown as they come (LiveTranscription), as a live line that its text then replaces.
 @MainActor
 final class AudioTranscriber {
     private struct Source: Equatable {
         var processes: AudioTap.Processes?
         var pause: Double
+        /// "Show words as they're heard".
+        var live: Bool
     }
 
     private let overlay: OverlayController
@@ -42,6 +45,19 @@ final class AudioTranscriber {
     /// The open line can't go on past the stretches transcribed so far: speech was dropped, or the audio's source or
     /// model changed. It's ended before the next stretch, not while one is being transcribed (which goes on from it).
     private var linesBroken = false
+    /// The model's words as they're heard (for "Show words as they're heard"), worked out on `liveQueue`, for the
+    /// language it was asked for (nil when not wanted, or nil from models that don't give them).
+    private var live: (any LiveTranscription)?
+    private var liveLanguage: String?
+    private let liveQueue = DispatchQueue(label: "com.aury.macpopup.transcription.live", qos: .userInitiated)
+    /// The stretch `live` hears, the text shown for each stretch's live line, and the stretches whose live lines are
+    /// gone (their late words aren't shown).
+    private var liveStretch: Int?
+    private var liveShown: [Int: String] = [:]
+    private var liveEnded = Set<Int>()
+    /// Counts the listeners, so that a stopped one's audio isn't heard, and the times the live lines were all removed,
+    /// so that words worked out before then aren't shown.
+    private var listenerGeneration = 0, liveGeneration = 0
 
     init(overlay: OverlayController) {
         self.overlay = overlay
@@ -82,6 +98,9 @@ final class AudioTranscriber {
             shownError = nil
             pending.removeAll()
             linesBroken = true
+            live = nil
+            liveLanguage = nil
+            endLiveLines()
         }
         // Now, so the first line isn't late (the first time, Core ML takes long to prepare a model), and again for
         // another language (Live Caption has a pack per language).
@@ -115,18 +134,46 @@ final class AudioTranscriber {
                 satLoading = false
             }
         }
-        let source = enabled ? Source(processes: processes(), pause: Double(settings["transcriptionPause"] as? NSNumber ?? 1000) / 1000) : nil
+        let wantsLive = enabled && settings["transcriptionLive"] as? Bool == true
+        if let model, wantsLive, language != liveLanguage {
+            liveLanguage = language
+            live = nil
+            let recognizer = SpeechRecognizer.shared(model)
+            Task {
+                do {
+                    let live = try await recognizer.live(language: language)
+                    // Still wanted for this model and language.
+                    guard self.model == model, self.liveLanguage == language else { return }
+                    self.live = live
+                    self.liveStretch = nil
+                    if live != nil { transcriptionLog("\(model.kind.name) gives words as they're heard") }
+                } catch {
+                    self.report(error)
+                }
+            }
+        } else if !wantsLive {
+            live = nil
+            liveLanguage = nil
+        }
+        let source = enabled ? Source(processes: processes(), pause: Double(settings["transcriptionPause"] as? NSNumber ?? 1000) / 1000,
+                                      live: wantsLive) : nil
         guard source != self.source else { return }
         self.source = source
         // The stretches waiting are of the old source's audio, and the open line can't go on with the new one's.
         pending.removeAll()
         linesBroken = true
+        endLiveLines()
         listener?.stop()
         listener = nil
         guard let source, source.processes != nil || testFile != nil else { return }
-        let listener = SpeechListener(pause: source.pause) { [weak self] speech in
+        listenerGeneration += 1
+        let generation = listenerGeneration
+        let onLive: ((SpeechListener.Live) -> Void)? = source.live ? { [weak self] event in
+            Task { @MainActor in self?.heardLive(event, generation: generation) }
+        } : nil
+        let listener = SpeechListener(pause: source.pause, onSpeech: { [weak self] speech in
             self?.heard(speech)
-        }
+        }, onLive: onLive)
         do {
             if let testFile {
                 transcriptionLog("playing \(testFile) in place of app audio")
@@ -161,7 +208,7 @@ final class AudioTranscriber {
         guard model != nil else { return }
         pending.append(speech)
         if pending.count > Self.maxPending {
-            pending.removeFirst()
+            endLiveLine(pending.removeFirst().id)
             // The line can't go on past the missing speech.
             linesBroken = true
             transcriptionLog("transcription is behind: dropped a stretch of speech")
@@ -179,6 +226,7 @@ final class AudioTranscriber {
         guard !speech.samples.isEmpty else {
             // The voice stopped after a stretch too quiet to transcribe.
             lines.end()
+            endLiveLine(speech.id)
             transcribeNext()
             return
         }
@@ -189,7 +237,10 @@ final class AudioTranscriber {
         var earlier = growing ? lines.earlier(before: speech.samples) : nil
         transcribing = true
         Task {
+            // Its live line goes with its last line (see show), or else once it's done.
+            var liveReplaced = false
             defer {
+                if !liveReplaced { endLiveLine(speech.id) }
                 transcribing = false
                 transcribeNext()
             }
@@ -217,8 +268,10 @@ final class AudioTranscriber {
             shownError = nil
             guard growing else {
                 lines.end()
-                for sentence in Self.sentences(transcript.text, language: language) {
-                    show(sentence, start: speech.start, grows: false)
+                let sentences = Self.sentences(transcript.text, language: language)
+                for (index, sentence) in sentences.enumerated() {
+                    let last = index == sentences.count - 1
+                    liveReplaced = show(sentence, start: speech.start, grows: false, endsLive: last ? speech.id : nil) && last
                 }
                 return
             }
@@ -232,19 +285,77 @@ final class AudioTranscriber {
                 }
             }
             guard self.model == model else { return }
-            for line in lines.add(joined, probabilities: probabilities, stretch: speech.samples, start: speech.start,
-                                  pause: speech.pause, language: language) {
-                show(line.text, start: line.start, grows: line.grows)
+            let shown = lines.add(joined, probabilities: probabilities, stretch: speech.samples, start: speech.start,
+                                  pause: speech.pause, language: language)
+            for (index, line) in shown.enumerated() {
+                let last = index == shown.count - 1
+                liveReplaced = show(line.text, start: line.start, grows: line.grows, endsLive: last ? speech.id : nil) && last
             }
         }
     }
 
-    /// Adds a line to the text box, or replaces its last line with the text when it `grows`.
-    private func show(_ text: String, start: Double, grows: Bool) {
-        guard !text.isEmpty, let data = try? JSONSerialization.data(withJSONObject: [text]),
-              let json = String(data: data, encoding: .utf8) else { return }
+    /// Adds a line to the text box, or replaces its last line with the text when it `grows`; `endsLive`: the stretch
+    /// whose live line it takes the place of. Returns whether there was text to show.
+    @discardableResult
+    private func show(_ text: String, start: Double, grows: Bool, endsLive: Int? = nil) -> Bool {
+        guard !text.isEmpty, let json = Self.json(text) else { return false }
         let age = ProcessInfo.processInfo.systemUptime - start
-        overlay.evaluate("window.__macpopupTranscript?.(\(json)[0], \(age), \(grows))")
+        if let endsLive { liveEnded(endsLive) }
+        overlay.evaluate("window.__macpopupTranscript?.(\(json), \(age), \(grows), \(endsLive.map(String.init) ?? "null"))")
+        return true
+    }
+
+    /// A string as JavaScript.
+    private static func json(_ text: String) -> String? {
+        (try? JSONSerialization.data(withJSONObject: [text])).flatMap { String(data: $0, encoding: .utf8) }.map { "\($0)[0]" }
+    }
+
+    /// The stretch being heard, as it's heard: its audio goes to the model, its words to its live line.
+    private func heardLive(_ event: SpeechListener.Live, generation: Int) {
+        guard generation == listenerGeneration, let live else { return }
+        switch event {
+        case let .audio(stretch, samples):
+            guard !liveEnded.contains(stretch) else { return }
+            let starts = stretch != liveStretch, generation = liveGeneration
+            liveStretch = stretch
+            liveQueue.async { [weak self] in
+                if starts { live.start() }
+                guard let text = try? live.accept(samples) else { return }
+                Task { @MainActor in self?.showLive(text, stretch: stretch, generation: generation) }
+            }
+        case let .dropped(stretch):
+            endLiveLine(stretch)
+        }
+    }
+
+    private func showLive(_ text: String, stretch: Int, generation: Int) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard generation == liveGeneration, live != nil, !liveEnded.contains(stretch), !text.isEmpty,
+              liveShown[stretch] != text, let json = Self.json(text) else { return }
+        liveShown[stretch] = text
+        overlay.evaluate("window.__macpopupLive?.(\(stretch), \(json))")
+    }
+
+    /// The stretch's live line is gone (or going, with its last line): its late words aren't shown.
+    private func liveEnded(_ stretch: Int) {
+        liveEnded.insert(stretch)
+        liveShown[stretch] = nil
+    }
+
+    /// Removes the stretch's live line, if it has one.
+    private func endLiveLine(_ stretch: Int) {
+        guard !liveEnded.contains(stretch) else { return }
+        liveEnded(stretch)
+        overlay.evaluate("window.__macpopupLive?.(\(stretch), null)")
+    }
+
+    /// Removes all live lines: the audio's source or model changed.
+    private func endLiveLines() {
+        liveGeneration += 1
+        liveShown.removeAll()
+        liveEnded.removeAll()
+        liveStretch = nil
+        overlay.evaluate("window.__macpopupLiveClear?.()")
     }
 
     private func report(_ error: Error) {
@@ -277,6 +388,8 @@ func transcriptionLog(_ message: String) {
 /// mixed to mono at 16 kHz. Everything but `start` and `stop` runs on its own queue.
 final class SpeechListener: @unchecked Sendable {
     struct Speech {
+        /// The stretch's, as in its Live events.
+        let id: Int
         /// Empty when the stretch was too quiet to transcribe but ended the voice.
         let samples: [Float]
         /// When the samples start (`padding` before the voice, or less), in seconds of system uptime.
@@ -286,6 +399,14 @@ final class SpeechListener: @unchecked Sendable {
         let pause: Double
         var endsVoice: Bool { pause.isInfinite }
         var duration: Double { Double(samples.count) / SpeechListener.sampleRate }
+    }
+
+    /// The stretch being heard, as it's heard ("Show words as they're heard").
+    enum Live {
+        /// The stretch's next audio, 16 kHz mono: from `padding` before its voice, a tenth of a second or more at a time.
+        case audio(stretch: Int, samples: [Float])
+        /// The stretch ended without being given to be transcribed (too quiet, or too short).
+        case dropped(stretch: Int)
     }
 
     static let sampleRate = 16000.0
@@ -310,6 +431,8 @@ final class SpeechListener: @unchecked Sendable {
     /// Seconds; 0: lines don't end at pauses.
     private let pause: Double
     private let onSpeech: @MainActor (Speech) -> Void
+    /// Gets the stretch being heard as it's heard, on the listener's queue; nil: only whole stretches are given.
+    private let onLive: ((Live) -> Void)?
     private let queue = DispatchQueue(label: "com.aury.macpopup.transcription", qos: .userInitiated)
     private var tap: AudioTap?
     private var testTimer: DispatchSourceTimer?
@@ -343,10 +466,16 @@ final class SpeechListener: @unchecked Sendable {
     /// Quiet blocks in a row, up to the last one.
     private var quietBlocks = 0
     private var stopped = false
+    /// The id of the stretch being heard.
+    private var stretch = 0
+    /// For onLive: seconds into the recording up to which the stretch's audio was given, and its converter.
+    private var liveGiven: Double?
+    private var resampler: StreamResampler?
 
-    init(pause: Double, onSpeech: @escaping @MainActor (Speech) -> Void) {
+    init(pause: Double, onSpeech: @escaping @MainActor (Speech) -> Void, onLive: ((Live) -> Void)? = nil) {
         self.pause = pause
         self.onSpeech = onSpeech
+        self.onLive = onLive
     }
 
     func start(_ processes: AudioTap.Processes) throws {
@@ -422,6 +551,22 @@ final class SpeechListener: @unchecked Sendable {
                 buffers.removeFirst()
             }
         }
+        if let start = voiceStart { giveLive(from: start, to: seconds) }
+    }
+
+    /// Gives onLive the stretch's audio up to `end` (seconds into the recording), from `padding` before its voice
+    /// (`start`) at first.
+    private func giveLive(from start: Double, to end: Double) {
+        guard let onLive, let format else { return }
+        let offset = Double(keptFrom) / format.sampleRate
+        if liveGiven == nil {
+            liveGiven = max(given, start - Self.padding, offset)
+            resampler = StreamResampler(from: format, to: Self.sampleRate)
+        }
+        guard let from = liveGiven, end - from >= 0.1, let resampler else { return }
+        liveGiven = end
+        let samples = resampler.convert(AudioClip(format: format, buffers: buffers).slice(from: from - offset, to: end - offset))
+        if !samples.isEmpty { onLive(.audio(stretch: stretch, samples: samples)) }
     }
 
     /// Adds the loudness of the buffer's blocks of 20 ms, and ends the speech at a pause.
@@ -503,11 +648,18 @@ final class SpeechListener: @unchecked Sendable {
     private func give(from start: Double, to end: Double, pause: Double) {
         let after = pause.isInfinite ? ", voice ended" : pause > 0 ? String(format: ", %.2f s pause", pause) : ""
         voiceStart = nil
+        // The next stretch is heard from here.
+        let id = stretch, heardLive = liveGiven != nil
+        stretch += 1
+        liveGiven = nil
+        resampler = nil
+        var transcribed = false
+        defer { if heardLive && !transcribed { onLive?(.dropped(stretch: id)) } }
         guard let format else { return }
         // No speech to give, but the voice's end still ends the line.
         func endVoice(at end: Double) {
             guard pause.isInfinite else { return }
-            let speech = Speech(samples: [], start: clockStart + end, pause: pause)
+            let speech = Speech(id: id, samples: [], start: clockStart + end, pause: pause)
             Task { @MainActor in onSpeech(speech) }
         }
         // The classifier's end (a second late, a quarter of a second at a time) is often before a pause's cut.
@@ -538,7 +690,8 @@ final class SpeechListener: @unchecked Sendable {
                                 offset + base + range.1, after))
         dropAudio(before: end)
         guard let samples = clip.monoSamples(sampleRate: Self.sampleRate), !samples.isEmpty else { return endVoice(at: end) }
-        let speech = Speech(samples: samples, start: clockStart + offset + base + kept.lowerBound, pause: pause)
+        let speech = Speech(id: id, samples: samples, start: clockStart + offset + base + kept.lowerBound, pause: pause)
+        transcribed = true
         Task { @MainActor in onSpeech(speech) }
     }
 }
@@ -564,28 +717,49 @@ private struct LowPass {
     }
 }
 
+/// Converts the pieces of a recording, one after another, to mono at another sample rate, carrying the converter's
+/// state from piece to piece so that they join as if converted together.
+private final class StreamResampler {
+    private let converter: AVAudioConverter
+    private let ratio: Double
+
+    init?(from format: AVAudioFormat, to sampleRate: Double) {
+        guard let mono = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1),
+              let output = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
+              let converter = AVAudioConverter(from: mono, to: output) else { return nil }
+        self.converter = converter
+        ratio = sampleRate / format.sampleRate
+    }
+
+    func convert(_ clip: AudioClip) -> [Float] {
+        guard let mono = clip.monoBuffer(),
+              let output = AVAudioPCMBuffer(pcmFormat: converter.outputFormat,
+                                            frameCapacity: AVAudioFrameCount(Double(mono.frameLength) * ratio) + 1024)
+        else { return [] }
+        var given = false
+        var error: NSError?
+        // No more for now (rather than the end of the stream): the converter keeps what it needs of this piece.
+        converter.convert(to: output, error: &error) { _, status in
+            if given {
+                status.pointee = .noDataNow
+                return nil
+            }
+            given = true
+            status.pointee = .haveData
+            return mono
+        }
+        guard error == nil, let samples = output.floatChannelData?[0] else { return [] }
+        return Array(UnsafeBufferPointer(start: samples, count: Int(output.frameLength)))
+    }
+}
+
 extension AudioClip {
     /// The clip mixed to mono and converted to `sampleRate`.
     func monoSamples(sampleRate: Double) -> [Float]? {
-        let frames = AVAudioFrameCount(frameCount)
-        guard frames > 0, let monoFormat = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1),
-              let mono = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: frames),
-              let target = mono.floatChannelData?[0],
+        guard let mono = monoBuffer(),
               let outputFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
-              let converter = AVAudioConverter(from: monoFormat, to: outputFormat) else { return nil }
-        var position = 0
-        for buffer in buffers {
-            guard let source = buffer.floatChannelData else { continue }
-            let length = Int(buffer.frameLength), channels = Int(format.channelCount)
-            for frame in 0..<length {
-                var sum: Float = 0
-                for channel in 0..<channels { sum += source[channel][frame] }
-                target[position + frame] = sum / Float(channels)
-            }
-            position += length
-        }
-        mono.frameLength = frames
-        let capacity = AVAudioFrameCount(Double(frames) * sampleRate / format.sampleRate) + 1024
+              let converter = AVAudioConverter(from: mono.format, to: outputFormat) else { return nil }
+        let capacity = AVAudioFrameCount(Double(mono.frameLength) * sampleRate / format.sampleRate) + 1024
         guard let output = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else { return nil }
         var given = false
         var error: NSError?
@@ -600,5 +774,26 @@ extension AudioClip {
         }
         guard error == nil, let samples = output.floatChannelData?[0] else { return nil }
         return Array(UnsafeBufferPointer(start: samples, count: Int(output.frameLength)))
+    }
+
+    /// The clip mixed to mono, at its sample rate.
+    func monoBuffer() -> AVAudioPCMBuffer? {
+        let frames = AVAudioFrameCount(frameCount)
+        guard frames > 0, let monoFormat = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1),
+              let mono = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: frames),
+              let target = mono.floatChannelData?[0] else { return nil }
+        var position = 0
+        for buffer in buffers {
+            guard let source = buffer.floatChannelData else { continue }
+            let length = Int(buffer.frameLength), channels = Int(format.channelCount)
+            for frame in 0..<length {
+                var sum: Float = 0
+                for channel in 0..<channels { sum += source[channel][frame] }
+                target[position + frame] = sum / Float(channels)
+            }
+            position += length
+        }
+        mono.frameLength = frames
+        return mono
     }
 }

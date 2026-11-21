@@ -90,6 +90,14 @@ const state = {
 	lineLayout: { reverseLineOrder: false, displayVertical: false },
 };
 
+// "Show words as they're heard" (see setLiveLine).
+const live = {
+	// Each stretch's line, oldest first: {element, text}.
+	lines: new Map(),
+	// Changes to lines a popup's word is in, made once the popups close: id → text, or null to remove it.
+	held: new Map(),
+};
+
 function formatLineText(text, preserveWhitespace) {
 	return preserveWhitespace ? text : text.replace(/\s+/g, ' ');
 }
@@ -286,12 +294,28 @@ function pushLine(rawText, { line: shown = null } = {}) {
 	}
 
 	// Not while the box is hidden by the OCR overlay: it would play when the box is shown again.
-	line.element = createLineElement(line, settings.enableLineAnimation && !box.hidden);
-	if (settings.reverseLineOrder) linesElement.prepend(line.element);
-	else linesElement.append(line.element);
+	line.element = createLineElement(line, animatesLines(settings) && !box.hidden);
+	// Before the live lines (see live), which come last.
+	const liveElements = [...live.lines.values()].map((shown) => shown.element);
+	if (settings.reverseLineOrder) {
+		if (liveElements.length > 0) liveElements[0].after(line.element);
+		else linesElement.prepend(line.element);
+	} else if (liveElements.length > 0) {
+		liveElements[0].before(line.element);
+	} else {
+		linesElement.append(line.element);
+	}
 	if (atEnd) scrollToEnd();
 	void tokenizeLine(line);
 	return line;
+}
+
+/**
+ * Whether new lines slide in: not while transcribed lines show their words as they're heard, whose lines take the place
+ * of what's already shown.
+ */
+function animatesLines(settings) {
+	return !!settings.enableLineAnimation && !(settings.floatingWindowAudio && settings.transcriptionLive);
 }
 
 function removeLine(line) {
@@ -309,6 +333,8 @@ function clearLines() {
 	state.ocrLine = null;
 	state.lineTextCounts.clear();
 	clearChildren(linesElement);
+	live.lines.clear();
+	live.held.clear();
 	popupManager.closeAll();
 }
 
@@ -421,6 +447,11 @@ function rerenderLines() {
 	for (const line of ordered) {
 		line.element = createLineElement(line, false);
 		linesElement.append(line.element);
+	}
+	// The live lines (see live) after them, kept as they are.
+	for (const { element } of live.lines.values()) {
+		if (settings.reverseLineOrder) linesElement.prepend(element);
+		else linesElement.append(element);
 	}
 }
 
@@ -832,6 +863,7 @@ class PopupManager {
 			if (!scan.pending) scan.source = null;
 			setHighlight(null);
 			applyDeferredOcr();
+			applyHeldLive();
 		} else {
 			this.popups[depth - 1]?.api?.clearScan();
 		}
@@ -1222,11 +1254,74 @@ window.__macpopupClipboard = (text) => {
 };
 
 // "Read text from audio" (AudioTranscriber.swift): a transcribed line, and how many seconds ago its voice started, or
-// the last one grown (`grows`), which replaces it in the box when it's still the last line.
-window.__macpopupTranscript = (text, age, grows = false) => {
+// the last one grown (`grows`), which replaces it in the box when it's still the last line. `endsLive`: the stretch
+// whose live line it replaces (see live).
+window.__macpopupTranscript = (text, age, grows = false, endsLive = null) => {
 	const previous = grows ? state.transcriptLine : null;
-	addLine(text, null, age, { shown: (line) => (state.transcriptLine = line), replaces: previous });
+	addLine(text, null, age, {
+		shown: (line) => {
+			state.transcriptLine = line;
+			if (endsLive !== null) setLiveLine(endsLive, null);
+		},
+		replaces: previous,
+	});
 };
+
+// "Show words as they're heard": each stretch of speech's words so far, as a line after the box's lines until its
+// text arrives. Not one of the box's lines (no card, duplicate check or line count sees it), by the host's id for the
+// stretch: `text`, or null once it's gone.
+window.__macpopupLive = (id, text) => setLiveLine(id, text);
+// The live lines are gone (the audio's source or model changed).
+window.__macpopupLiveClear = () => clearLiveLines();
+
+function setLiveLine(id, text) {
+	const shown = live.lines.get(id);
+	if (shown && liveLineUnderPopup(shown.element)) {
+		live.held.set(id, text);
+		return;
+	}
+	live.held.delete(id);
+	if (text === null) {
+		shown?.element.remove();
+		live.lines.delete(id);
+		return;
+	}
+	const settings = getSettings();
+	let display = applyReplacements(text, settings.replacements);
+	if (settings.removeAllWhitespace) display = display.replace(/\s/gm, '');
+	if (shown?.text === display) return;
+	const atEnd = isScrolledToEnd();
+	const element = createLineElement({ id: `live-${id}`, text: display, tokens: null }, false);
+	element.classList.add('live-line');
+	if (shown) {
+		shown.element.replaceWith(element);
+	} else if (settings.reverseLineOrder) {
+		linesElement.prepend(element);
+	} else {
+		linesElement.append(element);
+	}
+	live.lines.set(id, { element, text: display });
+	if (atEnd) scrollToEnd();
+}
+
+/** Whether an open popup's word is in a live line's `element`: its text then waits for the popups to close. */
+function liveLineUnderPopup(element) {
+	const range = scan.source?.range;
+	return popupManager.visiblePopups().length > 0 && !!range && element.contains(range.startContainer);
+}
+
+/** Makes the changes to live lines that waited for the popups to close (see live.held). */
+function applyHeldLive() {
+	const held = [...live.held];
+	live.held.clear();
+	for (const [id, text] of held) setLiveLine(id, text);
+}
+
+function clearLiveLines() {
+	for (const { element } of live.lines.values()) element.remove();
+	live.lines.clear();
+	live.held.clear();
+}
 
 // OCR: the host reads another app's window with Live Text or another OCR engine
 // (OCRController.swift) and sends the text here, where it's laid over the window invisibly

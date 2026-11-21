@@ -186,6 +186,14 @@ final class SODARecognizer {
         if encoding { try runEncoder(flush: false) }
     }
 
+    /// The words so far, unformatted (as libsoda's partial results before their formatting): the finals', then the
+    /// search's best hypothesis. Without a second pass: with one, the first pass's search runs only if it can end
+    /// utterances.
+    var partialText: String {
+        let parts = finals.map(\.rawText) + [labelsToText(search.best.labels)]
+        return parts.filter { !$0.isEmpty }.joined(separator: spacedWords ? " " : "")
+    }
+
     /// The stretch's result, once all its samples are in: its finals (`finals`) joined.
     func finish() throws -> SODAResult {
         var frames: [[Float]] = []

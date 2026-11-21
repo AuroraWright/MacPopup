@@ -76,10 +76,23 @@ protocol Recognizer: AnyObject, Sendable {
     func transcribe(_ samples: [Float], language: String) async throws -> Transcript
     /// Loads what transcribing `language` needs, for models with a part per language.
     func prepare(language: String) async throws
+    /// Words as they're heard in `language`, for models that can give them.
+    func live(language: String) async throws -> (any LiveTranscription)?
 }
 
 extension Recognizer {
     func prepare(language: String) async throws {}
+    func live(language: String) async throws -> (any LiveTranscription)? { nil }
+}
+
+/// A stretch of speech's words as it's heard, for its line while it's said (Settings → Transcription → "Show words as
+/// they're heard"); the line's text comes from `transcribe` once the stretch has ended. One stretch at a time, from one
+/// thread at a time.
+public protocol LiveTranscription: AnyObject, Sendable {
+    /// Starts a new stretch.
+    func start()
+    /// Takes the stretch's next 16 kHz mono samples (-1 to 1), and returns its text so far.
+    func accept(_ samples: [Float]) throws -> String
 }
 
 /// A transcription, and when each of its characters was heard, for models that tell (all but Whisper's).
@@ -192,6 +205,12 @@ public actor SpeechRecognizer: ConvertedModelsStore {
     public func load(language: String? = nil) async throws {
         let recognizer = try await recognizer()
         if let language { try await recognizer.prepare(language: language) }
+    }
+
+    /// Words as they're heard in `language`, loading the models first if needed; nil for models that only transcribe
+    /// whole stretches.
+    public func live(language: String) async throws -> (any LiveTranscription)? {
+        try await recognizer().live(language: language)
     }
 
     /// Lets the models go, to free their memory; the next transcription loads them again.
