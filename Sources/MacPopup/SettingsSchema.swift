@@ -517,11 +517,11 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "transcriptionSentenceEnds", "Detect sentence ends", .checkbox,
-                        hint: "A line keeps going through short pauses until its sentence is over, and is transcribed again as it grows, which makes it more accurate. Works best with “Line ends after a pause of” set to 200."
+                        hint: "Makes line splits more accurate by detecting sentence ends."
                     ),
                     SettingsField(
                         "satModels", "SaT models", .convertedModels(.sat),
-                        hint: "SaT finds the sentence ends. Run scripts/convert-sat.py to make a .zip file, then click Load.",
+                        hint: "Run scripts/convert-sat.py to make a .zip file, then click Load.",
                         showIf: { $0["transcriptionSentenceEnds"] as? Bool == true }
                     ),
                     SettingsField(
