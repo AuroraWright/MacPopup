@@ -8,8 +8,8 @@ modes:
 
 - **Floating Window**: Inspired by [JL](https://github.com/rampaa/JL). Shows text in a floating text box you can
   customize, like [texthooker-ui](https://github.com/Renji-XD/texthooker-ui). The text comes from WebSockets or the
-  clipboard (from tools like Textractor, Agent or LunaTranslator), is read from a game's window with OCR, or is
-  transcribed from its voices.
+  clipboard (from tools like Textractor, Agent or LunaTranslator), or is read from a game's window with OCR or from
+  its voices.
 - **OCR overlay**: Inspired by [meikipop](https://github.com/rtr46/meikipop) and
   [GameSentenceMiner](https://github.com/bpwhelan/GameSentenceMiner). Reads the text straight from any app or game
   window, so you can point at the game's own text to look words up. It uses Apple Live Text,
@@ -53,12 +53,10 @@ You don't have to set MacPopup up from scratch: click **Import** at the bottom o
   settings and text replacements.
 - **MacPopup Settings…**: Restore a file saved with **Export…**. This replaces all your current settings.
 
-If your Yomitan can share its settings through its API (the `displayOptions`, `dictionaryInfo` and `dictionaryMedia`
-paths, not in a Yomitan release yet), you don't need to import anything: popups match your Yomitan setup and stay in
-sync when you change it there. That includes how popups look (turn off *Use Yomitan's display settings* in
-*Settings → Yomitan Popup* to use MacPopup's own), your dictionaries' styles and collapse rules, and a dictionary's
-details when you click its tag. Dictionary images also load faster. With an older Yomitan, MacPopup uses its own
-settings and whatever you imported.
+If your Yomitan shares its settings through its API (not in a Yomitan release yet), you don't need to import
+anything: popups follow your Yomitan's look, dictionaries and collapse rules, and stay in sync when you change them
+there. To use MacPopup's own look, turn off *Use Yomitan's display settings* in *Settings → Yomitan Popup*. With an
+older Yomitan, MacPopup uses what you imported.
 
 ---
 
@@ -79,16 +77,17 @@ default), as plain text or texthooker JSON (`{"sentence": "..."}`).
   already came over WebSocket aren't added twice. A window may not be readable while it's hidden. Lines the OCR
   overlay reads are added too, so they're there when you switch back.
 - **Read text from audio**: Turn on **Read text from audio** (*Settings → Floating Window*, or the **audio** button)
-  to transcribe what's said in the captured window's app (or in every app, if no window is captured) and add each
-  sentence to the box. Music and sound effects are skipped. MacPopup needs the **System Audio Recording** permission.
-  - *Models*: Choose one in **Settings → Transcription**. None come with MacPopup: run the `scripts/convert-*.py`
-    script named there to make a `.zip` file, and click **Load**. **Kitsune** (the default) is very fast and accurate
-    for Japanese, **anime-whisper** is the most accurate on game and anime voices but slower, **Whisper** reads 99
-    languages, **SenseVoice** Chinese, Cantonese, Japanese, Korean and English, **Parakeet** 25 European
-    languages, and **Live Caption** (Chrome's on-device speech recognition) 16 languages, with punctuation.
-  - *Lines*: A line ends when the speaker pauses (**Line ends after a pause of**, 1 second by default). With **End
-    lines at sentence ends** (and the SaT model, loaded the same way) and a short pause such as 200 ms, a line goes
-    on across short pauses until its sentence ends, and is transcribed again as it grows, which is more accurate.
+  to add what's said in the captured window's app (or in any app, if no window is captured) to the box, a sentence
+  per line. Music and sound effects are skipped. MacPopup needs the **System Audio Recording** permission.
+  - *Models*: Choose one in *Settings → Transcription*. None come with MacPopup: make a `.zip` file with the
+    `scripts/convert-*.py` script named there, and click **Load**. **Kitsune** (the default) is fast and accurate for
+    Japanese, **anime-whisper** is the most accurate for game and anime voices but slower, **Whisper** covers 99
+    languages, **SenseVoice** Chinese, Cantonese, Japanese, Korean and English, **Parakeet** 25 European languages,
+    and **Live Caption** (Chrome's speech recognition) 16 languages.
+  - *Lines*: A new line starts when the speaker pauses for a second (change it with **Line ends after a pause of**).
+    To end lines where sentences end instead, which is also more accurate, turn on **Detect sentence ends**, load the
+    SaT model the same way, and set the pause to 200. To see the words as they're spoken, turn on **Show words as
+    they're heard** (not available with Whisper and anime-whisper).
 - **Font & Formatting**: Pick the box's font, size, color, underline, strikethrough, shadow and background in the
   macOS Fonts panel (*Settings → Floating Window → Font*). Show furigana above words (in hiragana, katakana, romaji or
   the dictionary reading), add spaces between words, show text vertically, or hide duplicate lines and lines that
@@ -389,7 +388,6 @@ vita-vn-ocr's code under the **GPL-3.0-or-later** (see `vendor/mida-vocr6/README
 The speech recognition models for **Read text from audio** don't come with MacPopup: the `scripts/convert-*.py`
 scripts download them from their authors. Kitsune is licensed under **CC BY-NC 4.0** (**non-commercial use only**),
 SenseVoice under the FunASR model licence, Parakeet under **CC BY 4.0**, and Whisper, anime-whisper and SaT under the
-**MIT License**. Whisper models run with Argmax's [WhisperKit](https://github.com/argmaxinc/WhisperKit) (**MIT
-License**). Live Caption's language packs are Google's: `scripts/convert-soda.py` downloads them from Chrome's update
-server for your own use (don't share them or the `.zip` file), and MacPopup runs them itself (`Sources/SODA`), without
-Chrome.
+**MIT License**. Whisper runs with Argmax's [WhisperKit](https://github.com/argmaxinc/WhisperKit) (**MIT License**).
+Live Caption's language packs are Google's: `scripts/convert-soda.py` downloads them from Chrome's update server for
+your own use only (don't share them or the `.zip` file). MacPopup runs them itself (`Sources/SODA`), without Chrome.

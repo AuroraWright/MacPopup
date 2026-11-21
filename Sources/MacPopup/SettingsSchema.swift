@@ -516,8 +516,8 @@ enum SettingsSchema {
                         showIf: { (SpeechModel(rawValue: $0["transcriptionModel"] as? String ?? "") ?? .kitsune).hearsLive }
                     ),
                     SettingsField(
-                        "transcriptionSentenceEnds", "End lines at sentence ends", .checkbox,
-                        hint: "A line goes on after a short pause until its sentence ends, and the model hears its speech again with what follows. Set the pause below to about 200 ms: a line still ends at every longer pause."
+                        "transcriptionSentenceEnds", "Detect sentence ends", .checkbox,
+                        hint: "A line keeps going through short pauses until its sentence is over, and is transcribed again as it grows, which makes it more accurate. Works best with “Line ends after a pause of” set to 200."
                     ),
                     SettingsField(
                         "satModels", "SaT models", .convertedModels(.sat),
@@ -526,7 +526,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "transcriptionPause", "Line ends after a pause of (ms, 0 = off)", .number(min: 0),
-                        hint: "How long the speaker must pause before a line is added. Shorter pauses show lines sooner, but may cut sentences in two (unless “End lines at sentence ends” is on: then try 200). For someone who talks without stopping, try 200, or 0 for a line about every 10 seconds."
+                        hint: "How long the speaker must pause before a line is added. Shorter pauses show lines sooner, but may cut sentences in two. Try 200 when a speaker talks without stopping or if “Detect sentence ends” is enabled. If set to 0, new lines are shown every 10 seconds or so."
                     ),
                 ]
             ),
