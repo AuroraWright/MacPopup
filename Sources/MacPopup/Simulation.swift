@@ -147,11 +147,11 @@ final class Simulation: @unchecked Sendable {
 
     private func start() {
         let asset = AVURLAsset(url: movie)
-        guard let reader = try? AVAssetReader(asset: asset), let track = asset.tracks(withMediaType: .video).first else {
+        guard let reader = try? AVAssetReader(asset: asset), let (track, size) = Self.videoTrack(of: asset) else {
             FileHandle.standardError.write("simulation: can't read \(movie.path)\n".data(using: .utf8)!)
             exit(1)
         }
-        movieSize = track.naturalSize
+        movieSize = size
         reader.timeRange = CMTimeRange(start: CMTime(seconds: from, preferredTimescale: 600), end: CMTime(seconds: to + 5, preferredTimescale: 600))
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
         reader.add(output)
@@ -164,6 +164,21 @@ final class Simulation: @unchecked Sendable {
             return Self.base + Double(nanoseconds / 1_000_000_000)
         }
         try? String(format: "start %.3f %.3f\n", started, from).write(to: logURL, atomically: true, encoding: .utf8)
+    }
+
+    /// The movie's video track and its size, which AVFoundation now only loads asynchronously. Waited for, so that
+    /// nothing else moves the simulated clock before the recording starts (it starts at the same time in each run).
+    private static func videoTrack(of asset: AVURLAsset) -> (AVAssetTrack, CGSize)? {
+        let loaded = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var result: (AVAssetTrack, CGSize)?
+        Task.detached {
+            if let track = try? await asset.loadTracks(withMediaType: .video).first, let size = try? await track.load(.naturalSize) {
+                result = (track, size)
+            }
+            loaded.signal()
+        }
+        loaded.wait()
+        return result
     }
 
     /// The movie's frame on screen at `movieTime`.

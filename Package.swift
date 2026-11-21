@@ -79,7 +79,9 @@ let package = Package(
         .target(
             name: "Transcription",
             dependencies: ["OCREngines", "SODA", .product(name: "WhisperKit", package: "argmax-oss-swift")],
-            path: "Sources/Transcription"
+            path: "Sources/Transcription",
+            // Accelerate's current CBLAS interface (the old one is deprecated; the same results).
+            swiftSettings: [.unsafeFlags(["-Xcc", "-DACCELERATE_NEW_LAPACK"])]
         ),
         // Chrome's on-device speech recognition (SODA, Live Caption) as opensoda reimplements it, the packs' models run
         // by a small TFLite interpreter with libsoda's kernels' arithmetic (the int8 ones in SODAKernels).
@@ -94,8 +96,9 @@ let package = Package(
             name: "SODA",
             dependencies: ["SODAKernels"],
             path: "Sources/SODA",
-            // soda-cli reaches the stages' internals with @testable import.
-            swiftSettings: [.unsafeFlags(["-enable-testing"])]
+            // soda-cli reaches the stages' internals with @testable import. Accelerate's current CBLAS interface (the old
+            // one is deprecated; the same results).
+            swiftSettings: [.unsafeFlags(["-enable-testing", "-Xcc", "-DACCELERATE_NEW_LAPACK"])]
         ),
         // Runs SODA's stages on audio files (for checking the port against opensoda).
         .executableTarget(
