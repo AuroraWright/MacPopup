@@ -512,8 +512,8 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "transcriptionLive", "Show words as they’re heard", .checkbox,
-                        hint: "The line fills in while the speaker talks, then the model’s line takes its place after the pause. Live Caption only.",
-                        showIf: { $0["transcriptionModel"] as? String == "soda" }
+                        hint: "The line fills in while the speaker talks, then the model’s line takes its place after the pause. Not with Whisper or anime-whisper, which take too long.",
+                        showIf: { !["whisper", "animeWhisper"].contains($0["transcriptionModel"] as? String ?? "kitsune") }
                     ),
                     SettingsField(
                         "transcriptionSentenceEnds", "End lines at sentence ends", .checkbox,

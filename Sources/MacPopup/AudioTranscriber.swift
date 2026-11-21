@@ -45,11 +45,14 @@ final class AudioTranscriber {
     /// The open line can't go on past the stretches transcribed so far: speech was dropped, or the audio's source or
     /// model changed. It's ended before the next stretch, not while one is being transcribed (which goes on from it).
     private var linesBroken = false
-    /// The model's words as they're heard (for "Show words as they're heard"), worked out on `liveQueue`, for the
-    /// language it was asked for (nil when not wanted, or nil from models that don't give them).
+    /// The model's words as they're heard (for "Show words as they're heard"), for the language it was asked for (nil
+    /// when not wanted, or nil from models that don't give them).
     private var live: (any LiveTranscription)?
     private var liveLanguage: String?
-    private let liveQueue = DispatchQueue(label: "com.aury.macpopup.transcription.live", qos: .userInitiated)
+    /// Whether `live` is working out words, and the audio heard meanwhile, given to it next in one piece: a model
+    /// that takes longer than the audio does falls behind by a piece at most.
+    private var liveBusy = false
+    private var liveWaiting: (stretch: Int, samples: [Float], starts: Bool)?
     /// The stretch `live` hears, the text shown for each stretch's live line, and the stretches whose live lines are
     /// gone (their late words aren't shown).
     private var liveStretch: Int?
@@ -316,16 +319,37 @@ final class AudioTranscriber {
         switch event {
         case let .audio(stretch, samples):
             guard !liveEnded.contains(stretch) else { return }
-            let starts = stretch != liveStretch, generation = liveGeneration
+            let starts = stretch != liveStretch
             liveStretch = stretch
-            liveQueue.async { [weak self] in
-                if starts { live.start() }
-                guard let text = try? live.accept(samples) else { return }
-                Task { @MainActor in self?.showLive(text, stretch: stretch, generation: generation) }
+            if let waiting = liveWaiting, waiting.stretch == stretch {
+                liveWaiting = (stretch, waiting.samples + samples, waiting.starts || starts)
+            } else {
+                liveWaiting = (stretch, samples, starts)
             }
+            hearLive(live)
         case let .dropped(stretch):
             endLiveLine(stretch)
         }
+    }
+
+    /// Gives `live` the audio waiting, unless it's working out words: then once it's done.
+    private func hearLive(_ live: any LiveTranscription) {
+        guard !liveBusy, let (stretch, samples, starts) = liveWaiting else { return }
+        liveWaiting = nil
+        liveBusy = true
+        let generation = liveGeneration
+        Task.detached(priority: .userInitiated) { [weak self] in
+            if starts { live.start() }
+            let text = try? await live.accept(samples)
+            await self?.heardLive(text, from: live, stretch: stretch, generation: generation)
+        }
+    }
+
+    private func heardLive(_ text: String?, from live: any LiveTranscription, stretch: Int, generation: Int) {
+        liveBusy = false
+        if let text { showLive(text, stretch: stretch, generation: generation) }
+        // Not if it was let go meanwhile.
+        if let current = self.live, current === live { hearLive(live) }
     }
 
     private func showLive(_ text: String, stretch: Int, generation: Int) {
@@ -352,6 +376,7 @@ final class AudioTranscriber {
     /// Removes all live lines: the audio's source or model changed.
     private func endLiveLines() {
         liveGeneration += 1
+        liveWaiting = nil
         liveShown.removeAll()
         liveEnded.removeAll()
         liveStretch = nil

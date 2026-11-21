@@ -221,6 +221,11 @@ final class KitsuneRecognizer: Recognizer, @unchecked Sendable {
         return Int(length)
     }
 
+    /// The stretch so far again every 0.5 s (about 85 ms each time, however long it is).
+    func live(language: String) async throws -> (any LiveTranscription)? {
+        RepeatedTranscription(self, language: language, interval: 0.5)
+    }
+
     func transcribe(_ samples: [Float], language: String) async throws -> Transcript {
         let longest = (frames - 1) * hop
         var (values, count, valid) = features(samples.count > longest ? Array(samples.prefix(longest)) : samples)
@@ -274,6 +279,11 @@ final class SenseVoiceRecognizer: Recognizer, @unchecked Sendable {
         neuralEngine.computeUnits = .cpuAndNeuralEngine
         encoder = try MLModel(contentsOf: models.appendingPathComponent("SenseVoiceSmall_int8.mlmodelc"), configuration: neuralEngine)
         vocabulary = try loadVocabulary(directory.appendingPathComponent("vocab.json"))
+    }
+
+    /// The stretch so far again every 0.3 s (about 20 ms each time).
+    func live(language: String) async throws -> (any LiveTranscription)? {
+        RepeatedTranscription(self, language: language, interval: 0.3)
     }
 
     func transcribe(_ samples: [Float], language: String) async throws -> Transcript {

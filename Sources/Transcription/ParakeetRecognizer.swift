@@ -45,6 +45,11 @@ final class ParakeetRecognizer: Recognizer, @unchecked Sendable {
         _ = try transcribeWindow([Float](repeating: 0, count: 16000))
     }
 
+    /// The stretch so far again every 0.5 s.
+    func live(language: String) async throws -> (any LiveTranscription)? {
+        RepeatedTranscription(self, language: language, interval: 0.5)
+    }
+
     func transcribe(_ samples: [Float], language: String) async throws -> Transcript {
         var result = Transcript()
         for piece in pieces(samples) {

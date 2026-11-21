@@ -86,13 +86,48 @@ extension Recognizer {
 }
 
 /// A stretch of speech's words as it's heard, for its line while it's said (Settings → Transcription → "Show words as
-/// they're heard"); the line's text comes from `transcribe` once the stretch has ended. One stretch at a time, from one
-/// thread at a time.
+/// they're heard"); the line's text comes from `transcribe` once the stretch has ended. One stretch at a time, and one
+/// call at a time.
 public protocol LiveTranscription: AnyObject, Sendable {
     /// Starts a new stretch.
     func start()
     /// Takes the stretch's next 16 kHz mono samples (-1 to 1), and returns its text so far.
-    func accept(_ samples: [Float]) throws -> String
+    func accept(_ samples: [Float]) async throws -> String
+}
+
+/// Words as they're heard from a model that transcribes whole stretches: the stretch so far, transcribed again each
+/// time `interval` seconds more of it were heard. Without the characters heard in its last 0.25 s (when the model
+/// tells when they were heard): the last word is often cut there, and the model's guess at it changes as more is heard
+/// (on a talk, with SenseVoice, 0.31 characters of the text shown changed per update rather than 0.56).
+final class RepeatedTranscription: LiveTranscription, @unchecked Sendable {
+    private static let heldBack = 0.25
+
+    private let recognizer: any Recognizer
+    private let language: String
+    private let interval: Int
+    private var samples: [Float] = []
+    private var transcribed = 0
+    private var text = ""
+
+    init(_ recognizer: any Recognizer, language: String, interval: Double) {
+        (self.recognizer, self.language, self.interval) = (recognizer, language, Int(interval * 16000))
+    }
+
+    func start() {
+        (samples, transcribed, text) = ([], 0, "")
+    }
+
+    func accept(_ samples: [Float]) async throws -> String {
+        self.samples += samples
+        guard self.samples.count - transcribed >= interval else { return text }
+        transcribed = self.samples.count
+        let transcript = SpeechRecognizer.tidied(try await recognizer.transcribe(self.samples, language: language))
+        let heard = Double(self.samples.count) / 16000 - Self.heldBack
+        text = transcript.times.map { String(zip(transcript.text, $0).prefix { $0.1 < heard }.map(\.0)) } ?? transcript.text
+        // The models end the stretch's sentence (SenseVoice and Parakeet), which goes on.
+        while let last = text.last, "。．.？?！!".contains(last) { text.removeLast() }
+        return text
+    }
 }
 
 /// A transcription, and when each of its characters was heard, for models that tell (all but Whisper's).

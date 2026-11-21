@@ -209,7 +209,7 @@ if arguments.count == 8, arguments[1] == "live", let model = SpeechModel(rawValu
             let range = Int(at * 16000)..<min(audio.count, Int(min(at + 0.1, to) * 16000))
             guard !range.isEmpty else { break }
             let started = Date()
-            let text = try live.accept(Array(audio[range]))
+            let text = try await live.accept(Array(audio[range]))
             total += Date().timeIntervalSince(started)
             pieces += 1
             if text != (partials.last?[1] as? String ?? "") { partials.append([((at + 0.1) * 100).rounded() / 100, text]) }
