@@ -1,4 +1,5 @@
 import Foundation
+import OCREngines
 
 /// Persists the settings JSON blob shared by the overlay's page and the Settings window.
 /// The web side owns the schema (web/src/lib/settings-defaults.js); Swift only reads the few keys it needs.
@@ -7,7 +8,7 @@ final class SettingsStore {
 
     private let defaultsKey = "settings"
     /// MACPOPUP_SETTINGS_SUITE keeps the settings in another defaults domain (for test runs).
-    let defaults = ProcessInfo.processInfo.environment["MACPOPUP_SETTINGS_SUITE"].flatMap { UserDefaults(suiteName: $0) } ?? .standard
+    let defaults = DevelopmentEnvironment["MACPOPUP_SETTINGS_SUITE"].flatMap { UserDefaults(suiteName: $0) } ?? .standard
     private var observers: [(String) -> Void] = []
 
     private(set) var json: String

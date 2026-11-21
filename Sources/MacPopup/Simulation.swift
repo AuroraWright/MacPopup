@@ -34,7 +34,7 @@ enum OCRClock {
 /// OCRController.checkInput). Before each wait the page handles what it was sent (with the page's clock at the time it
 /// was sent: see scratch-tools/sim/sim-page.js). The app quits 4 seconds after the end.
 final class Simulation: @unchecked Sendable {
-    static let shared = Simulation(ProcessInfo.processInfo.environment)
+    static let shared = Simulation(DevelopmentEnvironment.all)
 
     private let lock = NSLock()
     /// The simulated time, in whole nanoseconds since `base` (a whole second), and when the recording started (on a

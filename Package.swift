@@ -106,7 +106,7 @@ let package = Package(
         // Transcribes audio files (for checking the recognizers against the Python ones).
         .executableTarget(
             name: "transcribe-cli",
-            dependencies: ["Transcription"],
+            dependencies: ["OCREngines", "Transcription"],
             path: "Sources/TranscribeCLI"
         ),
         // What MacPopup and its pause helper say to each other over XPC.

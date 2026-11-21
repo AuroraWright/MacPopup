@@ -1,4 +1,5 @@
 import AppKit
+import OCREngines
 import WebKit
 
 /// Functionality the bridge needs from the app.
@@ -225,12 +226,12 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             return nil
         case "debugSnapshot":
             // Development hook, only available together with MACPOPUP_TEST_SCRIPT.
-            guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil,
+            guard DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"] != nil,
                   let path = body["path"] as? String, let host else { throw AppError("Unavailable") }
             try await host.snapshotOverlay().write(to: URL(fileURLWithPath: path))
             return nil
         case "debugMouse":
-            guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
+            guard DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
                 throw AppError("Unavailable")
             }
             host.simulateMouse(
@@ -240,7 +241,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             )
             return ["ignoresMouseEvents": host.overlayIgnoresMouseEvents]
         case "debugSentenceAudio":
-            guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
+            guard DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
                 throw AppError("Unavailable")
             }
             host.pressSentenceAudioShortcut(note: (body["note"] as? NSNumber)?.int64Value)

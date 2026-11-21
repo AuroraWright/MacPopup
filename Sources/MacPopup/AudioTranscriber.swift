@@ -36,7 +36,7 @@ final class AudioTranscriber {
     /// SaT's error was shown: lines end at punctuation only until "End lines at sentence ends" is turned on again.
     private var sentenceEndsFailed = false
     /// MACPOPUP_TEST_TRANSCRIPTION_FILE: a sound file played in place of the app's audio (for test runs).
-    private let testFile = ProcessInfo.processInfo.environment["MACPOPUP_TEST_TRANSCRIPTION_FILE"]
+    private let testFile = DevelopmentEnvironment["MACPOPUP_TEST_TRANSCRIPTION_FILE"]
 
     /// Stretches kept waiting while one is transcribed; older ones are dropped when transcription can't keep up.
     private static let maxPending = 4

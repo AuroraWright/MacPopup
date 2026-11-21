@@ -2,6 +2,9 @@
 # Builds build/MacPopup.app. Usage: scripts/build.sh [debug|release]
 # MACPOPUP_APP builds it elsewhere, and MACPOPUP_HARDENED=1 signs it for notarization (the hardened runtime and a secure
 # timestamp; scripts/notarize.sh sets both).
+# A development build reads the test and debug environment variables (MACPOPUP_TEST_SCRIPT, MACPOPUP_DEBUG_OCR_DIR, …,
+# see DevelopmentEnvironment.swift), which the app as shipped ignores: a debug build, one with MACPOPUP_DEVELOPMENT=1,
+# and a copy built elsewhere (MACPOPUP_APP, for test runs) unless it's for notarization.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -57,8 +60,16 @@ if [[ ! -x "$FFMPEG/ffmpeg" ]]; then
         || echo "warning: couldn't build ffmpeg; lines from IINA won't have sentence audio or their own screenshots"
 fi
 
-swift build -c "$CONFIGURATION"
-BIN_DIR="$(swift build -c "$CONFIGURATION" --show-bin-path)"
+# A release development build has a build folder of its own, so that switching between the two doesn't rebuild
+# everything.
+SCRATCH=.build
+SWIFT_FLAGS=()
+if [[ "$CONFIGURATION" == release && ( "${MACPOPUP_DEVELOPMENT:-}" == 1 || ( -n "${MACPOPUP_APP:-}" && "${MACPOPUP_HARDENED:-}" != 1 ) ) ]]; then
+    SCRATCH=.build-dev
+    SWIFT_FLAGS=(-Xswiftc -DMACPOPUP_DEVELOPMENT)
+fi
+swift build -c "$CONFIGURATION" --scratch-path "$SCRATCH" "${SWIFT_FLAGS[@]}"
+BIN_DIR="$(swift build -c "$CONFIGURATION" --scratch-path "$SCRATCH" "${SWIFT_FLAGS[@]}" --show-bin-path)"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
@@ -89,7 +100,7 @@ fi
 # WhisperKit (Package.swift's argmax-oss-swift, for Settings → Transcription): MIT, with parts under the Apache License
 # listed in its NOTICES.
 mkdir -p "$APP/Contents/Resources/Licenses/WhisperKit"
-cp .build/checkouts/argmax-oss-swift/LICENSE .build/checkouts/argmax-oss-swift/NOTICES "$APP/Contents/Resources/Licenses/WhisperKit/"
+cp "$SCRATCH"/checkouts/argmax-oss-swift/LICENSE "$SCRATCH"/checkouts/argmax-oss-swift/NOTICES "$APP/Contents/Resources/Licenses/WhisperKit/"
 # The IINA plugin (iina-plugin/), packaged for IINA to install when it's opened.
 PLUGIN="${APP:A}/Contents/Resources/MacPopup.iinaplgz"
 (cd iina-plugin && zip -q -r -X "$PLUGIN" Info.json main.js global.js preferences.html)

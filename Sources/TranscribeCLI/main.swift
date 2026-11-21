@@ -26,8 +26,11 @@
 // transcribe-cli sat <talk.jsonl> <out.jsonl>: SaT's sentence end probabilities for each row's "bare" text
 // (scratch-tools/punct/make-talk.py), as {"p": [per character]}, for checking against wtpsplit.
 import Foundation
+import OCREngines
 import Transcription
 
+// MACPOPUP_MODELS_DIRECTORY, as in a development build of the app.
+DevelopmentEnvironment.enabled = true
 let arguments = CommandLine.arguments
 if arguments.count == 4, arguments[1] == "install", arguments[2] == "sat" {
     let started = Date()

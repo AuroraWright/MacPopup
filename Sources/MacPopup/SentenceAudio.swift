@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import OCREngines
 import SoundAnalysis
 
 /// Adds a game's voice line to the sentence audio of cards added from a popup (Settings → Anki Audio). A shortcut takes
@@ -49,7 +50,7 @@ final class SentenceAudioController {
     /// The cards the recording goes to.
     private var cards: Cards?
     /// MACPOPUP_TEST_AUDIO_FILE: a sound file played in place of the game's audio (for test runs).
-    private let testFile = ProcessInfo.processInfo.environment["MACPOPUP_TEST_AUDIO_FILE"]
+    private let testFile = DevelopmentEnvironment["MACPOPUP_TEST_AUDIO_FILE"]
     private let history = AudioHistory()
     /// The lines shown in the last few minutes, oldest first (see ShownLines for their ids).
     private var lines: [LineTimes] = []

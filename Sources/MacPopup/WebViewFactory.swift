@@ -1,4 +1,5 @@
 import AppKit
+import OCREngines
 import WebKit
 
 enum WebViewFactory {
@@ -15,7 +16,7 @@ enum WebViewFactory {
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
         enableMasonryLayout(configuration.preferences)
         // Development hook: MACPOPUP_TEST_SCRIPT=<file.js> is injected into every top-level page.
-        if let path = ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"],
+        if let path = DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"],
            let source = try? String(contentsOfFile: path, encoding: .utf8) {
             configuration.userContentController.addUserScript(
                 WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true)

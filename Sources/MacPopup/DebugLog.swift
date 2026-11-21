@@ -1,4 +1,5 @@
 import AppKit
+import OCREngines
 
 /// With Settings → General → Debug on, what MacPopup does is written here, one JSON object per line, for bug reports:
 /// a session record (MacPopup's version, the Mac, permissions, controllers, displays and settings) at launch and when
@@ -14,7 +15,7 @@ enum DebugLog {
     static var url: URL { folder.appendingPathComponent("debug.jsonl") }
 
     private static var folder: URL {
-        ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_OCR_DIR"].map { URL(fileURLWithPath: $0) }
+        DevelopmentEnvironment["MACPOPUP_DEBUG_OCR_DIR"].map { URL(fileURLWithPath: $0) }
             ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MacPopup")
     }
 
@@ -74,7 +75,7 @@ enum DebugLog {
         }
     }
 
-    private static let printsToStderr = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_OCR"] != nil
+    private static let printsToStderr = DevelopmentEnvironment["MACPOPUP_DEBUG_OCR"] != nil
 
     /// A message from the app, with the system uptime (as in the test tools' logs); also to stderr with
     /// MACPOPUP_DEBUG_OCR set.

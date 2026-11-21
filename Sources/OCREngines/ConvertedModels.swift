@@ -70,7 +70,7 @@ public enum ConvertedModelsKind: String, CaseIterable {
     /// The loaded models: the archive's files, with its Core ML models compiled. In Application Support/MacPopup, or
     /// in MACPOPUP_MODELS_DIRECTORY (for test runs).
     public var directory: URL {
-        let base = ProcessInfo.processInfo.environment["MACPOPUP_MODELS_DIRECTORY"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let base = DevelopmentEnvironment["MACPOPUP_MODELS_DIRECTORY"].map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MacPopup", isDirectory: true)
         return base.appendingPathComponent(folderName, isDirectory: true)
     }

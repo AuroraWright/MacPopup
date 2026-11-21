@@ -11,8 +11,12 @@ import Darwin
 import Foundation
 
 let address = "127.0.0.1"
-/// Test runs set another one with YOMITAN_API_PORT.
+/// Test runs set another one with YOMITAN_API_PORT, in development builds (see DevelopmentEnvironment).
+#if DEBUG || MACPOPUP_DEVELOPMENT
 let port = ProcessInfo.processInfo.environment["YOMITAN_API_PORT"].flatMap(UInt16.init) ?? 19633
+#else
+let port: UInt16 = 19633
+#endif
 let processStartupWait: TimeInterval = 5
 let nativeMessagingVersion = 1
 let blacklistedPaths: Set = ["favicon.ico"]

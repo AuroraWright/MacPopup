@@ -1,4 +1,5 @@
 import AppKit
+import OCREngines
 import SwiftUI
 
 /// Shown at the first launch: whether the Yomitan API answers, with where to install it, and the macOS permissions
@@ -14,7 +15,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
     /// as test runs save their settings first).
     static var isFirstLaunch: Bool {
         let defaults = SettingsStore.shared.defaults
-        let forced = ProcessInfo.processInfo.environment["MACPOPUP_SHOW_WELCOME"] == "1"
+        let forced = DevelopmentEnvironment["MACPOPUP_SHOW_WELCOME"] == "1"
         return forced || defaults.object(forKey: "settings") == nil && !defaults.bool(forKey: shownKey)
     }
 
