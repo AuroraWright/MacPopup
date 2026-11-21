@@ -1,10 +1,10 @@
 import AVFoundation
 import Transcription
 
-/// "Read text from audio" simulated on a recording (transcribe-cli replay), as fast as the models go: the app's parts
-/// (SpeechStretches, StretchLines, PendingStretches, LiveFeed) put together as AudioTranscriber and SpeechListener do,
-/// with the recording played in place of the app's audio as a test run's MACPOPUP_TEST_TRANSCRIPTION_FILE is, a tenth
-/// of a second at a time, on a simulated clock: seconds into the recording.
+/// "Read text from audio" simulated on a recording (transcribe-cli replay), as fast as the models go: the app's
+/// StretchTranscriber, given the stretches as the app's SpeechListener gives them, with the recording played in place
+/// of the app's audio as a test run's MACPOPUP_TEST_TRANSCRIPTION_FILE is, a tenth of a second at a time, on a
+/// simulated clock: seconds into the recording.
 ///
 /// What takes time in the app takes as long on the clock (`timed`): placing a stretch, transcribing it into lines, a
 /// live pass. Each is done when it starts, but what follows from it waits until the clock gets to its end. Placing,
@@ -14,12 +14,12 @@ import Transcription
 /// replacing the last one, before the box's own text settings: replacements, removeAllWhitespace, filters, duplicates),
 /// and the time models working at once take from one another.
 @MainActor
-final class Replay {
+final class Replay: StretchTranscriberHost {
     struct Settings {
         var label: String
         /// Seconds; 0: lines don't end at pauses.
         var pause: Double
-        /// "End lines at sentence ends", and its settings.
+        /// "Detect sentence ends", and its settings.
         var growing: Bool
         var lines = GrowingLines()
         /// "Show words as they're heard".
@@ -49,10 +49,9 @@ final class Replay {
     }
 
     private let settings: Settings
-    private let recognizer: SpeechRecognizer
-    private let live: (any LiveTranscription)?
     private let stretches: SpeechStretches
-    private let lines: StretchLines
+    private var transcriber: StretchTranscriber!
+    private var listener = 0
 
     /// The clock, and what's to happen on it, in order (`order` among things at the same time).
     private var now = 0.0
@@ -61,41 +60,41 @@ final class Replay {
     /// Classifier results to run after the buffer being analyzed.
     private var delivered: [() -> Void] = []
 
-    // As in SpeechListener and AudioTranscriber.
+    // As in SpeechListener.
     private var cuts: [SpeechStretches.Cut] = []
     private var placing = false
-    private var pending = PendingStretches()
-    private var transcribing = false
-    private var linesBroken = false
-    private var liveFeed = LiveFeed()
 
     // What's shown: the box's lines (and which one grows), each stretch's live words, and the log.
     private var box: [[String: Any]] = []
     private var transcriptLine: Int?
     private var stretchRows: [Int: [String: Any]] = [:]
     private var log: [String] = []
-    private var dropped = 0
     /// Seconds each kind of work took, and live passes.
     private var spent = ["place": 0.0, "lines": 0.0, "live": 0.0]
     private var livePasses = 0
 
     init(_ settings: Settings, recognizer: SpeechRecognizer, live: (any LiveTranscription)?) {
         self.settings = settings
-        self.recognizer = recognizer
-        self.live = settings.live ? live : nil
-        lines = StretchLines(lines: settings.lines)
         var deliver: (@escaping () -> Void) -> Void = { _ in }
         var noted: (String) -> Void = { _ in }
         stretches = SpeechStretches(pause: settings.pause, live: settings.live && live != nil, clock: { 0 },
                                     deliver: { deliver($0) }, log: { noted($0) })
         deliver = { [unowned self] in self.delivered.append($0) }
         noted = { [unowned self] in self.note($0) }
+        transcriber = StretchTranscriber(host: self, lines: settings.lines)
+        transcriber.use(recognizer)
+        transcriber.language = settings.language
+        transcriber.growing = settings.growing
+        listener = transcriber.startListener()
+        transcriber.live = settings.live ? live : nil
         stretches.onCut = { [unowned self] in
             self.cuts.append($0)
             self.placeNext()
         }
         // As the app's listener queue gives them to the main actor.
-        stretches.onLive = { [unowned self] event in self.at(self.now) { await self.heardLive(event) } }
+        stretches.onLive = { [unowned self] event in
+            self.at(self.now) { self.transcriber.heardLive(event, listener: self.listener) }
+        }
     }
 
     private func note(_ message: String) {
@@ -106,15 +105,6 @@ final class Replay {
     private func at(_ time: Double, _ run: @escaping () async -> Void) {
         order += 1
         events.append((time, order, run))
-    }
-
-    /// Seconds on the clock the work took (see `timed`), and its result.
-    private func timed<T>(_ kind: String, _ work: () async throws -> T) async rethrows -> (Double, T) {
-        let started = Date()
-        let result = try await work()
-        let seconds = Date().timeIntervalSince(started)
-        spent[kind, default: 0] += seconds
-        return (settings.timed ? seconds : 0, result)
     }
 
     /// Plays the recording, then silence until the last voice has ended, and runs what follows until nothing's left.
@@ -153,7 +143,7 @@ final class Replay {
         stretches.stop()
         let ms = spent.mapValues { ($0 * 10000).rounded() / 10 }
         return [
-            "setting": settings.label, "lines": box, "dropped": dropped, "log": log,
+            "setting": settings.label, "lines": box, "dropped": transcriber.dropped, "log": log,
             "stretches": stretchRows.keys.sorted().compactMap { stretchRows[$0] },
             "audio": duration, "wall": (Date().timeIntervalSince(started) * 100).rounded() / 100, "ms": ms,
             "livePasses": livePasses,
@@ -171,66 +161,29 @@ final class Replay {
         let seconds = Date().timeIntervalSince(started)
         spent["place", default: 0] += seconds
         at(now + (settings.timed ? seconds : 0)) {
-            for item in placed {
-                switch item {
-                case let .speech(speech): await self.heard(speech)
-                case let .dropped(stretch): self.endLiveLine(stretch)
-                }
-            }
+            for item in placed { self.transcriber.heard(item, listener: self.listener) }
             self.placing = false
             self.placeNext()
         }
     }
 
-    // MARK: AudioTranscriber
+    // MARK: StretchTranscriberHost
 
-    private func heard(_ speech: SpeechStretches.Speech) async {
-        if let dropped = pending.add(speech) {
-            endLiveLine(dropped.id)
-            self.dropped += 1
-            // The line can't go on past the missing speech.
-            linesBroken = true
-            note("transcription is behind: dropped a stretch of speech")
-        }
-        await transcribeNext()
-    }
-
-    private func transcribeNext() async {
-        guard !transcribing, let speech = pending.next() else { return }
-        if linesBroken {
-            lines.end()
-            linesBroken = false
-        }
-        guard !speech.samples.isEmpty else {
-            // The voice stopped after a stretch too quiet to transcribe.
-            lines.end()
-            endLiveLine(speech.id)
-            await transcribeNext()
-            return
-        }
-        transcribing = true
-        let (seconds, shown) = await timed("lines") {
-            try? await lines.lines(for: speech, recognizer: recognizer, language: settings.language,
-                                   growing: settings.growing, log: note,
-                                   heard: { _, text in self[row: speech.id, speech]["final"] = text },
-                                   sentenceEndsFailed: { self.note("SaT: \($0.localizedDescription)") }, wanted: { true })
-        }
-        at(now + seconds) {
-            var liveReplaced = false
-            for (index, line) in (shown ?? []).enumerated() {
-                let last = index == (shown ?? []).count - 1
-                liveReplaced = self.show(line, endsLive: last ? speech.id : nil) && last
-            }
-            if !liveReplaced { self.endLiveLine(speech.id) }
-            self.transcribing = false
-            await self.transcribeNext()
+    /// The work now, and `done` as long after on the clock as it took (see `timed`).
+    func run<T: Sendable>(_ kind: StretchTranscriber.Work, _ work: @escaping @Sendable () async -> T,
+                          done: @escaping @MainActor (T) -> Void) {
+        at(now) {
+            let started = Date()
+            let result = await work()
+            let seconds = Date().timeIntervalSince(started)
+            self.spent[kind.rawValue, default: 0] += seconds
+            if kind == .live { self.livePasses += 1 }
+            self.at(self.now + (self.settings.timed ? seconds : 0)) { done(result) }
         }
     }
 
     /// The box: a line that grows replaces the last line when it's still the last one.
-    private func show(_ line: StretchLines.Shown, endsLive: Int?) -> Bool {
-        guard !line.text.isEmpty else { return false }
-        if let endsLive { liveFeed.end(endsLive) }
+    func show(_ line: StretchLines.Shown, endsLive: Int?) {
         let row: [String: Any] = ["text": line.text, "start": line.start, "shown": now]
         if line.grows, let index = transcriptLine, index == box.count - 1 {
             box[index] = row
@@ -238,37 +191,30 @@ final class Replay {
             box.append(row)
         }
         transcriptLine = box.count - 1
-        return true
     }
 
-    private func heardLive(_ event: SpeechStretches.Live) async {
-        guard let live else { return }
-        switch event {
-        case let .audio(stretch, samples):
-            liveFeed.heard(samples, stretch: stretch)
-            await hearLive(live)
-        case let .dropped(stretch):
-            endLiveLine(stretch)
-        }
+    func showLive(_ text: String?, stretch: Int) {
+        guard let text else { return }
+        self[row: stretch, nil]["partials"] = (self[row: stretch, nil]["partials"] as? [[Any]] ?? [])
+            + [[(now * 1000).rounded() / 1000, text]]
     }
 
-    private func hearLive(_ live: any LiveTranscription) async {
-        guard let piece = liveFeed.next() else { return }
-        if piece.starts { live.start() }
-        let (seconds, text) = await timed("live") { try? await live.accept(piece.samples) }
-        livePasses += 1
-        at(now + seconds) {
-            self.liveFeed.done()
-            if let text, let shown = self.liveFeed.show(text, stretch: piece.stretch) {
-                self[row: piece.stretch, nil]["partials"] = (self[row: piece.stretch, nil]["partials"] as? [[Any]] ?? [])
-                    + [[(self.now * 1000).rounded() / 1000, shown]]
-            }
-            await self.hearLive(live)
-        }
+    func clearLive() {}
+
+    func log(_ message: String) {
+        note(message)
     }
 
-    private func endLiveLine(_ stretch: Int) {
-        liveFeed.end(stretch)
+    func transcribed(error: Error?) {
+        if let error { note("couldn't transcribe: \(error.localizedDescription)") }
+    }
+
+    func sentenceEndsFailed(_ error: Error) {
+        note("SaT: \(error.localizedDescription)")
+    }
+
+    func heard(_ samples: [Float], text: String, speech: SpeechStretches.Speech, listener: Int) {
+        self[row: speech.id, speech]["final"] = text
     }
 
     /// The stretch's row: its live words as they were shown ([seconds, text]) and the text it was transcribed to, as

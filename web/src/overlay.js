@@ -236,8 +236,11 @@ function readsOcr(settings = getSettings()) {
  * it (see noteLine in AppDelegate.swift), which also gives it its id. With "Read text from OCR", if OCR already added
  * the same line, this one takes its place. Returns the line (ShownLine), whose id comes later.
  */
-function addLine(rawText, player = null, age = 0, { shown = null, replaces = null } = {}) {
+// `shown`: called with the line shown (or null when the box left it out); `paused`: called instead when the box is
+// paused.
+function addLine(rawText, player = null, age = 0, { shown = null, replaces = null, paused = null } = {}) {
 	const line = { id: null, player };
+	if (state.paused) paused?.();
 	if (state.paused || typeof rawText !== 'string') return line;
 	const settings = getSettings();
 	const text = applyReplacements(rawText, settings.replacements);
@@ -260,7 +263,7 @@ function addLine(rawText, player = null, age = 0, { shown = null, replaces = nul
 		.catch(() => ({}))
 		.then((result) => {
 			line.id = result?.id ?? null;
-			if (state.paused) return;
+			if (state.paused) return paused?.();
 			if (result?.replacesOCR) removeOcrLine();
 			state.ocrLine = null;
 			push();
@@ -317,7 +320,12 @@ function pushLine(rawText, { line: shown = null } = {}) {
  * of what's already shown.
  */
 function animatesLines(settings) {
-	return !!settings.enableLineAnimation && !(settings.floatingWindowAudio && settings.transcriptionLive);
+	return !!settings.enableLineAnimation && !(settings.floatingWindowAudio && settings.transcriptionLive && hearsLive(settings));
+}
+
+// Whether the model chosen gives words as they're heard (SpeechModel.hearsLive: not Whisper's).
+function hearsLive(settings) {
+	return !['whisper', 'animeWhisper'].includes(settings.transcriptionModel ?? 'kitsune');
 }
 
 function removeLine(line) {
@@ -1257,14 +1265,18 @@ window.__macpopupClipboard = (text) => {
 
 // "Read text from audio" (AudioTranscriber.swift): a transcribed line, and how many seconds ago its voice started, or
 // the last one grown (`grows`), which replaces it in the box when it's still the last line. `endsLive`: the stretch
-// whose live line it replaces (see live).
+// whose live line it replaces (see live), which goes also when the line isn't shown (the box is paused).
 window.__macpopupTranscript = (text, age, grows = false, endsLive = null) => {
 	const previous = grows ? state.transcriptLine : null;
+	const endLive = () => {
+		if (endsLive !== null) setLiveLine(endsLive, null);
+	};
 	addLine(text, null, age, {
 		shown: (line) => {
 			state.transcriptLine = line;
-			if (endsLive !== null) setLiveLine(endsLive, null);
+			endLive();
 		},
+		paused: endLive,
 		replaces: previous,
 	});
 };
@@ -1277,6 +1289,8 @@ window.__macpopupLive = (id, text) => setLiveLine(id, text);
 window.__macpopupLiveClear = () => clearLiveLines();
 
 function setLiveLine(id, text) {
+	// No new words while the box is paused (its live lines still go).
+	if (state.paused && text !== null) return;
 	const shown = live.lines.get(id);
 	if (shown && liveLineUnderPopup(shown.element)) {
 		live.held.set(id, text);

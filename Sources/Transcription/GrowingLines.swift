@@ -1,7 +1,7 @@
 import Foundation
 
 /// Lines of speech transcribed a stretch at a time that grow while their sentence goes on, as the Floating Window shows
-/// them with "End lines at sentence ends" (AudioTranscriber; transcribe-cli lines tries them on recordings). A line
+/// them with "Detect sentence ends" (StretchLines; transcribe-cli replay tries them on recordings). A line
 /// ends at sentence-ending punctuation, where SaT (SentenceEnds) finds an end with some text after it, or when the voice
 /// stops. For models that tell when each character was heard, the open line's speech is transcribed again with the next
 /// stretch after a short pause, and the text replaces the line: with more of the sentence, the model hears it better

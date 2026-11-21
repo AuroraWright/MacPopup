@@ -63,12 +63,17 @@ public final class SODAPack: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         var results: [SODAResult] = []
+        /// The first piece's result when no piece has words.
+        var empty: SODAResult?
         let pieces = Self.pieces(pcm, 0..<pcm.count)
         for piece in pieces {
             var audio = Array(pcm[piece])
             if piece.upperBound < pcm.count { audio += repeatElement(0, count: 9600) }
             var result = try recognizer.recognize(audio)
-            guard !result.words.isEmpty else { continue }
+            guard !result.words.isEmpty else {
+                if empty == nil { empty = result }
+                continue
+            }
             let offset = piece.lowerBound / 16
             result.startMs += offset
             result.endMs += offset
@@ -76,7 +81,7 @@ public final class SODAPack: @unchecked Sendable {
             results.append(result)
         }
         guard results.count > 1, let first = results.first, let last = results.last else {
-            if let only = results.first { return only }
+            if let only = results.first ?? empty { return only }
             return try recognizer.recognize(pcm)
         }
         let separator = recognizer.spacedWords ? " " : ""

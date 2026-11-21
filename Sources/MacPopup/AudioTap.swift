@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreAudio
 import Darwin
+import Transcription
 import PauseHelperInterface
 
 /// Records what some processes play, with a Core Audio process tap: an app with its helper
@@ -133,7 +134,7 @@ final class AudioTap {
     /// The format of the buffers given (the first recorder's), and the recorder's converter to it if it records
     /// another one.
     private var format: AVAudioFormat?
-    private var converter: AVAudioConverter?
+    private var converter: StreamConverter?
     private var listener: AudioObjectPropertyListenerBlock?
     /// Whether processesChanged is due: changes come in bursts (each sound that starts or ends is one), so they're
     /// checked at most every quarter second rather than each time.
@@ -213,8 +214,7 @@ final class AudioTap {
         if recorder.format != format {
             sentenceAudioLog(String(format: "recording %.0f Hz, %d channels, converted to the first recording's %.0f Hz, %d channels",
                                     recorder.format.sampleRate, recorder.format.channelCount, format.sampleRate, format.channelCount))
-            converter = AVAudioConverter(from: recorder.format, to: format)
-            converter?.downmix = recorder.format.channelCount > format.channelCount
+            converter = StreamConverter(from: recorder.format, to: format)
         }
         return recorder
     }
@@ -222,22 +222,7 @@ final class AudioTap {
     /// The buffer in `format`, if it's in another one (or nil if it can't be converted).
     private func converted(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
         guard let converter, buffer.format == converter.inputFormat else { return buffer.format == format ? buffer : nil }
-        let ratio = converter.outputFormat.sampleRate / converter.inputFormat.sampleRate
-        guard let output = AVAudioPCMBuffer(pcmFormat: converter.outputFormat,
-                                            frameCapacity: AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1024) else { return nil }
-        var given = false
-        var error: NSError?
-        // No more for now (rather than the end of the stream): the converter keeps what it needs of this buffer.
-        converter.convert(to: output, error: &error) { _, status in
-            if given {
-                status.pointee = .noDataNow
-                return nil
-            }
-            given = true
-            status.pointee = .haveData
-            return buffer
-        }
-        return error == nil && output.frameLength > 0 ? output : nil
+        return converter.convert(buffer)
     }
 
     /// Fills the time since the tap last gave sound with silence, once it has stopped.

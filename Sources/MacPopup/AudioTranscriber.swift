@@ -7,13 +7,14 @@ import Transcription
 ///
 /// The stretches of speech (SpeechStretches, ending at the pause set in transcriptionPause) are transcribed with the
 /// model chosen in Settings → Transcription, a stretch at a time and in order, into the box's lines (StretchLines: its
-/// sentences, or with "End lines at sentence ends" a line that grows with the next stretch while its sentence goes on).
+/// sentences, or with "Detect sentence ends" a line that grows with the next stretch while its sentence goes on).
 /// With "Show words as they're heard", the model's words for the stretch being heard are shown as they come
 /// (LiveTranscription, LiveFeed), as a live line that its text then replaces.
 ///
-/// transcribe-cli replay simulates it on a recording, with the same parts: what it does here with them it does too.
+/// StretchTranscriber does that, as transcribe-cli replay's simulation does on a recording; this gives it the model, its
+/// settings and the stretches heard (SpeechListener), and shows its lines in the box.
 @MainActor
-final class AudioTranscriber {
+final class AudioTranscriber: StretchTranscriberHost {
     private struct Source: Equatable {
         var processes: AudioTap.Processes?
         var pause: Double
@@ -27,32 +28,20 @@ final class AudioTranscriber {
     private var model: SpeechModel?
     /// Settings → General → language, as the model was last loaded for.
     private var language: String?
-    /// Stretches of speech waiting to be transcribed.
-    private var pending = PendingStretches()
-    private var transcribing = false
     /// The last error shown, so that it's shown once rather than for each stretch.
     private var shownError: String?
-    /// SaT's error was shown: lines end at punctuation only until "End lines at sentence ends" is turned on again.
+    /// SaT's error was shown: lines end at punctuation only until "Detect sentence ends" is turned on again.
     private var sentenceEndsFailed = false
     /// MACPOPUP_TEST_TRANSCRIPTION_FILE: a sound file played in place of the app's audio (for test runs).
     private let testFile = DevelopmentEnvironment["MACPOPUP_TEST_TRANSCRIPTION_FILE"]
 
     /// The box's lines from the stretches, on the clock of system uptime.
-    private let lines = StretchLines()
-    /// The open line can't go on past the stretches transcribed so far: speech was dropped, or the audio's source or
-    /// model changed. It's ended before the next stretch, not while one is being transcribed (which goes on from it).
-    private var linesBroken = false
-    /// The model's words as they're heard (for "Show words as they're heard"), for the language it was asked for (nil
-    /// when not wanted, or nil from models that don't give them).
-    private var live: (any LiveTranscription)?
+    private lazy var transcriber = StretchTranscriber(host: self)
+    /// The language the model's words as they're heard (transcriber.live, for "Show words as they're heard") were
+    /// asked for; nil when not wanted.
     private var liveLanguage: String?
-    /// Why `live` couldn't be had last time, logged once.
+    /// Why the live words couldn't be had last time, logged once.
     private var liveError: String?
-    /// The audio on its way to `live`, and its live lines.
-    private var liveFeed = LiveFeed()
-    /// Counts the listeners, so that a stopped one's audio isn't heard, and the times the live lines were all removed,
-    /// so that words worked out before then aren't shown.
-    private var listenerGeneration = 0, liveGeneration = 0
 
     init(overlay: OverlayController) {
         self.overlay = overlay
@@ -67,7 +56,7 @@ final class AudioTranscriber {
                 guard let self, model == self.model else { return }
                 // Loaded again (see applySettings), with its live words.
                 self.language = nil
-                self.live = nil
+                self.transcriber.live = nil
                 self.liveLanguage = nil
                 self.applySettings()
             }
@@ -114,11 +103,8 @@ final class AudioTranscriber {
             self.model = model
             shownError = nil
             unavailable = false
-            pending.removeAll()
-            linesBroken = true
-            live = nil
+            transcriber.use(model.map(SpeechRecognizer.shared))
             liveLanguage = nil
-            endLiveLines()
         }
         // Now, so the first line isn't late (the first time, Core ML takes long to prepare a model), and again for
         // another language (Live Caption has a pack per language).
@@ -137,6 +123,8 @@ final class AudioTranscriber {
             }
         }
         self.language = model == nil ? nil : language
+        transcriber.language = language
+        transcriber.growing = findsSentenceEnds
         let wantsSentenceEnds = enabled && findsSentenceEnds
         if wantsSentenceEnds != self.wantsSentenceEnds {
             self.wantsSentenceEnds = wantsSentenceEnds
@@ -154,34 +142,34 @@ final class AudioTranscriber {
                 satLoading = false
             }
         }
-        let wantsLive = enabled && settings["transcriptionLive"] as? Bool == true
+        // Not for a model that doesn't give them (the setting is only hidden for it).
+        let wantsLive = enabled && settings["transcriptionLive"] as? Bool == true && model?.hearsLive == true
         if let model, wantsLive, language != liveLanguage {
             liveLanguage = language
-            live = nil
+            transcriber.live = nil
             let recognizer = SpeechRecognizer.shared(model)
             Task {
                 do {
                     let live = try await recognizer.live(language: language)
                     // Still wanted for this model and language.
                     guard self.model == model, self.liveLanguage == language else { return }
-                    self.live = live
-                    self.liveFeed.restart()
+                    self.transcriber.live = live
                     self.liveError = nil
                     // The model loaded for it.
                     self.unavailable = false
                     if live != nil { transcriptionLog("\(model.kind.name) gives words as they're heard") }
                 } catch {
-                    // Tried again with the settings (at least every 5 seconds), e.g. once the models are loaded. The
-                    // stretches' transcription shows the error.
-                    if self.liveLanguage == language { self.liveLanguage = nil }
+                    // Tried again once the model's files are replaced (SpeechRecognizer.modelsChanged), e.g. when it's
+                    // loaded in Settings, or with another model or language: not before, since each try loads it again.
+                    // The stretches' transcription shows the error.
                     if error.localizedDescription != self.liveError {
-                        transcriptionLog("no words as they're heard yet: \(error.localizedDescription)")
+                        transcriptionLog("no words as they're heard: \(error.localizedDescription)")
                     }
                     self.liveError = error.localizedDescription
                 }
             }
         } else if !wantsLive {
-            live = nil
+            transcriber.live = nil
             liveLanguage = nil
         }
         let source = enabled ? Source(processes: processes(), pause: Double(settings["transcriptionPause"] as? NSNumber ?? 1000) / 1000,
@@ -189,21 +177,15 @@ final class AudioTranscriber {
         guard source != self.source else { return }
         self.source = source
         // The stretches waiting are of the old source's audio, and the open line can't go on with the new one's.
-        pending.removeAll()
-        linesBroken = true
-        endLiveLines()
+        let generation = transcriber.startListener()
         listener?.stop()
         listener = nil
         guard let source, source.processes != nil || testFile != nil else { return }
-        listenerGeneration += 1
-        let generation = listenerGeneration
         let onLive: ((SpeechStretches.Live) -> Void)? = source.live ? { [weak self] event in
-            Task { @MainActor in self?.heardLive(event, generation: generation) }
+            Task { @MainActor in self?.transcriber.heardLive(event, listener: generation) }
         } : nil
-        let listener = SpeechListener(pause: source.pause, onSpeech: { [weak self] speech in
-            // Not from a listener stopped meanwhile (stretches are placed after it's stopped).
-            guard let self, self.listenerGeneration == generation else { return }
-            self.heard(speech)
+        let listener = SpeechListener(pause: source.pause, onPlaced: { [weak self] placed in
+            self?.transcriber.heard(placed, listener: generation)
         }, onLive: onLive)
         do {
             if let testFile {
@@ -229,137 +211,73 @@ final class AudioTranscriber {
         return .allBut(ProcessInfo.processInfo.processIdentifier)
     }
 
-    /// Settings → Transcription → "End lines at sentence ends".
+    /// Settings → Transcription → "Detect sentence ends".
     private var findsSentenceEnds: Bool { settings["transcriptionSentenceEnds"] as? Bool ?? false }
-    /// Whether SaT is wanted (audio and "End lines at sentence ends" on), so it's unloaded when it no longer is.
+    /// Whether SaT is wanted (audio and "Detect sentence ends" on), so it's unloaded when it no longer is.
     private var wantsSentenceEnds = false
     private var satLoading = false
 
-    private func heard(_ speech: SpeechStretches.Speech) {
-        guard model != nil else { return }
-        if let dropped = pending.add(speech) {
-            endLiveLine(dropped.id)
-            // The line can't go on past the missing speech.
-            linesBroken = true
-            transcriptionLog("transcription is behind: dropped a stretch of speech")
+    // MARK: StretchTranscriberHost
+
+    func run<T: Sendable>(_ kind: StretchTranscriber.Work, _ work: @escaping @Sendable () async -> T,
+                          done: @escaping @MainActor (T) -> Void) {
+        switch kind {
+        case .lines:
+            Task { done(await work()) }
+        case .live:
+            // Off the main actor: a live pass is work done right away (SODA's).
+            Task.detached(priority: .userInitiated) {
+                let result = await work()
+                await done(result)
+            }
         }
-        transcribeNext()
     }
 
-    private func transcribeNext() {
-        guard !transcribing, let model, let speech = pending.next() else { return }
-        if linesBroken {
-            lines.end()
-            linesBroken = false
-        }
-        guard !speech.samples.isEmpty else {
-            // The voice stopped after a stretch too quiet to transcribe.
-            lines.end()
-            endLiveLine(speech.id)
-            transcribeNext()
-            return
-        }
-        let language = settings["language"] as? String ?? "ja"
-        let recognizer = SpeechRecognizer.shared(model)
-        let growing = findsSentenceEnds
-        let listener = listenerGeneration
-        transcribing = true
-        Task {
-            // Its live line goes with its last line (see show), or else once it's done.
-            var liveReplaced = false
-            defer {
-                if !liveReplaced { endLiveLine(speech.id) }
-                transcribing = false
-                transcribeNext()
-            }
-            let shown: [StretchLines.Shown]
-            do {
-                guard let lines = try await lines.lines(
-                    for: speech, recognizer: recognizer, language: language, growing: growing, log: transcriptionLog,
-                    heard: { SpeechDebug.shared?.line(listener: listener, stretch: speech.id, samples: $0, text: $1) },
-                    sentenceEndsFailed: { self.reportSentenceEnds($0) }, wanted: { self.model == model }
-                ) else { return }
-                shown = lines
-            } catch {
-                if self.model == model { unavailable = true }
-                report(error)
-                return
-            }
+    func show(_ line: StretchLines.Shown, endsLive: Int?) {
+        guard let json = Self.json(line.text) else { return }
+        let age = ProcessInfo.processInfo.systemUptime - line.start
+        overlay.evaluate("window.__macpopupTranscript?.(\(json), \(age), \(line.grows), \(endsLive.map(String.init) ?? "null"))")
+    }
+
+    func showLive(_ text: String?, stretch: Int) {
+        let json: String? = if let text { Self.json(text) } else { "null" }
+        guard let json else { return }
+        overlay.evaluate("window.__macpopupLive?.(\(stretch), \(json))")
+    }
+
+    func clearLive() {
+        overlay.evaluate("window.__macpopupLiveClear?.()")
+    }
+
+    func log(_ message: String) {
+        transcriptionLog(message)
+    }
+
+    func transcribed(error: Error?) {
+        guard let error else {
             shownError = nil
             unavailable = false
-            for (index, line) in shown.enumerated() {
-                let last = index == shown.count - 1
-                liveReplaced = show(line.text, start: line.start, grows: line.grows, endsLive: last ? speech.id : nil) && last
-            }
+            return
         }
+        unavailable = true
+        report(error)
     }
 
-    /// Adds a line to the text box, or replaces its last line with the text when it `grows`; `endsLive`: the stretch
-    /// whose live line it takes the place of. Returns whether there was text to show.
-    @discardableResult
-    private func show(_ text: String, start: Double, grows: Bool, endsLive: Int? = nil) -> Bool {
-        guard !text.isEmpty, let json = Self.json(text) else { return false }
-        let age = ProcessInfo.processInfo.systemUptime - start
-        if let endsLive { liveFeed.end(endsLive) }
-        overlay.evaluate("window.__macpopupTranscript?.(\(json), \(age), \(grows), \(endsLive.map(String.init) ?? "null"))")
-        return true
+    func sentenceEndsFailed(_ error: Error) {
+        reportSentenceEnds(error)
+    }
+
+    func heard(_ samples: [Float], text: String, speech: SpeechStretches.Speech, listener: Int) {
+        SpeechDebug.shared?.line(listener: listener, stretch: speech.id, samples: samples, text: text)
+    }
+
+    func heardLive(_ samples: [Float], text: String?, ms: Double, stretch: Int, listener: Int) {
+        SpeechDebug.shared?.live(listener: listener, stretch: stretch, samples: samples, text: text, ms: ms)
     }
 
     /// A string as JavaScript.
     private static func json(_ text: String) -> String? {
         (try? JSONSerialization.data(withJSONObject: [text])).flatMap { String(data: $0, encoding: .utf8) }.map { "\($0)[0]" }
-    }
-
-    /// The stretch being heard, as it's heard: its audio goes to the model, its words to its live line.
-    private func heardLive(_ event: SpeechStretches.Live, generation: Int) {
-        guard generation == listenerGeneration, let live else { return }
-        switch event {
-        case let .audio(stretch, samples):
-            liveFeed.heard(samples, stretch: stretch)
-            hearLive(live)
-        case let .dropped(stretch):
-            endLiveLine(stretch)
-        }
-    }
-
-    /// Gives `live` the audio waiting, unless it's working out words: then once it's done.
-    private func hearLive(_ live: any LiveTranscription) {
-        guard let piece = liveFeed.next() else { return }
-        let generation = liveGeneration, listener = listenerGeneration
-        Task.detached(priority: .userInitiated) { [weak self] in
-            if piece.starts { live.start() }
-            let started = ProcessInfo.processInfo.systemUptime
-            let text = try? await live.accept(piece.samples)
-            SpeechDebug.shared?.live(listener: listener, stretch: piece.stretch, samples: piece.samples, text: text,
-                                     ms: (ProcessInfo.processInfo.systemUptime - started) * 1000)
-            await self?.heardLive(text, from: live, stretch: piece.stretch, generation: generation)
-        }
-    }
-
-    private func heardLive(_ text: String?, from live: any LiveTranscription, stretch: Int, generation: Int) {
-        liveFeed.done()
-        if let text { showLive(text, stretch: stretch, generation: generation) }
-        // Not if it was let go meanwhile.
-        if let current = self.live, current === live { hearLive(live) }
-    }
-
-    private func showLive(_ text: String, stretch: Int, generation: Int) {
-        guard generation == liveGeneration, live != nil, let text = liveFeed.show(text, stretch: stretch),
-              let json = Self.json(text) else { return }
-        overlay.evaluate("window.__macpopupLive?.(\(stretch), \(json))")
-    }
-
-    /// Removes the stretch's live line, if it has one.
-    private func endLiveLine(_ stretch: Int) {
-        guard liveFeed.end(stretch) else { return }
-        overlay.evaluate("window.__macpopupLive?.(\(stretch), null)")
-    }
-
-    /// Removes all live lines: the audio's source or model changed.
-    private func endLiveLines() {
-        liveGeneration += 1
-        liveFeed.clear()
-        overlay.evaluate("window.__macpopupLiveClear?.()")
     }
 
     private func report(_ error: Error) {
@@ -395,8 +313,8 @@ final class SpeechListener: @unchecked Sendable {
     private var testTimer: DispatchSourceTimer?
 
     /// `pause`: seconds, 0: lines don't end at pauses. `onLive` gets the stretch being heard as it's heard, on the
-    /// listener's queue; nil: only whole stretches are given.
-    init(pause: Double, onSpeech: @escaping @MainActor (SpeechStretches.Speech) -> Void,
+    /// listener's queue; nil: only whole stretches are given. `onPlaced`: each stretch placed (see Cut.place).
+    init(pause: Double, onPlaced: @escaping @MainActor (SpeechStretches.Cut.Placed) -> Void,
          onLive: ((SpeechStretches.Live) -> Void)? = nil) {
         let queue = queue, placing = placing
         stretches = SpeechStretches(pause: pause, live: onLive != nil, clock: { ProcessInfo.processInfo.systemUptime },
@@ -406,10 +324,7 @@ final class SpeechListener: @unchecked Sendable {
             // After the stretches before it.
             placing.async {
                 for placed in cut.place(log: transcriptionLog) {
-                    switch placed {
-                    case let .speech(speech): Task { @MainActor in onSpeech(speech) }
-                    case let .dropped(stretch): onLive?(.dropped(stretch: stretch))
-                    }
+                    Task { @MainActor in onPlaced(placed) }
                 }
             }
         }

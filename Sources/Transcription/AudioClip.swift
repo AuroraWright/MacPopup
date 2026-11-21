@@ -207,28 +207,27 @@ struct LowPass {
     }
 }
 
-/// Converts the pieces of a recording, one after another, to mono at another sample rate, carrying the converter's
-/// state from piece to piece so that they join as if converted together.
-final class StreamResampler {
+/// Converts the buffers of a stream, one after another, to another format, carrying the converter's state from one to
+/// the next so that they join as if converted together (fewer channels are mixed down).
+public final class StreamConverter {
     private let converter: AVAudioConverter
-    private let ratio: Double
 
-    init?(from format: AVAudioFormat, to sampleRate: Double) {
-        guard let mono = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1),
-              let output = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
-              let converter = AVAudioConverter(from: mono, to: output) else { return nil }
+    public var inputFormat: AVAudioFormat { converter.inputFormat }
+
+    public init?(from input: AVAudioFormat, to output: AVAudioFormat) {
+        guard let converter = AVAudioConverter(from: input, to: output) else { return nil }
+        converter.downmix = input.channelCount > output.channelCount
         self.converter = converter
-        ratio = sampleRate / format.sampleRate
     }
 
-    func convert(_ clip: AudioClip) -> [Float] {
-        guard let mono = clip.monoBuffer(),
-              let output = AVAudioPCMBuffer(pcmFormat: converter.outputFormat,
-                                            frameCapacity: AVAudioFrameCount(Double(mono.frameLength) * ratio) + 1024)
-        else { return [] }
+    /// The buffer converted, or nil if it can't be (or gives no frames yet).
+    public func convert(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        let ratio = converter.outputFormat.sampleRate / converter.inputFormat.sampleRate
+        guard let output = AVAudioPCMBuffer(pcmFormat: converter.outputFormat,
+                                            frameCapacity: AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1024) else { return nil }
         var given = false
         var error: NSError?
-        // No more for now (rather than the end of the stream): the converter keeps what it needs of this piece.
+        // No more for now (rather than the end of the stream): the converter keeps what it needs of this buffer.
         converter.convert(to: output, error: &error) { _, status in
             if given {
                 status.pointee = .noDataNow
@@ -236,9 +235,26 @@ final class StreamResampler {
             }
             given = true
             status.pointee = .haveData
-            return mono
+            return buffer
         }
-        guard error == nil, let samples = output.floatChannelData?[0] else { return [] }
+        return error == nil && output.frameLength > 0 ? output : nil
+    }
+}
+
+/// Converts the pieces of a recording, one after another, to mono at another sample rate (see StreamConverter).
+final class StreamResampler {
+    private let converter: StreamConverter
+
+    init?(from format: AVAudioFormat, to sampleRate: Double) {
+        guard let mono = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1),
+              let output = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
+              let converter = StreamConverter(from: mono, to: output) else { return nil }
+        self.converter = converter
+    }
+
+    func convert(_ clip: AudioClip) -> [Float] {
+        guard let mono = clip.monoBuffer(), let output = converter.convert(mono), let samples = output.floatChannelData?[0]
+        else { return [] }
         return Array(UnsafeBufferPointer(start: samples, count: Int(output.frameLength)))
     }
 }

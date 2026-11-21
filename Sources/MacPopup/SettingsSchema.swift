@@ -513,7 +513,7 @@ enum SettingsSchema {
                     SettingsField(
                         "transcriptionLive", "Show words as they’re heard", .checkbox,
                         hint: "Lines are filled in real time as the speaker talks and are then corrected after a pause. Disabled with Whisper and anime-whisper, as they’re not fast enough.",
-                        showIf: { !["whisper", "animeWhisper"].contains($0["transcriptionModel"] as? String ?? "kitsune") }
+                        showIf: { (SpeechModel(rawValue: $0["transcriptionModel"] as? String ?? "") ?? .kitsune).hearsLive }
                     ),
                     SettingsField(
                         "transcriptionSentenceEnds", "End lines at sentence ends", .checkbox,

@@ -1,9 +1,9 @@
 import Foundation
 
-/// The text box's lines from each stretch of speech, one stretch at a time and in order (AudioTranscriber in the app,
-/// transcribe-cli replay's simulation of it): the stretch transcribed and split into sentences, or with "End lines at
-/// sentence ends", as with OCR's lines (ShownLines), the open line grown with the stretch while its sentence goes on
-/// (GrowingLines, with SaT's sentence ends).
+/// The text box's lines from each stretch of speech, one stretch at a time and in order (StretchTranscriber: in the
+/// app, and in transcribe-cli replay's simulation of it): the stretch transcribed and split into sentences, or with
+/// "Detect sentence ends", as with OCR's lines (ShownLines), the open line grown with the stretch while its sentence
+/// goes on (GrowingLines, with SaT's sentence ends).
 @MainActor
 public final class StretchLines {
     public struct Shown: Sendable {
@@ -26,9 +26,10 @@ public final class StretchLines {
         lines.end()
     }
 
-    /// The stretch's lines. `growing`: "End lines at sentence ends". `heard`: the audio the model transcribed (the
-    /// stretch, after the open line's speech heard again) and its text. `sentenceEndsFailed`: SaT's error, the lines
-    /// then end at punctuation only. Nil when no longer `wanted` after a step (checked after each one).
+    /// The stretch's lines. `growing`: "Detect sentence ends". `heard`: the audio the lines were transcribed from
+    /// (the stretch, after the open line's speech heard again, or after what follows the line's text) and its text.
+    /// `sentenceEndsFailed`: SaT's error, the lines then end at punctuation only. Nil when no longer `wanted` after a
+    /// step (checked after each one).
     public func lines(for speech: SpeechStretches.Speech, recognizer: SpeechRecognizer, language: String, growing: Bool,
                       log: (String) -> Void, heard: ([Float], String) -> Void, sentenceEndsFailed: (Error) -> Void,
                       wanted: () -> Bool) async throws -> [Shown]? {
@@ -36,7 +37,6 @@ public final class StretchLines {
         var earlier = growing ? lines.earlier(before: speech.samples) : nil
         let started = Date()
         var transcript = try await recognizer.transcribe((earlier ?? []) + speech.samples, language: language)
-        heard((earlier ?? []) + speech.samples, transcript.text)
         let again = earlier.map { String(format: " (and %.1f s again)", Double($0.count) / SpeechStretches.sampleRate) } ?? ""
         log(String(format: "%.1f s of speech%@ in %.0f ms with %@: %@", speech.duration, again,
                    Date().timeIntervalSince(started) * 1000, recognizer.model.kind.name, transcript.text))
@@ -48,6 +48,7 @@ public final class StretchLines {
             log(String(format: "heard worse again; %.1f s after the line's text: %@",
                        Double(unheard.count) / SpeechStretches.sampleRate, transcript.text))
         }
+        heard((earlier ?? []) + speech.samples, transcript.text)
         // Turned off or switched to another model meanwhile.
         guard wanted() else { return nil }
         guard growing else {
@@ -77,27 +78,27 @@ public final class StretchLines {
 }
 
 /// The stretches of speech waiting to be transcribed while one is, oldest first.
-public struct PendingStretches {
+struct PendingStretches {
     /// Stretches kept waiting; older ones are dropped when transcription can't keep up.
-    public static let max = 4
+    static let max = 4
 
     private var waiting: [SpeechStretches.Speech] = []
 
-    public init() {}
+    init() {}
 
-    public var isEmpty: Bool { waiting.isEmpty }
+    var isEmpty: Bool { waiting.isEmpty }
 
     /// Adds a stretch, and returns the oldest one dropped to make room for it.
-    public mutating func add(_ speech: SpeechStretches.Speech) -> SpeechStretches.Speech? {
+    mutating func add(_ speech: SpeechStretches.Speech) -> SpeechStretches.Speech? {
         waiting.append(speech)
         return waiting.count > Self.max ? waiting.removeFirst() : nil
     }
 
-    public mutating func next() -> SpeechStretches.Speech? {
+    mutating func next() -> SpeechStretches.Speech? {
         waiting.isEmpty ? nil : waiting.removeFirst()
     }
 
-    public mutating func removeAll() {
+    mutating func removeAll() {
         waiting.removeAll()
     }
 }
@@ -107,28 +108,29 @@ public struct PendingStretches {
 /// time: the audio heard while it works goes to it next in one piece per stretch, in order, so a model that takes
 /// longer than the audio does falls behind by a piece at most, and a stretch's last words still come when the next
 /// one starts meanwhile.
-public struct LiveFeed {
-    public struct Piece: Sendable {
-        public let stretch: Int
-        public fileprivate(set) var samples: [Float]
+struct LiveFeed {
+    struct Piece: Sendable {
+        let stretch: Int
+        fileprivate(set) var samples: [Float]
         /// The model starts a new stretch with it.
-        public let starts: Bool
+        let starts: Bool
     }
 
     /// Whether the model is working out words (from `next` until `done`).
-    public private(set) var busy = false
+    private(set) var busy = false
     private var waiting: [Piece] = []
     /// The stretch the model hears.
     private var current: Int?
     /// The text shown for each stretch's live line, and the stretches whose live lines are gone (their late words
-    /// aren't shown).
+    /// aren't shown): the last ones, as stretches count up and late words come only for the last few.
     private var shown: [Int: String] = [:]
     private var ended = Set<Int>()
+    private static let endedKept = 32
 
-    public init() {}
+    init() {}
 
     /// The stretch's next audio.
-    public mutating func heard(_ samples: [Float], stretch: Int) {
+    mutating func heard(_ samples: [Float], stretch: Int) {
         guard !ended.contains(stretch) else { return }
         let starts = stretch != current
         current = stretch
@@ -140,7 +142,7 @@ public struct LiveFeed {
     }
 
     /// The audio to give the model next, unless it's working out words; then it's busy until `done`.
-    public mutating func next() -> Piece? {
+    mutating func next() -> Piece? {
         guard !busy else { return nil }
         // Not for stretches whose lines took the place of their live lines meanwhile.
         waiting.removeAll { ended.contains($0.stretch) }
@@ -149,29 +151,28 @@ public struct LiveFeed {
         return waiting.removeFirst()
     }
 
-    public mutating func done() {
+    mutating func done() {
         busy = false
     }
 
     /// The text to show as the stretch's live line, or nil when it's shown already (or its line is gone).
-    public mutating func show(_ text: String, stretch: Int) -> String? {
+    mutating func show(_ text: String, stretch: Int) -> String? {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !ended.contains(stretch), !text.isEmpty, shown[stretch] != text else { return nil }
         shown[stretch] = text
         return text
     }
 
-    /// The stretch's live line is gone (or going, with its last line); returns whether it was there.
+    /// The stretch's live line is gone (or going, with its last line); returns whether it was shown.
     @discardableResult
-    public mutating func end(_ stretch: Int) -> Bool {
-        guard !ended.contains(stretch) else { return false }
-        ended.insert(stretch)
-        shown[stretch] = nil
-        return true
+    mutating func end(_ stretch: Int) -> Bool {
+        guard ended.insert(stretch).inserted else { return false }
+        if ended.count > 2 * Self.endedKept { ended = ended.filter { $0 > stretch - Self.endedKept } }
+        return shown.removeValue(forKey: stretch) != nil
     }
 
     /// All live lines are gone (the audio's source or model changed).
-    public mutating func clear() {
+    mutating func clear() {
         waiting.removeAll()
         shown.removeAll()
         ended.removeAll()
@@ -179,7 +180,7 @@ public struct LiveFeed {
     }
 
     /// Another model hears the stretches: the next piece starts a stretch for it.
-    public mutating func restart() {
+    mutating func restart() {
         current = nil
     }
 }

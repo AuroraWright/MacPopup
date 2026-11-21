@@ -28,6 +28,9 @@ public enum SpeechModel: String, CaseIterable, Sendable {
         }
     }
 
+    /// Whether it gives words as they're heard ("Show words as they're heard"): Whisper's models take too long.
+    public var hearsLive: Bool { self != .whisper && self != .animeWhisper }
+
     /// Whether the model transcribes `language` (Yomitan's ISO code).
     public func reads(_ language: String) -> Bool {
         switch self {

@@ -12,8 +12,8 @@ final class SpeechDebug: @unchecked Sendable {
 
     private let folder: URL
     private let queue = DispatchQueue(label: "com.aury.macpopup.speech-debug", qos: .utility)
-    /// Each stretch's live audio so far.
-    private var live: [String: [Float]] = [:]
+    /// Each stretch's live audio so far, by listener and stretch.
+    private var live: [[Int]: [Float]] = [:]
 
     private init(folder: URL) {
         self.folder = folder
@@ -24,10 +24,10 @@ final class SpeechDebug: @unchecked Sendable {
     func live(listener: Int, stretch: Int, samples: [Float], text: String?, ms: Double) {
         let uptime = ProcessInfo.processInfo.systemUptime
         queue.async { [self] in
-            let name = "\(listener)-\(stretch)"
-            live[name, default: []] += samples
-            let heard = Double(live[name]!.count) / 16000
-            append(["kind": "live", "stretch": name, "uptime": uptime, "heard": heard, "ms": ms, "text": text ?? NSNull()])
+            live[[listener, stretch], default: []] += samples
+            let heard = Double(live[[listener, stretch]]!.count) / 16000
+            append(["kind": "live", "stretch": "\(listener)-\(stretch)", "uptime": uptime, "heard": heard, "ms": ms,
+                    "text": text ?? NSNull()])
         }
     }
 
@@ -36,8 +36,11 @@ final class SpeechDebug: @unchecked Sendable {
         let uptime = ProcessInfo.processInfo.systemUptime
         queue.async { [self] in
             let name = "\(listener)-\(stretch)"
-            // Its live audio up to now (any after it isn't shown).
-            if let audio = live.removeValue(forKey: name) { write(audio, to: "live-\(name).wav") }
+            // Its live audio up to now (any after it isn't shown), and that of stretches before it that got no line
+            // (too quiet, dropped), which is kept no longer.
+            for key in live.keys where key == [listener, stretch] || key[0] < listener || key[0] == listener && key[1] < stretch {
+                if let audio = live.removeValue(forKey: key) { write(audio, to: "live-\(key[0])-\(key[1]).wav") }
+            }
             append(["kind": "line", "stretch": name, "uptime": uptime, "heard": Double(samples.count) / 16000, "text": text])
             write(samples, to: "line-\(name).wav")
         }
