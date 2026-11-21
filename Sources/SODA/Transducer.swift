@@ -106,6 +106,16 @@ final class BeamSearch {
 
     var best: Hypothesis { beam[bestIndex] }
 
+    /// The best hypothesis at the end of the audio: or, when another one is it with more labels after and costs at
+    /// most `margin` more, the cheapest such one. Leaving the last words out costs less than writing them, so
+    /// a hypothesis that stopped a few words early can come out ahead when the audio ends (libsoda's search too).
+    func bestAtEnd(margin: Float) -> Hypothesis {
+        let b = best
+        guard margin > 0 else { return b }
+        return beam.filter { $0.labels.count > b.labels.count && $0.labels.starts(with: b.labels) && $0.cost <= b.cost + margin }
+            .min { $0.cost < $1.cost } ?? b
+    }
+
     /// Starts a new segment from <S>.
     func reset() {
         start = Hypothesis(previousLabel: config.decoderInitialValue, lastLabel: config.sosID)

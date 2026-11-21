@@ -51,10 +51,11 @@ final class AudioTranscriber {
     private var liveLanguage: String?
     /// Why `live` couldn't be had last time, logged once.
     private var liveError: String?
-    /// Whether `live` is working out words, and the audio heard meanwhile, given to it next in one piece: a model
-    /// that takes longer than the audio does falls behind by a piece at most.
+    /// Whether `live` is working out words, and the audio heard meanwhile, given to it next in one piece per
+    /// stretch, in order: a model that takes longer than the audio does falls behind by a piece at most, and a
+    /// stretch's last words still come when the next one starts meanwhile.
     private var liveBusy = false
-    private var liveWaiting: (stretch: Int, samples: [Float], starts: Bool)?
+    private var liveWaiting: [(stretch: Int, samples: [Float], starts: Bool)] = []
     /// The stretch `live` hears, the text shown for each stretch's live line, and the stretches whose live lines are
     /// gone (their late words aren't shown).
     private var liveStretch: Int?
@@ -211,7 +212,9 @@ final class AudioTranscriber {
             Task { @MainActor in self?.heardLive(event, generation: generation) }
         } : nil
         let listener = SpeechListener(pause: source.pause, onSpeech: { [weak self] speech in
-            self?.heard(speech)
+            // Not from a listener stopped meanwhile (stretches are placed after it's stopped).
+            guard let self, self.listenerGeneration == generation else { return }
+            self.heard(speech)
         }, onLive: onLive)
         do {
             if let testFile {
@@ -287,6 +290,8 @@ final class AudioTranscriber {
             var transcript: Transcript
             do {
                 transcript = try await recognizer.transcribe((earlier ?? []) + speech.samples, language: language)
+                SpeechDebug.shared?.line(listener: listenerGeneration, stretch: speech.id, samples: (earlier ?? []) + speech.samples,
+                                         text: transcript.text)
                 let again = earlier.map { String(format: " (and %.1f s again)", Double($0.count) / SpeechListener.sampleRate) } ?? ""
                 transcriptionLog(String(format: "%.1f s of speech%@ in %.0f ms with %@: %@", speech.duration, again,
                                         Date().timeIntervalSince(started) * 1000, model.kind.name, transcript.text))
@@ -359,10 +364,10 @@ final class AudioTranscriber {
             guard !liveEnded.contains(stretch) else { return }
             let starts = stretch != liveStretch
             liveStretch = stretch
-            if let waiting = liveWaiting, waiting.stretch == stretch {
-                liveWaiting = (stretch, waiting.samples + samples, waiting.starts || starts)
+            if let last = liveWaiting.last, last.stretch == stretch {
+                liveWaiting[liveWaiting.count - 1].samples += samples
             } else {
-                liveWaiting = (stretch, samples, starts)
+                liveWaiting.append((stretch, samples, starts))
             }
             hearLive(live)
         case let .dropped(stretch):
@@ -372,13 +377,19 @@ final class AudioTranscriber {
 
     /// Gives `live` the audio waiting, unless it's working out words: then once it's done.
     private func hearLive(_ live: any LiveTranscription) {
-        guard !liveBusy, let (stretch, samples, starts) = liveWaiting else { return }
-        liveWaiting = nil
+        guard !liveBusy else { return }
+        // Not for stretches whose lines took the place of their live lines meanwhile.
+        liveWaiting.removeAll { liveEnded.contains($0.stretch) }
+        guard !liveWaiting.isEmpty else { return }
+        let (stretch, samples, starts) = liveWaiting.removeFirst()
         liveBusy = true
-        let generation = liveGeneration
+        let generation = liveGeneration, listener = listenerGeneration
         Task.detached(priority: .userInitiated) { [weak self] in
             if starts { live.start() }
+            let started = ProcessInfo.processInfo.systemUptime
             let text = try? await live.accept(samples)
+            SpeechDebug.shared?.live(listener: listener, stretch: stretch, samples: samples, text: text,
+                                     ms: (ProcessInfo.processInfo.systemUptime - started) * 1000)
             await self?.heardLive(text, from: live, stretch: stretch, generation: generation)
         }
     }
@@ -414,7 +425,7 @@ final class AudioTranscriber {
     /// Removes all live lines: the audio's source or model changed.
     private func endLiveLines() {
         liveGeneration += 1
-        liveWaiting = nil
+        liveWaiting.removeAll()
         liveShown.removeAll()
         liveEnded.removeAll()
         liveStretch = nil
@@ -497,6 +508,8 @@ final class SpeechListener: @unchecked Sendable {
     /// Gets the stretch being heard as it's heard, on the listener's queue; nil: only whole stretches are given.
     private let onLive: ((Live) -> Void)?
     private let queue = DispatchQueue(label: "com.aury.macpopup.transcription", qos: .userInitiated)
+    /// Where `give` places stretches, one at a time.
+    private let placing = DispatchQueue(label: "com.aury.macpopup.transcription.placing", qos: .userInitiated)
     private var tap: AudioTap?
     private var testTimer: DispatchSourceTimer?
     private var format: AVAudioFormat?
@@ -707,7 +720,8 @@ final class SpeechListener: @unchecked Sendable {
     }
 
     /// Gives the speech between `start` and `end` (seconds into the recording), placed more finely, and lets the audio
-    /// before `end` go. `pause`: as Speech's.
+    /// before `end` go. `pause`: as Speech's. It's placed on `placing`: that takes a while for a long stretch (1.4 s
+    /// for 21 s), and the next stretch is heard meanwhile.
     private func give(from start: Double, to end: Double, pause: Double) {
         let after = pause.isInfinite ? ", voice ended" : pause > 0 ? String(format: ", %.2f s pause", pause) : ""
         voiceStart = nil
@@ -716,15 +730,23 @@ final class SpeechListener: @unchecked Sendable {
         stretch += 1
         liveGiven = nil
         resampler = nil
-        var transcribed = false
-        defer { if heardLive && !transcribed { onLive?(.dropped(stretch: id)) } }
-        guard let format else { return }
+        let (onSpeech, onLive, clockStart) = (onSpeech, onLive, clockStart)
+        // After the stretches before it.
+        func pass(_ speech: Speech?) {
+            placing.async {
+                if let speech {
+                    Task { @MainActor in onSpeech(speech) }
+                } else if heardLive {
+                    onLive?(.dropped(stretch: id))
+                }
+            }
+        }
         // No speech to give, but the voice's end still ends the line.
         func endVoice(at end: Double) {
-            guard pause.isInfinite else { return }
-            let speech = Speech(id: id, samples: [], start: clockStart + end, pause: pause)
-            Task { @MainActor in onSpeech(speech) }
+            if heardLive { pass(nil) }
+            if pause.isInfinite { pass(Speech(id: id, samples: [], start: clockStart + end, pause: pause)) }
         }
+        guard let format else { return pass(nil) }
         // The classifier's end (a second late, a quarter of a second at a time) is often before a pause's cut.
         guard end > start else { return endVoice(at: start) }
         let previous = given
@@ -741,21 +763,21 @@ final class SpeechListener: @unchecked Sendable {
         // either side of a pause.
         let base = max(0, previous - offset)
         let all = AudioClip(format: format, buffers: buffers).slice(from: base, to: end - offset)
-        let from = max(0, start - offset - base), to = min(all.duration, end - offset - base)
-        // Within the stretch (one cut at the longest length goes on in the next), and the coarse one when the fine one
-        // is empty.
-        let range = VoiceDetector.refine(all, start: from, end: to)
-            .map { (max($0.0, from), min($0.1, to)) }
-            .flatMap { $0.1 - $0.0 >= 0.1 ? $0 : nil } ?? (from, to)
-        let kept = all.voiceRange(from: range.0, to: range.1, padding: Self.padding)
-        let clip = all.slice(from: kept.lowerBound, to: kept.upperBound)
-        transcriptionLog(String(format: "speech %.2f–%.2f s, finely %.2f–%.2f s%@", start, end, offset + base + range.0,
-                                offset + base + range.1, after))
         dropAudio(before: end)
-        guard let samples = clip.monoSamples(sampleRate: Self.sampleRate), !samples.isEmpty else { return endVoice(at: end) }
-        let speech = Speech(id: id, samples: samples, start: clockStart + offset + base + kept.lowerBound, pause: pause)
-        transcribed = true
-        Task { @MainActor in onSpeech(speech) }
+        let from = max(0, start - offset - base), to = min(all.duration, end - offset - base)
+        placing.async {
+            // Within the stretch (one cut at the longest length goes on in the next), and the coarse one when the fine
+            // one is empty.
+            let range = VoiceDetector.refine(all, start: from, end: to)
+                .map { (max($0.0, from), min($0.1, to)) }
+                .flatMap { $0.1 - $0.0 >= 0.1 ? $0 : nil } ?? (from, to)
+            let kept = all.voiceRange(from: range.0, to: range.1, padding: Self.padding)
+            let clip = all.slice(from: kept.lowerBound, to: kept.upperBound)
+            transcriptionLog(String(format: "speech %.2f–%.2f s, finely %.2f–%.2f s%@", start, end, offset + base + range.0,
+                                    offset + base + range.1, after))
+            guard let samples = clip.monoSamples(sampleRate: Self.sampleRate), !samples.isEmpty else { return endVoice(at: end) }
+            pass(Speech(id: id, samples: samples, start: clockStart + offset + base + kept.lowerBound, pause: pause))
+        }
     }
 }
 

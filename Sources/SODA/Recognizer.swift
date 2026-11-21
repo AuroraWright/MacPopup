@@ -141,6 +141,11 @@ final class SODARecognizer {
     /// then come from more frames, so results differ slightly (16: 105 of 1,000 Japanese clips by a few characters,
     /// as often better as worse, 13.51% vs 13.56% CER), but the encoder takes much less time (median 227 vs 340 ms).
     var wholeStretchBatch = 0
+    /// 0: the stretch's text is the best hypothesis's, as libsoda's; more: at the end of the audio, a hypothesis
+    /// that goes on from the best one, costing at most this much more, is taken instead (BeamSearch.bestAtEnd). 1 keeps
+    /// the end of long stretches (a talk's 21 s stretch kept its last 1.3 s of words; 58 stretches: 14.83 → 14.39%
+    /// CER), and 1,000 Japanese clips stay at 12.72% (21 differ, ending with a few characters more).
+    var endMargin: Float = 0
 
     // Streaming state (reset by `reset()`).
     private var frontend: Frontend
@@ -223,9 +228,9 @@ final class SODARecognizer {
                 cascadePending += repeatElement(pad, count: config.cascade.rightContext)
                 try runCascade(flush: true)
             }
-            (best, ends) = (cascade.search.best, cascadeEnds)
+            (best, ends) = (endOfAudio ? cascade.search.bestAtEnd(margin: endMargin) : cascade.search.best, cascadeEnds)
         } else {
-            (best, ends) = (search.best, frameEnds)
+            (best, ends) = (endOfAudio ? search.bestAtEnd(margin: endMargin) : search.best, frameEnds)
         }
         var result = try describe(best, frameEnds: ends, frameMs: Int(config.frontend.encoderFrameMs))
         if endOfAudio || result.rawText.contains(where: { $0 != " " && $0 != "\n" }) {
