@@ -87,6 +87,7 @@ const state = {
 	// be loaded (e.g. its models aren't loaded in Settings).
 	audioLoading: false,
 	audioUnavailable: false,
+	iinaTranscribing: false,
 	renderKey: '',
 	// The order and writing direction the lines are laid out in, which settings can have changed since.
 	lineLayout: { reverseLineOrder: false, displayVertical: false },
@@ -499,7 +500,9 @@ class SocketConnection {
 			socket.binaryType = 'arraybuffer';
 			socket.onopen = () => {
 				this.wasConnected = true;
+				this.subscribed = false;
 				this.setState(1);
+				this.subscribe();
 			};
 			socket.onclose = () => this.onClose(socket);
 			socket.onmessage = (event) => this.onMessage(event);
@@ -507,6 +510,16 @@ class SocketConnection {
 		} catch (_) {
 			this.setState(3);
 		}
+	}
+
+	/**
+	 * Asks for what IINA's players play (MacPopup's IINA plugin; other servers ignore it), for transcribing a video
+	 * without subtitles from its file (VideoTranscriber.swift), once that's wanted.
+	 */
+	subscribe() {
+		if (this.subscribed || this.socket?.readyState !== 1 || !wantsPlayerStatus()) return;
+		this.subscribed = true;
+		this.socket.send(JSON.stringify({ subscribe: 'playing' }));
 	}
 
 	disconnect() {
@@ -551,6 +564,11 @@ class SocketConnection {
 		} catch (_) {
 			// Plain text
 		}
+		// What an IINA player plays (see subscribe), not a line.
+		if (message?.playing && typeof message.playing === 'object') {
+			if (wantsPlayerStatus()) nativeCall('iinaPlayer', { ...message.playing, socket: this.url }).catch(() => {});
+			return;
+		}
 		// With the socket's URL: the line's video or audio may have to be requested from the player through it
 		// (MediaClip.swift).
 		const player = typeof message?.player?.line === 'string' ? { ...message.player, socket: this.url } : null;
@@ -585,6 +603,11 @@ class SocketConnection {
 }
 
 const sockets = new Map();
+
+/** Settings → IINA Integration → "Transcribe videos without subtitles". */
+function wantsPlayerStatus() {
+	return getSettings().iinaTranscribe !== false;
+}
 
 
 /**
@@ -622,6 +645,7 @@ function syncSockets() {
 			socket.connect();
 		}
 		socket.render();
+		socket.subscribe();
 		container.append(socket.element);
 		// Not connected and not about to retry (e.g. disconnected by hand in the Floating Window). Only in the OCR
 		// overlay, which hides the buttons for reconnecting.
@@ -2607,16 +2631,24 @@ function renderAudioButton() {
 	const enabled = !!getSettings().floatingWindowAudio;
 	const loading = enabled && state.audioLoading;
 	const unavailable = enabled && !loading && state.audioUnavailable;
+	// On, but nothing is listened to while IINA's video is transcribed from its file.
+	const iina = enabled && state.iinaTranscribing;
 	button.innerHTML = icon(mdiAccountVoice);
-	button.title = loading ? 'Audio (loading…)' : unavailable ? 'Audio (not loaded)' : 'Audio';
-	button.classList.toggle('text-green-700', enabled && !loading && !unavailable);
-	button.classList.toggle('text-warning', loading);
-	button.classList.toggle('text-red-500', unavailable);
+	button.title = iina ? 'Audio (IINA transcription running)' : loading ? 'Audio (loading…)' : unavailable ? 'Audio (not loaded)' : 'Audio';
+	button.classList.toggle('text-green-700', enabled && !loading && !unavailable && !iina);
+	button.classList.toggle('text-warning', loading && !iina);
+	button.classList.toggle('text-red-500', unavailable || iina);
 }
 
 // From the host (AudioTranscriber.swift): whether a speech recognition model is loading.
 window.__macpopupAudioLoading = (loading) => {
 	state.audioLoading = loading;
+	renderAudioButton();
+};
+
+// From the host: whether an IINA video is transcribed from its file (VideoTranscriber.swift), so nothing is listened to.
+window.__macpopupIinaTranscribing = (running) => {
+	state.iinaTranscribing = running;
 	renderAudioButton();
 };
 

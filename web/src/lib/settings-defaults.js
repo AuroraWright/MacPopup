@@ -342,4 +342,8 @@ export const defaultSettings = {
 	iinaScreenshotEnabled: true,
 	iinaSentenceAudioEnabled: true,
 	iinaSentenceAudioPadding: 500,
+	// VideoTranscriber.swift: an IINA video without subtitles in the language is transcribed from its file into a
+	// subtitle track (iina-plugin/main.js status messages, which the page passes on); floatingWindowAudio is paused
+	// meanwhile.
+	iinaTranscribe: true,
 };

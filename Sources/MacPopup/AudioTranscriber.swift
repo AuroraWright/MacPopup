@@ -12,7 +12,9 @@ import Transcription
 /// (LiveTranscription, LiveFeed), as a live line that its text then replaces.
 ///
 /// StretchTranscriber does that, as transcribe-cli replay's simulation does on a recording; this gives it the model, its
-/// settings and the stretches heard (SpeechListener), and shows its lines in the box.
+/// settings and the stretches heard (SpeechListener), and shows its lines in the box. While an IINA video is
+/// transcribed from its file (VideoTranscriber, its own setting), nothing is listened to even with the setting on, as
+/// the box's audio button then shows.
 @MainActor
 final class AudioTranscriber: StretchTranscriberHost {
     private struct Source: Equatable {
@@ -42,6 +44,14 @@ final class AudioTranscriber: StretchTranscriberHost {
     private var liveLanguage: String?
     /// Why the live words couldn't be had last time, logged once.
     private var liveError: String?
+    /// Settings → IINA Integration → "Transcribe videos without subtitles".
+    private lazy var video = VideoTranscriber(onActive: { [weak self] in
+        self?.showVideoActive()
+        self?.applySettings()
+    }, report: { [weak self] in self?.report($0) })
+    /// The models listening or the IINA video's transcription use (SaT: whether it's used), so the others are let go.
+    private var modelsUsed: Set<SpeechModel> = []
+    private var sentenceEndsUsed = false
 
     init(overlay: OverlayController) {
         self.overlay = overlay
@@ -84,22 +94,25 @@ final class AudioTranscriber: StretchTranscriberHost {
         overlay.evaluate("window.__macpopupAudioUnavailable?.(\(unavailable))")
     }
 
+    /// What an IINA player window plays, from MacPopup's plugin (see VideoTranscriber).
+    func playerStatus(_ body: [String: Any]) {
+        video.playerStatus(body)
+    }
+
     /// The box's page (re)loaded.
     func pageReady() {
         showLoading()
         showUnavailable()
+        showVideoActive()
     }
 
     private func applySettings() {
         let enabled = settings["floatingWindowAudio"] as? Bool ?? false
-        let model = enabled ? SpeechModel(rawValue: settings["transcriptionModel"] as? String ?? "") ?? .soda : nil
+        let chosen = SpeechModel(rawValue: settings["transcriptionModel"] as? String ?? "") ?? .soda
+        let model = enabled ? chosen : nil
         let language = settings["language"] as? String ?? "ja"
         let modelChanged = model != self.model
         if modelChanged {
-            if let old = self.model {
-                let recognizer = SpeechRecognizer.shared(old)
-                Task { await recognizer.unload() }
-            }
             self.model = model
             shownError = nil
             unavailable = false
@@ -129,7 +142,6 @@ final class AudioTranscriber: StretchTranscriberHost {
         if wantsSentenceEnds != self.wantsSentenceEnds {
             self.wantsSentenceEnds = wantsSentenceEnds
             sentenceEndsFailed = false
-            if !wantsSentenceEnds { Task { await SentenceEnds.shared.unload() } }
         }
         if wantsSentenceEnds, !satLoading {
             satLoading = true
@@ -172,15 +184,21 @@ final class AudioTranscriber: StretchTranscriberHost {
             transcriber.live = nil
             liveLanguage = nil
         }
-        let source = enabled ? Source(processes: processes(), pause: ((settings["transcriptionPause"] as? NSNumber)?.doubleValue ?? 1000) / 1000,
-                                      live: wantsLive) : nil
+        let pause = ((settings["transcriptionPause"] as? NSNumber)?.doubleValue ?? 1000) / 1000
+        video.configure(settings["iinaTranscribe"] as? Bool ?? true
+            ? VideoTranscriber.Settings(model: chosen, language: language, growing: findsSentenceEnds, pause: pause) : nil)
+        releaseUnused(listening: enabled)
+        let source = enabled ? Source(processes: video.isActive ? nil : processes(), pause: pause, live: wantsLive) : nil
         guard source != self.source else { return }
         self.source = source
         // The stretches waiting are of the old source's audio, and the open line can't go on with the new one's.
         let generation = transcriber.startListener()
         listener?.stop()
         listener = nil
-        guard let source, source.processes != nil || testFile != nil else { return }
+        guard let source, source.processes != nil || testFile != nil && !video.isActive else {
+            if source != nil, video.isActive { transcriptionLog("not listening: IINA's video is transcribed from its file") }
+            return
+        }
         let onLive: ((SpeechStretches.Live) -> Void)? = source.live ? { [weak self] event in
             Task { @MainActor in self?.transcriber.heardLive(event, listener: generation) }
         } : nil
@@ -202,6 +220,25 @@ final class AudioTranscriber: StretchTranscriberHost {
         }
     }
 
+    /// Lets go of the models (and SaT) that neither listening nor the IINA video's transcription uses any more; they're
+    /// loaded when first used.
+    private func releaseUnused(listening: Bool) {
+        let used = Set([model, video.model].compactMap { $0 })
+        for old in modelsUsed.subtracting(used) {
+            let recognizer = SpeechRecognizer.shared(old)
+            Task { await recognizer.unload() }
+        }
+        modelsUsed = used
+        let sentenceEnds = findsSentenceEnds && (listening || video.isActive)
+        if sentenceEndsUsed, !sentenceEnds { Task { await SentenceEnds.shared.unload() } }
+        sentenceEndsUsed = sentenceEnds
+    }
+
+    /// Shows on the box's audio button whether IINA's video is transcribed (and so nothing listened to).
+    private func showVideoActive() {
+        overlay.evaluate("window.__macpopupIinaTranscribing?.(\(video.isActive))")
+    }
+
     /// The captured window's app, or every app but MacPopup when no window is captured; nil while the captured window
     /// isn't open.
     private func processes() -> AudioTap.Processes? {
@@ -213,7 +250,7 @@ final class AudioTranscriber: StretchTranscriberHost {
 
     /// Settings → Transcription → "Detect sentence ends".
     private var findsSentenceEnds: Bool { settings["transcriptionSentenceEnds"] as? Bool ?? false }
-    /// Whether SaT is wanted (audio and "Detect sentence ends" on), so it's unloaded when it no longer is.
+    /// Whether SaT is wanted for listening (audio and "Detect sentence ends" on), loaded ahead.
     private var wantsSentenceEnds = false
     private var satLoading = false
 

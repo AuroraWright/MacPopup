@@ -1,6 +1,7 @@
 #!/bin/zsh
 # Builds a small LGPL ffmpeg for the cards made from video players' lines (see iina-plugin/): the sentence audio cut
-# out of the video (AAC in .m4a) and a frame of the line (JPEG or PNG). Local files and http(s) streams, HLS included
+# out of the video (AAC in .m4a) and a frame of the line (JPEG or PNG); and a video's audio decoded for transcribing it
+# (raw 32-bit floats, VideoTranscriber.swift). Local files and http(s) streams, HLS included
 # (TLS through macOS's Secure Transport, through http proxies too), the usual containers and codecs; AV1 video through
 # dav1d, which needs meson and ninja (without them, no AV1).
 # Usage: scripts/build-ffmpeg.sh <ffmpeg version> <sha256> <dav1d version> <sha256> <out dir>; leaves
@@ -41,7 +42,7 @@ flags=(
     --enable-small --enable-zlib
     --enable-protocol=file,pipe,http,https,tcp,tls,crypto,httpproxy
     --enable-demuxer=$DEMUXERS --enable-decoder=$DECODERS --enable-parser=$PARSERS
-    --enable-encoder=aac,mjpeg,png --enable-muxer=ipod,image2,null
+    --enable-encoder=aac,mjpeg,png,pcm_f32le --enable-muxer=ipod,image2,null,pcm_f32le
     --enable-filter=abuffer,abuffersink,aformat,anull,aresample,atrim,buffer,buffersink,format,null,scale
 )
 if command -v meson >/dev/null && command -v ninja >/dev/null && command -v pkg-config >/dev/null; then

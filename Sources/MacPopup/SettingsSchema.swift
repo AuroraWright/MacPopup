@@ -1004,6 +1004,10 @@ enum SettingsSchema {
                         hint: "Extra audio kept before and after each subtitle, since voices often start a little early and end a little late.",
                         showIf: { $0["iinaSentenceAudioEnabled"] as? Bool ?? true }
                     ),
+                    SettingsField(
+                        "iinaTranscribe", "Transcribe videos without subtitles", .checkbox,
+                        hint: "When a video has no subtitles in your language, shows a transcription as its subtitle, using the model in Settings → Transcription. Doesn’t work with live streams. Pauses “Read text from audio” while running."
+                    ),
                 ]
             ),
             SettingsSection(

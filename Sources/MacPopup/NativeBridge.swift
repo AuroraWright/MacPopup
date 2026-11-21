@@ -35,6 +35,8 @@ protocol BridgeHost: AnyObject {
     func setOverlayCursor(_ cursor: String?)
     /// The WebSocket URLs that are connected, shown on the menu bar icon.
     func setConnectedWebsockets(_ urls: [String])
+    /// What an IINA player window plays, from MacPopup's plugin.
+    func iinaPlayerStatus(_ body: [String: Any])
     /// A request to the Yomitan API worked or failed, for its status on the menu bar icon.
     func reportYomitanAPIRequest(succeeded: Bool)
     func setHotkeys(_ combinations: [KeyCombination]) -> [Bool]
@@ -248,6 +250,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             return nil
         case "websockets":
             host?.setConnectedWebsockets(body["connected"] as? [String] ?? [])
+            return nil
+        case "iinaPlayer":
+            host?.iinaPlayerStatus(body)
             return nil
         case "yomitanApiRequest":
             host?.reportYomitanAPIRequest(succeeded: body["succeeded"] as? Bool ?? false)

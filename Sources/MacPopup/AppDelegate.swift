@@ -305,6 +305,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         updateStatusIcon()
     }
 
+    func iinaPlayerStatus(_ body: [String: Any]) {
+        audioTranscriber.playerStatus(body)
+    }
+
     func reportYomitanAPIRequest(succeeded: Bool) {
         yomitanAPI.reportRequest(succeeded: succeeded)
     }
