@@ -1,7 +1,7 @@
 // The overlay page: a texthooker-ui style text box plus Yomitan-style popups, on a transparent
 // page covering the whole display. The host polls the mouse and calls window.__macpopupPointer,
 // and makes the window click-through everywhere except the rects reported via setHitRects.
-import { mdiClipboardOffOutline, mdiClipboardTextOutline, mdiCog, mdiConnection, mdiDeleteSweep, mdiEyeOff, mdiPause, mdiPlay, mdiTextRecognition } from '@mdi/js';
+import { mdiAccountVoice, mdiClipboardOffOutline, mdiClipboardTextOutline, mdiCog, mdiConnection, mdiDeleteSweep, mdiEyeOff, mdiPause, mdiPlay, mdiTextRecognition } from '@mdi/js';
 import { log, nativeCall } from './lib/native.js';
 import { logDebug, logEvent } from './lib/debug-log.js';
 import { getPopupPosition } from './lib/popup-position.js';
@@ -12,9 +12,11 @@ import { applyReplacements } from './lib/replacements.js';
 import { isInLanguage } from './lib/languages.js';
 import { popupHotkeyActions } from './lib/settings-defaults.js';
 import { cursorAt } from './lib/cursor.js';
+import { clearChildren } from './lib/dom.js';
 import { Tooltip } from './lib/tooltip.js';
 import { getSettings, loadSettings, onSettingsChanged, resolveTheme, saveSettings } from './lib/settings.js';
 import { ankiCardFormats, kanjiEntries, termEntries, tokenize, YomitanAPITimeout } from './lib/yomitan-api.js';
+import { refreshYomitanProfile, watchYomitanProfile, yomitanProfileAsked } from './lib/yomitan-profile.js';
 import { convertHiraganaToKatakana, convertKatakanaToHiragana } from '../../vendor/yomitan/ext/js/language/ja/japanese.js';
 import { convertToRomaji } from '../../vendor/yomitan/ext/js/language/ja/japanese-wanakana.js';
 
@@ -79,9 +81,25 @@ const state = {
 	// The line shown for the last OCR line the host noted (see noteLine in AppDelegate.swift), or null when that line
 	// wasn't shown (e.g. left out as a duplicate) or isn't the last.
 	ocrLine: null,
+	// The box line of the last transcribed line ("Read text from audio"), which may grow.
+	transcriptLine: null,
+	// A speech recognition model is loading (see ModelsLoading in SpeechRecognizer.swift), or the one chosen couldn't
+	// be loaded (e.g. its models aren't loaded in Settings).
+	audioLoading: false,
+	audioUnavailable: false,
+	iinaTranscribing: false,
 	renderKey: '',
 	// The order and writing direction the lines are laid out in, which settings can have changed since.
 	lineLayout: { reverseLineOrder: false, displayVertical: false },
+};
+
+// "Show words as they're heard" (see setLiveLine).
+const live = {
+	// Each stretch's line, oldest first: {element, text}.
+	lines: new Map(),
+	// Changes to lines a popup's word is in (or the word being looked up), made once the popups close: id → text, or
+	// null to remove it.
+	held: new Map(),
 };
 
 function formatLineText(text, preserveWhitespace) {
@@ -215,28 +233,42 @@ function readsOcr(settings = getSettings()) {
 }
 
 /**
- * Adds a line from a WebSocket or the clipboard, with `player` for one from a video player. It's added to the text box
- * once the host noted it (see noteLine in AppDelegate.swift), which also gives it its id. With "Read text from OCR", if
- * OCR already added the same line, this one takes its place. Returns the line (ShownLine), whose id comes later.
+ * Adds a line from a WebSocket, the clipboard or transcribed audio, with `player` for one from a video player, and
+ * `age`, how many seconds ago its voice started, for a transcribed one. It's added to the text box once the host noted
+ * it (see noteLine in AppDelegate.swift), which also gives it its id. With "Read text from OCR", if OCR already added
+ * the same line, this one takes its place. Returns the line (ShownLine), whose id comes later.
  */
-function addLine(rawText, player = null) {
+// `shown`: called with the line shown (or null when the box left it out); `paused`: called instead when the box is
+// paused; `transcribed`: from "Read text from audio".
+function addLine(rawText, player = null, age = 0, { shown = null, replaces = null, paused = null, transcribed = false } = {}) {
 	const line = { id: null, player };
+	if (state.paused) paused?.();
 	if (state.paused || typeof rawText !== 'string') return line;
 	const settings = getSettings();
 	const text = applyReplacements(rawText, settings.replacements);
+	// A grown transcript line takes the place of the box's last line, if that's still the line it grew from (once the
+	// new one is added: the box may leave it out, see transformLine, and then the old one stays).
+	const push = () => {
+		const replaced = replaces && state.lines.at(-1) === replaces ? replaces : null;
+		const pushed = pushLine(rawText, { line });
+		if (pushed && replaced) removeLine(replaced);
+		shown?.(pushed ?? replaced ?? null);
+	};
 	// Lines the box leaves out as not in the language (e.g. a hook's other text) aren't taken as the game's.
 	if (!notesLines(settings) || (settings.filterNonCJKLines && !isInLanguage(text, settings.language))) {
-		pushLine(rawText, { line });
+		push();
 		return line;
 	}
-	void nativeCall('line', { text })
+	// The host replaces its line too, by id, if it's also still its last.
+	const replacesId = replaces && state.lines.at(-1) === replaces ? replaces.shown?.id : null;
+	void nativeCall('line', { text, age, transcribed, replaces: replacesId ?? undefined })
 		.catch(() => ({}))
 		.then((result) => {
 			line.id = result?.id ?? null;
-			if (state.paused) return;
+			if (state.paused) return paused?.();
 			if (result?.replacesOCR) removeOcrLine();
 			state.ocrLine = null;
-			pushLine(rawText, { line });
+			push();
 		});
 	return line;
 }
@@ -269,12 +301,33 @@ function pushLine(rawText, { line: shown = null } = {}) {
 	}
 
 	// Not while the box is hidden by the OCR overlay: it would play when the box is shown again.
-	line.element = createLineElement(line, settings.enableLineAnimation && !box.hidden);
-	if (settings.reverseLineOrder) linesElement.prepend(line.element);
-	else linesElement.append(line.element);
+	line.element = createLineElement(line, animatesLines(settings) && !box.hidden);
+	// Before the live lines (see live), which come last.
+	const liveElements = [...live.lines.values()].map((shown) => shown.element);
+	if (settings.reverseLineOrder) {
+		if (liveElements.length > 0) liveElements[0].after(line.element);
+		else linesElement.prepend(line.element);
+	} else if (liveElements.length > 0) {
+		liveElements[0].before(line.element);
+	} else {
+		linesElement.append(line.element);
+	}
 	if (atEnd) scrollToEnd();
 	void tokenizeLine(line);
 	return line;
+}
+
+/**
+ * Whether new lines slide in: not while transcribed lines show their words as they're heard, whose lines take the place
+ * of what's already shown.
+ */
+function animatesLines(settings) {
+	return !!settings.enableLineAnimation && !(settings.floatingWindowAudio && settings.transcriptionLive && hearsLive(settings));
+}
+
+// Whether the model chosen gives words as they're heard (SpeechModel.hearsLive: not Whisper's).
+function hearsLive(settings) {
+	return !['whisper', 'animeWhisper'].includes(settings.transcriptionModel ?? 'soda');
 }
 
 function removeLine(line) {
@@ -291,7 +344,9 @@ function clearLines() {
 	state.lines = [];
 	state.ocrLine = null;
 	state.lineTextCounts.clear();
-	linesElement.textContent = '';
+	clearChildren(linesElement);
+	live.lines.clear();
+	live.held.clear();
 	popupManager.closeAll();
 }
 
@@ -399,11 +454,16 @@ function createLineElement(line, animate) {
 function rerenderLines() {
 	const settings = getSettings();
 	state.lineLayout = { reverseLineOrder: settings.reverseLineOrder, displayVertical: settings.displayVertical };
-	linesElement.textContent = '';
+	clearChildren(linesElement);
 	const ordered = settings.reverseLineOrder ? [...state.lines].reverse() : state.lines;
 	for (const line of ordered) {
 		line.element = createLineElement(line, false);
 		linesElement.append(line.element);
+	}
+	// The live lines (see live) after them, kept as they are.
+	for (const { element } of live.lines.values()) {
+		if (settings.reverseLineOrder) linesElement.prepend(element);
+		else linesElement.append(element);
 	}
 }
 
@@ -440,7 +500,9 @@ class SocketConnection {
 			socket.binaryType = 'arraybuffer';
 			socket.onopen = () => {
 				this.wasConnected = true;
+				this.subscribed = false;
 				this.setState(1);
+				this.subscribe();
 			};
 			socket.onclose = () => this.onClose(socket);
 			socket.onmessage = (event) => this.onMessage(event);
@@ -448,6 +510,16 @@ class SocketConnection {
 		} catch (_) {
 			this.setState(3);
 		}
+	}
+
+	/**
+	 * Asks for what IINA's players play (MacPopup's IINA plugin; other servers ignore it), for transcribing a video
+	 * without subtitles from its file (VideoTranscriber.swift), once that's wanted.
+	 */
+	subscribe() {
+		if (this.subscribed || this.socket?.readyState !== 1 || !wantsPlayerStatus()) return;
+		this.subscribed = true;
+		this.socket.send(JSON.stringify({ subscribe: 'playing' }));
 	}
 
 	disconnect() {
@@ -492,6 +564,11 @@ class SocketConnection {
 		} catch (_) {
 			// Plain text
 		}
+		// What an IINA player plays (see subscribe), not a line.
+		if (message?.playing && typeof message.playing === 'object') {
+			if (wantsPlayerStatus()) nativeCall('iinaPlayer', { ...message.playing, socket: this.url }).catch(() => {});
+			return;
+		}
 		// With the socket's URL: the line's video or audio may have to be requested from the player through it
 		// (MediaClip.swift).
 		const player = typeof message?.player?.line === 'string' ? { ...message.player, socket: this.url } : null;
@@ -526,6 +603,11 @@ class SocketConnection {
 }
 
 const sockets = new Map();
+
+/** Settings → IINA Integration → "Transcribe videos without subtitles". */
+function wantsPlayerStatus() {
+	return getSettings().iinaTranscribe !== false;
+}
 
 
 /**
@@ -563,6 +645,7 @@ function syncSockets() {
 			socket.connect();
 		}
 		socket.render();
+		socket.subscribe();
 		container.append(socket.element);
 		// Not connected and not about to retry (e.g. disconnected by hand in the Floating Window). Only in the OCR
 		// overlay, which hides the buttons for reconnecting.
@@ -726,6 +809,10 @@ class PopupManager {
 	async show(depth, content, sourceRects, verticalText = false) {
 		this.closeAbove(depth);
 		const closes = this.closes[depth] ?? 0;
+		// The Yomitan profile's display options, read again in the background. Until the API was first asked for them,
+		// a popup waits a moment for them, instead of changing look once they come.
+		const profile = refreshYomitanProfile();
+		if (!yomitanProfileAsked()) await Promise.race([profile, new Promise((resolve) => setTimeout(resolve, 1000))]);
 		const popup = await this.get(depth);
 		const settings = getSettings();
 		const scale = settings.popupScalingFactor;
@@ -811,6 +898,7 @@ class PopupManager {
 			if (!scan.pending) scan.source = null;
 			setHighlight(null);
 			applyDeferredOcr();
+			applyHeldLive();
 		} else {
 			this.popups[depth - 1]?.api?.clearScan();
 		}
@@ -950,6 +1038,9 @@ const scan = {
 	// Depth of the popup under the cursor, -1 when none.
 	overDepth: -1,
 	pending: false,
+	// The scan's token from the start of its lookup until its popup is shown or nothing was found: its word's live line
+	// stays as it is meanwhile, so the popup shows where the word is (see liveLineInUse).
+	looking: null,
 };
 
 function clearMainScan() {
@@ -957,6 +1048,14 @@ function clearMainScan() {
 	scan.source = null;
 	scan.token++;
 	setHighlight(null);
+	endLooking(scan.looking);
+}
+
+/** The scan with `token` is done (see scan.looking). */
+function endLooking(token) {
+	if (token === null || token !== scan.looking) return;
+	scan.looking = null;
+	applyHeldLive();
 }
 
 function scanBox(x, y, mods) {
@@ -1001,6 +1100,7 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
 	const previous = scan.source;
 	scan.source = source;
 	const token = ++scan.token;
+	scan.looking = token;
 	let result;
 	scan.pending = true;
 	try {
@@ -1010,6 +1110,7 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
 		log('Lookup failed', e);
 		showToast(`Yomitan API: ${e.message ?? e}`);
 		if (quiet && token === scan.token) scan.source = previous;
+		endLooking(token);
 		return false;
 	} finally {
 		if (token === scan.token) scan.pending = false;
@@ -1018,6 +1119,7 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
 	if (result === null) {
 		if (quiet) scan.source = previous;
 		else onSearchEmpty();
+		endLooking(token);
 		return false;
 	}
 	stopHideDelayed();
@@ -1027,12 +1129,21 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
 		const rects = [...source.getRects()].map(({ left, top, right, bottom }) => ({ left, top, right, bottom }));
 		return popupManager.show(0, result, rects, vertical);
 	};
+	// Ended also when the popup couldn't be shown, or its line would keep holding back its words.
 	if (delay > 0) {
-		setTimeout(() => {
-			if (token === scan.token) void show();
+		setTimeout(async () => {
+			try {
+				if (token === scan.token) await show();
+			} finally {
+				endLooking(token);
+			}
 		}, delay);
 	} else {
-		await show();
+		try {
+			await show();
+		} finally {
+			endLooking(token);
+		}
 	}
 	return true;
 }
@@ -1200,6 +1311,86 @@ window.__macpopupClipboard = (text) => {
 	addLine(Number.isFinite(max) && max > 0 && text.length > max ? text.slice(0, max) : text);
 };
 
+// "Read text from audio" (AudioTranscriber.swift): a transcribed line, and how many seconds ago its voice started, or
+// the last one grown (`grows`), which replaces it in the box when it's still the last line. `endsLive`: the stretch
+// whose live line it replaces (see live), which goes also when the line isn't shown (the box is paused).
+window.__macpopupTranscript = (text, age, grows = false, endsLive = null) => {
+	const previous = grows ? state.transcriptLine : null;
+	const endLive = () => {
+		if (endsLive !== null) setLiveLine(endsLive, null);
+	};
+	addLine(text, null, age, {
+		shown: (line) => {
+			state.transcriptLine = line;
+			endLive();
+		},
+		paused: endLive,
+		replaces: previous,
+		transcribed: true,
+	});
+};
+
+// "Show words as they're heard": each stretch of speech's words so far, as a line after the box's lines until its
+// text arrives. Not one of the box's lines (no card, duplicate check or line count sees it), by the host's id for the
+// stretch: `text`, or null once it's gone.
+window.__macpopupLive = (id, text) => setLiveLine(id, text);
+// The live lines are gone (the audio's source or model changed).
+window.__macpopupLiveClear = () => clearLiveLines();
+
+function setLiveLine(id, text) {
+	// No new words while the box is paused (its live lines still go).
+	if (state.paused && text !== null) return;
+	const shown = live.lines.get(id);
+	if (shown && liveLineInUse(shown.element)) {
+		live.held.set(id, text);
+		return;
+	}
+	live.held.delete(id);
+	if (text === null) {
+		shown?.element.remove();
+		live.lines.delete(id);
+		return;
+	}
+	const settings = getSettings();
+	let display = applyReplacements(text, settings.replacements);
+	if (settings.removeAllWhitespace) display = display.replace(/\s/gm, '');
+	if (shown?.text === display) return;
+	const atEnd = isScrolledToEnd();
+	const element = createLineElement({ id: `live-${id}`, text: display, tokens: null }, false);
+	element.classList.add('live-line');
+	if (shown) {
+		shown.element.replaceWith(element);
+	} else if (settings.reverseLineOrder) {
+		linesElement.prepend(element);
+	} else {
+		linesElement.append(element);
+	}
+	live.lines.set(id, { element, text: display });
+	if (atEnd) scrollToEnd();
+}
+
+/**
+ * Whether an open popup's word, or the word being looked up, is in a live line's `element`: its text then waits for
+ * the popups to close (or the lookup to find nothing).
+ */
+function liveLineInUse(element) {
+	const range = scan.source?.range;
+	return (popupManager.visiblePopups().length > 0 || scan.looking !== null) && !!range && element.contains(range.startContainer);
+}
+
+/** Makes the changes to live lines that waited for the popups to close (see live.held). */
+function applyHeldLive() {
+	const held = [...live.held];
+	live.held.clear();
+	for (const [id, text] of held) setLiveLine(id, text);
+}
+
+function clearLiveLines() {
+	for (const { element } of live.lines.values()) element.remove();
+	live.lines.clear();
+	live.held.clear();
+}
+
 // OCR: the host reads another app's window with Live Text or another OCR engine
 // (OCRController.swift) and sends the text here, where it's laid over the window invisibly
 // (lib/ocr-layer.js) for scanning.
@@ -1308,7 +1499,7 @@ function clearOcrText() {
 	ocr.deferred = null;
 	ocr.stale = false;
 	clearMainScan();
-	$('#ocr-text').textContent = '';
+	clearChildren($('#ocr-text'));
 }
 
 /** Shows what was kept for when the popups closed (see ocr.deferred). */
@@ -1876,12 +2067,15 @@ window.__macpopupGamepad = (held) => {
 		// buttons (see buttonsNote in SettingsView.swift).
 		const sentenceAudioOn = settings.sentenceAudioEnabled && settings.ankiEnabled;
 		const sentenceAudioButtons = sentenceAudioOn ? (settings.sentenceAudioButtons ?? []) : [];
+		const overlayHideButtons = settings.overlayHideButtons ?? [];
 		const overlaySwitchButtons = settings.overlaySwitchButtons ?? [];
 		if (scanButtons.length > 0 && sameButtons(combo, scanButtons)) {
 			setControllerFocus(!gamepad.focus);
 		} else if (sentenceAudioButtons.length > 0 && sameButtons(combo, sentenceAudioButtons)) {
 			logEvent('controller: the Anki Audio buttons', { buttons: combo });
 			nativeCall('pressSentenceAudio').catch(() => {});
+		} else if (overlayHideButtons.length > 0 && sameButtons(combo, overlayHideButtons)) {
+			nativeCall('toggleOverlayVisible', { from: 'controller' }).catch(() => {});
 		} else if (overlaySwitchButtons.length > 0 && sameButtons(combo, overlaySwitchButtons)) {
 			nativeCall('switchOverlay', { from: 'controller' }).catch(() => {});
 		} else if (popupManager.visiblePopups().length > 0) {
@@ -1902,8 +2096,9 @@ window.__macpopupGamepad = (held) => {
 };
 
 /**
- * Before Anki Audio’s backlog capture (see SentenceAudio.swift), and when you switch to another app while the controller
- * is held (see Gamepads.swift): closes the popups and gives the controller back.
+ * Before Anki Audio’s backlog capture (see SentenceAudio.swift), when the overlays are hidden (see AppDelegate.swift), and
+ * when you switch to another app while the controller is held (see Gamepads.swift): closes the popups and gives the
+ * controller back.
  */
 window.__macpopupReleaseForGame = () => {
 	logEvent('popups closed and the controller let go, for the game (another app, or Anki Audio)');
@@ -2410,6 +2605,7 @@ function applySettings(settings) {
 	updateOcrWebsocket();
 	renderClipboardButton();
 	renderOcrButton();
+	renderAudioButton();
 	popupManager.applySettings();
 	reportHitRects();
 	// Without the scan key's buttons, or in the other mode, the text no longer has controller focus.
@@ -2438,6 +2634,38 @@ function renderOcrButton() {
 	button.classList.toggle('text-green-700', enabled);
 }
 
+function renderAudioButton() {
+	const button = $('#audio-button');
+	const enabled = !!getSettings().floatingWindowAudio;
+	const loading = enabled && state.audioLoading;
+	const unavailable = enabled && !loading && state.audioUnavailable;
+	// On, but nothing is listened to while IINA's video is transcribed from its file.
+	const iina = enabled && state.iinaTranscribing;
+	button.innerHTML = icon(mdiAccountVoice);
+	button.title = iina ? 'Audio (IINA transcription running)' : loading ? 'Audio (loading…)' : unavailable ? 'Audio (not loaded)' : 'Audio';
+	button.classList.toggle('text-green-700', enabled && !loading && !unavailable && !iina);
+	button.classList.toggle('text-warning', loading && !iina);
+	button.classList.toggle('text-red-500', unavailable || iina);
+}
+
+// From the host (AudioTranscriber.swift): whether a speech recognition model is loading.
+window.__macpopupAudioLoading = (loading) => {
+	state.audioLoading = loading;
+	renderAudioButton();
+};
+
+// From the host: whether an IINA video is transcribed from its file (VideoTranscriber.swift), so nothing is listened to.
+window.__macpopupIinaTranscribing = (running) => {
+	state.iinaTranscribing = running;
+	renderAudioButton();
+};
+
+// From the host: whether the model chosen couldn't be loaded.
+window.__macpopupAudioUnavailable = (unavailable) => {
+	state.audioUnavailable = unavailable;
+	renderAudioButton();
+};
+
 function renderPauseButton() {
 	const button = $('#pause-button');
 	button.innerHTML = icon(state.paused ? mdiPlay : mdiPause);
@@ -2448,6 +2676,11 @@ function renderPauseButton() {
 async function main() {
 	const settings = await loadSettings();
 	onSettingsChanged(applySettings);
+	watchYomitanProfile(() => {
+		popupManager.applySettings();
+		$('#popup-outer-custom-css').textContent = getSettings().customPopupOuterCss;
+	});
+	void refreshYomitanProfile();
 	// Right-button scan inputs shouldn't open the context menu or select the word.
 	preventRightClickSelection(document, getSettings);
 
@@ -2462,6 +2695,7 @@ async function main() {
 	});
 	$('#clipboard-button').addEventListener('click', () => void saveSettings({ clipboardMonitor: !getSettings().clipboardMonitor }));
 	$('#ocr-button').addEventListener('click', () => void saveSettings({ floatingWindowOCR: !getSettings().floatingWindowOCR }));
+	$('#audio-button').addEventListener('click', () => void saveSettings({ floatingWindowAudio: !getSettings().floatingWindowAudio }));
 	$('#clear-button').addEventListener('click', clearLines);
 	$('#settings-button').addEventListener('click', () => nativeCall('openSettings'));
 	$('#hide-button').addEventListener('click', () => nativeCall('setOverlayVisible', { visible: false }));

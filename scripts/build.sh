@@ -2,6 +2,9 @@
 # Builds build/MacPopup.app. Usage: scripts/build.sh [debug|release]
 # MACPOPUP_APP builds it elsewhere, and MACPOPUP_HARDENED=1 signs it for notarization (the hardened runtime and a secure
 # timestamp; scripts/notarize.sh sets both).
+# A development build reads the test and debug environment variables (MACPOPUP_TEST_SCRIPT, MACPOPUP_DEBUG_OCR_DIR, …,
+# see DevelopmentEnvironment.swift), which the app as shipped ignores: a debug build, one with MACPOPUP_DEVELOPMENT=1,
+# and a copy built elsewhere (MACPOPUP_APP, for test runs) unless it's for notarization.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -51,14 +54,22 @@ FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
 DAV1D_VERSION="1.5.4"
 DAV1D_SHA256=2abfb0c89212e6e4733a54e0ae509ec00a5b845a6360946f918806e14aedb011
 # (The folder is named after the versions and the build-ffmpeg.sh options, so a change builds it again.)
-FFMPEG="build/cache/ffmpeg-$FFMPEG_VERSION-dav1d-$DAV1D_VERSION-network-proxy-arm64"
+FFMPEG="build/cache/ffmpeg-$FFMPEG_VERSION-dav1d-$DAV1D_VERSION-network-proxy-pcm-arm64"
 if [[ ! -x "$FFMPEG/ffmpeg" ]]; then
     scripts/build-ffmpeg.sh "$FFMPEG_VERSION" "$FFMPEG_SHA256" "$DAV1D_VERSION" "$DAV1D_SHA256" "$FFMPEG" \
         || echo "warning: couldn't build ffmpeg; lines from IINA won't have sentence audio or their own screenshots"
 fi
 
-swift build -c "$CONFIGURATION"
-BIN_DIR="$(swift build -c "$CONFIGURATION" --show-bin-path)"
+# A release development build has a build folder of its own, so that switching between the two doesn't rebuild
+# everything.
+SCRATCH=.build
+SWIFT_FLAGS=()
+if [[ "$CONFIGURATION" == release && ( "${MACPOPUP_DEVELOPMENT:-}" == 1 || ( -n "${MACPOPUP_APP:-}" && "${MACPOPUP_HARDENED:-}" != 1 ) ) ]]; then
+    SCRATCH=.build-dev
+    SWIFT_FLAGS=(-Xswiftc -DMACPOPUP_DEVELOPMENT)
+fi
+swift build -c "$CONFIGURATION" --scratch-path "$SCRATCH" "${SWIFT_FLAGS[@]}"
+BIN_DIR="$(swift build -c "$CONFIGURATION" --scratch-path "$SCRATCH" "${SWIFT_FLAGS[@]}" --show-bin-path)"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
@@ -86,6 +97,10 @@ if [[ -x "$FFMPEG/ffmpeg" ]]; then
     cp "$FFMPEG/ffmpeg" "$APP/Contents/Helpers/ffmpeg"
     cp "$FFMPEG"/COPYING.* "$FFMPEG"/LICENSE.md "$FFMPEG"/SOURCE.txt "$APP/Contents/Resources/Licenses/ffmpeg/"
 fi
+# WhisperKit (Package.swift's argmax-oss-swift, for Settings → Transcription): MIT, with parts under the Apache License
+# listed in its NOTICES.
+mkdir -p "$APP/Contents/Resources/Licenses/WhisperKit"
+cp "$SCRATCH"/checkouts/argmax-oss-swift/LICENSE "$SCRATCH"/checkouts/argmax-oss-swift/NOTICES "$APP/Contents/Resources/Licenses/WhisperKit/"
 # The IINA plugin (iina-plugin/), packaged for IINA to install when it's opened.
 PLUGIN="${APP:A}/Contents/Resources/MacPopup.iinaplgz"
 (cd iina-plugin && zip -q -r -X "$PLUGIN" Info.json main.js global.js preferences.html)
@@ -95,7 +110,7 @@ mkdir -p "$APP/Contents/Resources/Models"
 for model in vendor/meikiocr/*.mlpackage vendor/ppocr-manga/*.mlpackage vendor/mida-vocr6/*.mlpackage; do
     xcrun coremlcompiler compile "$model" "$APP/Contents/Resources/Models" >/dev/null
 done
-cp vendor/ppocr-manga/PPOCRMangaCharacters.txt vendor/mida-vocr6/MidaVOCR6.json vendor/mida-vocr6/VOCR6Head.bin \
+cp vendor/ppocr-manga/PPOCRMangaCharacters.txt vendor/mida-vocr6/MidaVOCR6.json vendor/mida-vocr6/VOCR6Head.bin vendor/mida-vocr6/VOCR6VerticalHead.bin \
     "$APP/Contents/Resources/Models/"
 # Signed with a certificate, macOS keeps the privacy permissions (Screen Recording, Accessibility) across
 # builds; ad-hoc signatures change with every build, so they'd be asked for again.

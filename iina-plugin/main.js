@@ -1,6 +1,7 @@
 // Each player window: sends its subtitle lines to global.js (and so to MacPopup) with their timing and where MacPopup
 // can read their video and audio from, and answers MacPopup's requests for a line's DASH fragments or a dump of it from
-// mpv's cache (see global.js).
+// mpv's cache (see global.js). Also tells each second what it plays and where, so that MacPopup can transcribe a video
+// without subtitles in the user's language ahead of playback, and loads that transcript as a subtitle track.
 const { mpv, event, global, file } = iina;
 
 // Tells this window's lines, and MacPopup's requests for them, apart from other windows'.
@@ -166,6 +167,75 @@ function source(type) {
 	return track.external ? null : { cache: key };
 }
 
+// MacPopup's transcript of a video, a subtitle track from its cache folder (VideoTranscriber.swift).
+const transcriptTitle = 'MacPopup transcription';
+const isTranscript = (track) => /\/Library\/Caches\/com\.aury\.macpopup\/Transcripts\/[0-9a-f]{64}\/MacPopup transcription$/.test(track['external-filename'] ?? '');
+
+// A subtitle file's language: mpv's, or else from its name as mpv reads it for the files it loads itself ("Episode
+// 1.en.srt", "Episode 1.pt-BR.ass"), since IINA adds them with sub-add, which leaves it out.
+const fileLanguage = (track) => track.lang ?? /\.([a-z]{2,3}(?:-[a-z0-9]{2,4})?)\.[^./]+$/i.exec(track['external-filename'] ?? '')?.[1] ?? '';
+
+let audioSource = { id: null, source: null, time: 0 };
+
+/** source('audio'), worked out again when the track or where it's read from changes, or each half a minute (cookies). */
+function statusAudio() {
+	const { track, location } = selected('audio') ?? {};
+	const id = track ? `${track.id} ${location}` : null;
+	if (id !== audioSource.id || Date.now() - audioSource.time > 30000) {
+		audioSource = { id, source: track ? source('audio') : null, time: Date.now() };
+	}
+	return audioSource.source;
+}
+
+// What this window plays, each second: its address and audio track (which the transcript is kept by), its names (the
+// window's title is one of them), where it's played, its subtitle tracks' languages (but the transcript's), those of
+// the ones from files (added by the user, or by IINA from the video's folder), and where its audio is read from.
+function sendStatus() {
+	const path = mpv.getString('path');
+	const position = mpv.getNative('time-pos');
+	if (path && typeof position === 'number') {
+		const tracks = mpv.getNative('track-list') ?? [];
+		const audio = tracks.find((t) => t.type === 'audio' && t.selected);
+		const duration = mpv.getNative('duration');
+		global.postMessage('playing', {
+			key,
+			media: path,
+			track: audio ? (audio.external ? `external ${audio['external-filename']}` : `${audio['ff-index']}`) : '',
+			titles: [mpv.getString('filename'), mpv.getString('media-title')].filter(Boolean),
+			position,
+			paused: mpv.getFlag('pause'),
+			duration: typeof duration === 'number' ? duration : null,
+			subtitles: tracks.filter((t) => t.type === 'sub' && !isTranscript(t)).map((t) => t.lang ?? ''),
+			files: tracks.filter((t) => t.type === 'sub' && t.external && !isTranscript(t)).map(fileLanguage),
+			audio: statusAudio(),
+		});
+	}
+	setTimeout(sendStatus, 1000);
+}
+setTimeout(sendStatus, 1000);
+
+// The line last sent, and when the transcript was last read again: mpv then tells the line shown again (twice), which
+// isn't a new line (MacPopup would take it as one, e.g. its OCR would read the window again each time).
+let lastLine = null;
+let reloaded = 0;
+
+// The transcript, loaded as a subtitle track (and selected), or read again once it is: mpv keeps its track and
+// whether it's selected.
+global.onMessage('subtitles', (request) => {
+	if (request?.key !== key) return;
+	// A reply posted while global.js's handler runs loses global.js's variables.
+	setTimeout(() => {
+		const tracks = mpv.getNative('track-list') ?? [];
+		const loaded = tracks.find((t) => t.type === 'sub' && t['external-filename'] === request.file);
+		if (loaded) {
+			reloaded = Date.now();
+			mpv.command('sub-reload', [String(loaded.id)]);
+		}
+		else mpv.command('sub-add', [String(request.file), 'select', transcriptTitle, String(request.language)]);
+		global.postMessage('reply', { id: request.id });
+	}, 0);
+});
+
 // IINA observes the properties of mpv.*.changed events as numbers, so sub-text's changes aren't reported:
 // sub-start changes with each line instead.
 event.on('mpv.sub-start.changed', () => {
@@ -173,6 +243,8 @@ event.on('mpv.sub-start.changed', () => {
 	if (!text.trim()) return;
 	const start = mpv.getNative('sub-start');
 	const end = mpv.getNative('sub-end');
+	if (Date.now() - reloaded < 1000 && lastLine?.text === text && lastLine?.start === start) return;
+	lastLine = { text, start };
 	number += 1;
 	global.postMessage('line', {
 		number,

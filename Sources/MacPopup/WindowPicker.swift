@@ -1,4 +1,5 @@
 import AppKit
+import OCREngines
 
 /// Lets the user click the window for OCR to read, then optionally drag rectangles over
 /// the parts with text. Covers every display with a transparent window above everything else.
@@ -67,7 +68,7 @@ final class WindowPicker {
     private var observers: [NSObjectProtocol] = []
     /// Development aid: MACPOPUP_DEBUG_PICKER_DIR=<dir> saves what the picker draws (only its own
     /// drawing, not the screen) after each change, and logs clicks and button positions to stderr.
-    static let debugDirectory = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_PICKER_DIR"]
+    static let debugDirectory = DevelopmentEnvironment["MACPOPUP_DEBUG_PICKER_DIR"]
     private var debugCount = 0
 
     private init(level: NSWindow.Level, completion: @escaping (Choice?) -> Void) {
@@ -392,7 +393,7 @@ private final class PickerView: NSView {
                 let name = hovered.title.isEmpty ? hovered.ownerName : "\(hovered.ownerName) — \(hovered.title)"
                 drawLabel(name, centeredAt: CGPoint(x: rect.midX, y: rect.midY))
             }
-            instructions = "Click the window to read with OCR"
+            instructions = "Click the window to use for OCR, Anki screenshots/audio and transcription"
         case let .regions(window):
             // Dim everything except the window, and the marked areas inside it even more clearly.
             NSColor.black.withAlphaComponent(0.45).setFill()

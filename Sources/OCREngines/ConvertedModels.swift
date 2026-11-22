@@ -2,15 +2,25 @@ import CoreGraphics
 import CoreML
 import Foundation
 
-/// The OCR engines whose models can't come with MacPopup: a script converts them on the user's Mac into a zip,
-/// which Settings → OCR loads into Application Support.
-public enum ConvertedModelsKind: String, CaseIterable {
-    case screenAI, oneOCR
+/// The OCR engines, speech recognition models and SaT (sentence ends in transcriptions), whose models can't come with MacPopup: a script converts or packs them
+/// on the user's Mac into a zip, which Settings → OCR or Transcription loads into Application Support.
+public enum ConvertedModelsKind: String, CaseIterable, Sendable {
+    case screenAI, oneOCR, whisper, animeWhisper, kitsune, senseVoice, parakeet, soda, sat
+
+    /// The OCR engines' (the iPhone app's).
+    public static let ocr: [ConvertedModelsKind] = [.screenAI, .oneOCR]
 
     public var name: String {
         switch self {
         case .screenAI: "Screen AI"
         case .oneOCR: "OneOCR"
+        case .whisper: "Whisper"
+        case .animeWhisper: "anime-whisper"
+        case .kitsune: "Kitsune"
+        case .senseVoice: "SenseVoice"
+        case .parakeet: "Parakeet"
+        case .soda: "Live Caption"
+        case .sat: "SaT"
         }
     }
 
@@ -19,6 +29,13 @@ public enum ConvertedModelsKind: String, CaseIterable {
         switch self {
         case .screenAI: "ScreenAI"
         case .oneOCR: "OneOCR"
+        case .whisper: "Whisper"
+        case .animeWhisper: "AnimeWhisper"
+        case .kitsune: "Kitsune"
+        case .senseVoice: "SenseVoice"
+        case .parakeet: "Parakeet"
+        case .soda: "SODA"
+        case .sat: "SaT"
         }
     }
 
@@ -27,21 +44,35 @@ public enum ConvertedModelsKind: String, CaseIterable {
         switch self {
         case .screenAI: "scripts/convert-screenai.py"
         case .oneOCR: "scripts/convert-oneocr.py"
+        case .whisper: "scripts/convert-whisper.py"
+        case .animeWhisper: "scripts/convert-anime-whisper.py"
+        case .kitsune: "scripts/convert-kitsune.py"
+        case .senseVoice: "scripts/convert-sensevoice.py"
+        case .parakeet: "scripts/convert-parakeet.py"
+        case .soda: "scripts/convert-soda.py"
+        case .sat: "scripts/convert-sat.py"
         }
     }
+
+    /// Whether the zip has Core ML models (in coreml/): all but Live Caption's, which are TFLite models run by MacPopup.
+    var hasCoreMLModels: Bool { self != .soda }
 
     /// The file the script writes at the zip's root, with the format's version.
-    var infoFileName: String {
-        switch self {
-        case .screenAI: "screenai.json"
-        case .oneOCR: "oneocr.json"
-        }
+    public var infoFileName: String {
+        "\(folderName.lowercased()).json"
     }
 
-    /// The loaded models: the archive's files, with its Core ML models compiled.
+    /// The Settings section with its Load button.
+    public var settingsSection: String {
+        Self.ocr.contains(self) ? "OCR" : "Transcription"
+    }
+
+    /// The loaded models: the archive's files, with its Core ML models compiled. In Application Support/MacPopup, or
+    /// in MACPOPUP_MODELS_DIRECTORY (for test runs).
     public var directory: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MacPopup/\(folderName)", isDirectory: true)
+        let base = DevelopmentEnvironment["MACPOPUP_MODELS_DIRECTORY"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MacPopup", isDirectory: true)
+        return base.appendingPathComponent(folderName, isDirectory: true)
     }
 
     private var infoFile: URL { directory.appendingPathComponent(infoFileName) }
@@ -53,11 +84,103 @@ public enum ConvertedModelsKind: String, CaseIterable {
         try? FileManager.default.attributesOfItem(atPath: infoFile.path)[.modificationDate] as? Date
     }
 
+    /// The kinds run by other modules (transcription's), which the app registers when it starts.
+    @MainActor private static var registered: [ConvertedModelsKind: any ConvertedModelsStore] = [:]
+
+    @MainActor public static func register(_ store: any ConvertedModelsStore, for kind: ConvertedModelsKind) {
+        registered[kind] = store
+    }
+
     @MainActor public var store: any ConvertedModelsStore {
         switch self {
-        case .screenAI: ScreenAIOCR.shared.models
-        case .oneOCR: OneOCROCR.shared.models
+        case .screenAI: return ScreenAIOCR.shared.models
+        case .oneOCR: return OneOCROCR.shared.models
+        default:
+            guard let store = Self.registered[self] else { preconditionFailure("\(name)’s models aren’t registered") }
+            return store
         }
+    }
+
+    public struct Failure: LocalizedError {
+        public let errorDescription: String?
+
+        public init(_ description: String) {
+            errorDescription = description
+        }
+    }
+
+    /// Unpacks a zip made by the kind's script next to its models directory, checks its format and compiles its Core
+    /// ML packages for this device (models already compiled, .mlmodelc, are kept). Returns the unpacked folder, which
+    /// the caller removes if it doesn't move it in.
+    public func unpack(_ archive: URL) async throws -> URL {
+        let manager = FileManager.default
+        let parent = directory.deletingLastPathComponent()
+        try manager.createDirectory(at: parent, withIntermediateDirectories: true)
+        let staging = parent.appendingPathComponent("\(folderName)-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try await Self.unzip(archive, to: staging)
+            let info = (try? Data(contentsOf: staging.appendingPathComponent(infoFileName)))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            guard let info else {
+                throw Failure("This isn’t a \(name) models archive (made by \(script)).")
+            }
+            guard info["format"] as? Int == 1 else {
+                throw Failure("These models were converted by a newer version of \(script) than this version of MacPopup reads.")
+            }
+            guard hasCoreMLModels else { return staging }
+            let coreml = staging.appendingPathComponent("coreml", isDirectory: true)
+            let models = (try? manager.contentsOfDirectory(at: coreml, includingPropertiesForKeys: nil))?
+                .filter { ["mlpackage", "mlmodelc"].contains($0.pathExtension) } ?? []
+            guard !models.isEmpty else { throw Failure("The archive has no Core ML models.") }
+            for package in models where package.pathExtension == "mlpackage" {
+                let compiled = try await MLModel.compileModel(at: package)
+                try manager.moveItem(at: compiled, to: coreml.appendingPathComponent(package.deletingPathExtension().lastPathComponent + ".mlmodelc"))
+                try manager.removeItem(at: package)
+            }
+            return staging
+        } catch {
+            try? manager.removeItem(at: staging)
+            throw error
+        }
+    }
+
+    /// Replaces the models directory with a folder from unpack.
+    public func moveIn(_ staging: URL) throws {
+        let manager = FileManager.default
+        if manager.fileExists(atPath: directory.path) {
+            _ = try manager.replaceItemAt(directory, withItemAt: staging)
+        } else {
+            try manager.moveItem(at: staging, to: directory)
+        }
+    }
+
+    private static func unzip(_ archive: URL, to directory: URL) async throws {
+        #if os(macOS)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        process.arguments = ["-x", "-k", archive.path, directory.path]
+        let errors = Pipe()
+        process.standardError = errors
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            process.terminationHandler = { process in
+                if process.terminationStatus == 0 {
+                    continuation.resume()
+                } else {
+                    let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    continuation.resume(throwing: Failure("Couldn’t unpack the archive" + (message.isEmpty ? "." : ": \(message)")))
+                }
+            }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+        #else
+        // iOS has no ditto.
+        try await Task.detached(priority: .userInitiated) { try ZipArchive.unpack(archive, to: directory) }.value
+        #endif
     }
 }
 
@@ -88,10 +211,6 @@ public final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sen
 
     private var directory: URL { kind.directory }
 
-    struct Failure: LocalizedError {
-        let errorDescription: String?
-    }
-
     /// Runs body with the engine, loading it first if needed.
     func run<T>(_ body: @escaping (Engine) throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
@@ -104,7 +223,7 @@ public final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sen
     private func loadedEngine() throws -> Engine {
         if let engine { return engine }
         guard kind.installed else {
-            throw Failure(errorDescription: "\(kind.name)’s models aren’t loaded (Settings → OCR → \(kind.name) models)")
+            throw ConvertedModelsKind.Failure("\(kind.name)’s models aren’t loaded (Settings → \(kind.settingsSection) → \(kind.name) models)")
         }
         let loaded = try make(directory)
         if let blank = Self.blankImage() { try warmUp(loaded, blank) }
@@ -122,47 +241,17 @@ public final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sen
         return context.makeImage()
     }
 
-    /// Replaces the models with those in a zip made by the kind's script: unpacks it next to the models directory,
-    /// compiles its Core ML models for this device and checks that they load before swapping it in.
+    /// Replaces the models with those in a zip made by the kind's script, after checking that they load.
     public func installModels(from archive: URL) async throws {
-        let manager = FileManager.default
-        let parent = directory.deletingLastPathComponent()
-        try manager.createDirectory(at: parent, withIntermediateDirectories: true)
-        let staging = parent.appendingPathComponent("\(kind.folderName)-\(UUID().uuidString)", isDirectory: true)
-        defer { try? manager.removeItem(at: staging) }
-        try await Self.unzip(archive, to: staging)
-
-        let info = (try? Data(contentsOf: staging.appendingPathComponent(kind.infoFileName)))
-            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        guard let info else {
-            throw Failure(errorDescription: "This isn’t a \(kind.name) models archive (made by \(kind.script)).")
-        }
-        guard info["format"] as? Int == 1 else {
-            throw Failure(errorDescription: "These models were converted by a newer version of \(kind.script) than this version of MacPopup reads.")
-        }
-        let coreml = staging.appendingPathComponent("coreml", isDirectory: true)
-        let packages = (try? manager.contentsOfDirectory(at: coreml, includingPropertiesForKeys: nil))?
-            .filter { $0.pathExtension == "mlpackage" } ?? []
-        guard !packages.isEmpty else { throw Failure(errorDescription: "The archive has no Core ML models.") }
-        for package in packages {
-            let compiled = try await MLModel.compileModel(at: package)
-            try manager.moveItem(at: compiled, to: coreml.appendingPathComponent(package.deletingPathExtension().lastPathComponent + ".mlmodelc"))
-            try manager.removeItem(at: package)
-        }
+        let staging = try await kind.unpack(archive)
+        defer { try? FileManager.default.removeItem(at: staging) }
         // Fails here, rather than when OCR starts, if something is missing.
         _ = try make(staging)
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async {
                 self.engine = nil
-                continuation.resume(with: Result {
-                    let manager = FileManager.default
-                    if manager.fileExists(atPath: self.directory.path) {
-                        _ = try manager.replaceItemAt(self.directory, withItemAt: staging)
-                    } else {
-                        try manager.moveItem(at: staging, to: self.directory)
-                    }
-                })
+                continuation.resume(with: Result { try self.kind.moveIn(staging) })
             }
         }
     }
@@ -188,35 +277,6 @@ public final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sen
                 })
             }
         }
-    }
-
-    private static func unzip(_ archive: URL, to directory: URL) async throws {
-        #if os(macOS)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-x", "-k", archive.path, directory.path]
-        let errors = Pipe()
-        process.standardError = errors
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            process.terminationHandler = { process in
-                if process.terminationStatus == 0 {
-                    continuation.resume()
-                } else {
-                    let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    continuation.resume(throwing: Failure(errorDescription: "Couldn’t unpack the archive" + (message.isEmpty ? "." : ": \(message)")))
-                }
-            }
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
-        #else
-        // iOS has no ditto.
-        try await Task.detached(priority: .userInitiated) { try ZipArchive.unpack(archive, to: directory) }.value
-        #endif
     }
 }
 

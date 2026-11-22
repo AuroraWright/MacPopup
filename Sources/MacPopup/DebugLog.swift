@@ -1,4 +1,5 @@
 import AppKit
+import OCREngines
 
 /// With Settings → General → Debug on, what MacPopup does is written here, one JSON object per line, for bug reports:
 /// a session record (MacPopup's version, the Mac, permissions, controllers, displays and settings) at launch and when
@@ -14,7 +15,7 @@ enum DebugLog {
     static var url: URL { folder.appendingPathComponent("debug.jsonl") }
 
     private static var folder: URL {
-        ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_OCR_DIR"].map { URL(fileURLWithPath: $0) }
+        DevelopmentEnvironment["MACPOPUP_DEBUG_OCR_DIR"].map { URL(fileURLWithPath: $0) }
             ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MacPopup")
     }
 
@@ -74,7 +75,7 @@ enum DebugLog {
         }
     }
 
-    private static let printsToStderr = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_OCR"] != nil
+    private static let printsToStderr = DevelopmentEnvironment["MACPOPUP_DEBUG_OCR"] != nil
 
     /// A message from the app, with the system uptime (as in the test tools' logs); also to stderr with
     /// MACPOPUP_DEBUG_OCR set.
@@ -89,7 +90,7 @@ enum DebugLog {
     }
 
     /// A record (its type and fields), with the time.
-    static func record(_ fields: [String: Any]) {
+    @MainActor static func record(_ fields: [String: Any]) {
         let record = fields.merging(["time": timeFormat.string(from: OCRClock.now)]) { $1 }
         guard let data = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -100,7 +101,7 @@ enum DebugLog {
     /// the controller, the popup shortcuts, the overlay switch, Anki (but not its key), Anki Screenshot, Anki Audio and
     /// IINA.
     @MainActor static var settings: [String: Any] {
-        let prefixes = ["ocr", "gamePause", "gamepad", "scan", "popupScan", "overlaySwitch", "anki", "screenshot", "sentenceAudio", "iina"]
+        let prefixes = ["ocr", "gamePause", "gamepad", "scan", "popupScan", "overlayHide", "overlaySwitch", "anki", "screenshot", "sentenceAudio", "iina"]
         let keys: Set<String> = ["language", "websocketUrls", "floatingWindowOCR", "hotkeys", "duplicateBehavior", "checkForDuplicates"]
         return SettingsStore.shared.dictionary.filter { key, _ in
             key != "ankiConnectKey" && (keys.contains(key) || prefixes.contains { key.hasPrefix($0) })
@@ -165,7 +166,8 @@ enum DebugLog {
     }
 
     /// As the page's records (toISOString).
-    private static let timeFormat: ISO8601DateFormatter = {
+    /// On the main actor: ISO8601DateFormatter isn't documented as safe to share between threads.
+    @MainActor private static let timeFormat: ISO8601DateFormatter = {
         let format = ISO8601DateFormatter()
         format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return format

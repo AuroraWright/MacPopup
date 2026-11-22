@@ -47,7 +47,7 @@ enum MediaClip {
         }
 
         /// Only the plugin on this Mac is asked for the line.
-        private static func localSocket(_ socket: String?) throws -> URL {
+        static func localSocket(_ socket: String?) throws -> URL {
             guard let socket = socket.flatMap(URL.init(string:)), socket.scheme == "ws",
                   ["127.0.0.1", "localhost", "::1"].contains(socket.host ?? "")
             else { throw AppError("No local WebSocket to ask the player for the line") }
@@ -90,6 +90,100 @@ enum MediaClip {
         return try await run(extension: png ? "png" : "jpg", what: "take the screenshot") { file in
             ["-ss", time(seconds)] + (try input(source)) + output + [file]
         }
+    }
+
+    /// Decodes the source's audio from `start` to its end, mixed to mono at 16 kHz, giving `handler` a tenth of a second
+    /// at a time until it returns false. Returns whether it got to the end. Blocks: run it on a thread of its own.
+    /// DASH fragments are asked for two minutes at a time; a source only in the player's cache can't be read ahead.
+    static func decodeAudio(_ source: Source, from start: Double, handler: ([Float]) -> Bool) throws -> Bool {
+        guard start.isFinite, start >= 0 else { throw AppError("Invalid time") }
+        let output = ["-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-f", "f32le", "pipe:1"]
+        switch source {
+        case .file, .url:
+            return try decode(["-ss", time(start)] + (try input(source)) + output, handler: handler)
+        case .fragments(let key, let socket):
+            let length = 120.0
+            var from = start
+            while true {
+                let part: (URL, Double)
+                let start = from
+                do {
+                    part = try wait { try await Player.fragments(key: key, type: "audio", socket: socket, start: start, end: start + length) }
+                } catch let error as AppError where error.errorDescription == "The line is outside the video" {
+                    return true
+                }
+                defer { try? FileManager.default.removeItem(at: part.0) }
+                let arguments = ["-ss", time(max(0, from - part.1)), "-t", time(length), "-i", "file:" + part.0.path, "-map", "0:a:0"]
+                guard try decode(arguments + output, handler: handler) else { return false }
+                from += length
+            }
+        case .cache:
+            throw AppError("The video can only be read from IINA’s cache")
+        }
+    }
+
+    /// Runs async work from a thread that can wait.
+    private static func wait<T>(_ work: @escaping @Sendable () async throws -> T) throws -> T {
+        let done = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var result: Result<T, Error>?
+        Task.detached {
+            do { result = .success(try await work()) } catch { result = .failure(error) }
+            done.signal()
+        }
+        done.wait()
+        return try result!.get()
+    }
+
+    /// Runs ffmpeg with output to its standard output as 32-bit floats, giving `handler` 1,600 at a time (the last
+    /// fewer). Returns false when `handler` stopped it.
+    private static func decode(_ arguments: [String], handler: ([Float]) -> Bool) throws -> Bool {
+        let process = try ffmpegProcess(arguments)
+        let output = Pipe(), errors = Pipe()
+        process.standardOutput = output
+        process.standardError = errors
+        nonisolated(unsafe) var errorData = Data()
+        let errorsRead = DispatchSemaphore(value: 0)
+        // Read once it runs: a pipe it never got stays open here, and the read would wait forever.
+        try process.run()
+        Thread.detachNewThread {
+            errorData = errors.fileHandleForReading.readDataToEndOfFile()
+            errorsRead.signal()
+        }
+        let chunk = 1600 * MemoryLayout<Float>.size
+        var pending = Data()
+        var stopped = false
+        var readError: Error?
+        func give(_ bytes: Data) -> Bool {
+            var samples = [Float](repeating: 0, count: bytes.count / MemoryLayout<Float>.size)
+            samples.withUnsafeMutableBytes { _ = bytes.copyBytes(to: $0) }
+            return handler(samples)
+        }
+        do {
+            while !stopped, let data = try output.fileHandleForReading.read(upToCount: 65536), !data.isEmpty {
+                pending.append(data)
+                while pending.count >= chunk, !stopped {
+                    stopped = !give(pending.prefix(chunk))
+                    pending = pending.dropFirst(chunk)
+                }
+            }
+        } catch {
+            readError = error
+        }
+        if stopped || readError != nil {
+            process.terminate()
+        } else if pending.count >= MemoryLayout<Float>.size {
+            stopped = !give(pending.prefix(pending.count / MemoryLayout<Float>.size * MemoryLayout<Float>.size))
+        }
+        try? output.fileHandleForReading.close()
+        process.waitUntilExit()
+        errorsRead.wait()
+        if let readError { throw readError }
+        if stopped { return false }
+        guard process.terminationStatus == 0 else {
+            let message = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw AppError("ffmpeg couldn’t read the video’s audio: \(message.isEmpty ? "status \(process.terminationStatus)" : message)")
+        }
+        return true
     }
 
     private static func time(_ seconds: Double) -> String { String(format: "%.3f", seconds) }
@@ -160,13 +254,7 @@ enum MediaClip {
 
     /// Runs ffmpeg and returns what it wrote to its standard output.
     private static func ffmpeg(_ arguments: [String], what: String) async throws -> String {
-        let ffmpeg = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/ffmpeg")
-        guard FileManager.default.isExecutableFile(atPath: ffmpeg.path) else {
-            throw AppError("This build of MacPopup has no ffmpeg (see scripts/build.sh)")
-        }
-        let process = Process()
-        process.executableURL = ffmpeg
-        process.arguments = ["-nostdin", "-hide_banner", "-loglevel", "error"] + arguments
+        let process = try ffmpegProcess(arguments)
         let errors = Pipe()
         let output = Pipe()
         process.standardError = errors
@@ -192,11 +280,28 @@ enum MediaClip {
         }
         return String(data: standardOutput, encoding: .utf8) ?? ""
     }
+
+    private static func ffmpegProcess(_ arguments: [String]) throws -> Process {
+        let ffmpeg = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/ffmpeg")
+        guard FileManager.default.isExecutableFile(atPath: ffmpeg.path) else {
+            throw AppError("This build of MacPopup has no ffmpeg (see scripts/build.sh)")
+        }
+        let process = Process()
+        process.executableURL = ffmpeg
+        process.arguments = ["-nostdin", "-hide_banner", "-loglevel", "error"] + arguments
+        return process
+    }
 }
 
 /// What MacPopup asks the IINA plugin over its WebSocket for (iina-plugin/global.js): a time range of a player
-/// window's DASH fragments, or a dump of it from the player's cache.
-private enum Player {
+/// window's DASH fragments, or a dump of it from the player's cache; and to show a transcript as subtitles.
+enum Player {
+    /// Has the window load the subtitle file as a track ("MacPopup transcription"), or read it again once it has.
+    static func subtitles(key: String, file: URL, language: String, socket: URL) async throws {
+        let id = UUID().uuidString
+        _ = try await ask(["subtitles": ["id": id, "key": key, "file": file.path, "language": language]], id: id, socket: socket)
+    }
+
     /// The init segment and the fragments that the time range is in, downloaded into one file in the temporary
     /// folder with the player's headers and proxy, and the time the file starts at.
     static func fragments(key: String, type: String, socket: URL, start: Double, end: Double) async throws -> (URL, Double) {

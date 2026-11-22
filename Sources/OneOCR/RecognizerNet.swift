@@ -407,7 +407,7 @@ final class CharNet: @unchecked Sendable {
             var out = [Float](repeating: 0, count: T * 2 * H)
             out.withUnsafeMutableBufferPointer { ob in
                 let p = ob.baseAddress!
-                DispatchQueue.concurrentPerform(iterations: 2) { d in
+                DispatchQueue.concurrentPerform(iterations: 2) { [x] d in
                     runDirection(l.dirs[d], H, x, T, l.input, reverse: d == 1, p, offset: d * H)
                 }
             }

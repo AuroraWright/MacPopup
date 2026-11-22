@@ -1,4 +1,5 @@
 import AppKit
+import OCREngines
 import WebKit
 
 // Private window server calls (see OverlayController.allowCursorInBackground).
@@ -45,7 +46,7 @@ final class OverlayController: NSObject {
     /// Called for every mouse button press and release anywhere, with Yomitan's button number.
     var onMouseButtonEvent: ((_ button: Int, _ isDown: Bool) -> Void)?
     /// MACPOPUP_DEBUG_INPUT=1 logs mouse button events and state to stderr.
-    private let debugInput = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_INPUT"] != nil
+    private let debugInput = DevelopmentEnvironment["MACPOPUP_DEBUG_INPUT"] != nil
     private var simulatedMouseUntil = Date.distantPast
     /// The cursor the page asked for over the box or a popup (see web/src/lib/cursor.js), nil elsewhere.
     private var cursor: NSCursor?

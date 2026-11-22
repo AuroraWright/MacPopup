@@ -1,5 +1,6 @@
 import Foundation
 import OCREngines
+import Transcription
 
 /// A choice in a menu: the stored value and its label.
 struct SettingsOption: Hashable {
@@ -76,6 +77,8 @@ struct SettingsField: Identifiable {
         case convertedModels(ConvertedModelsKind)
         /// A button that opens the IINA plugin in IINA to install it (not a setting).
         case iinaPlugin
+        /// The transcripts of IINA's videos kept, with a button to clear them (not a setting).
+        case iinaTranscripts
     }
 
     enum ConnectionTest {
@@ -135,6 +138,16 @@ enum SettingsSchema {
         + "Add a minus sign (-) to ignore lookups while a key or button is held (e.g. “shift -mouse0” looks up with Shift, unless the left mouse button is pressed). "
         + "Add “terms” or “kanji” to restrict lookups to words or individual kanji (e.g. “alt kanji”)."
 
+    /// The rows a Yomitan whose API has displayOptions and dictionaryInfo gives (see web/src/lib/yomitan-profile.js),
+    /// shown greyed out then: these with useYomitanDisplay on, and `yomitanDictionaryKeys` always.
+    static let yomitanDisplayKeys: Set = [
+        "popupThemes", "popupScalingFactor", "popupDisplayMode", "fontFamily", "popupFontSize", "lineHeight", "glossaryLayoutMode",
+        "compactTags", "showSearchTags", "averageFrequency", "frequencyDisplayMode", "termDisplayMode",
+        "showPitchAccentDownstepNotation", "showPitchAccentPositionNotation", "showPitchAccentGraph", "popupCurrentIndicatorMode",
+        "popupActionBarVisibility", "popupActionBarLocation", "customPopupCss", "customPopupOuterCss",
+    ]
+    static let yomitanDictionaryKeys: Set = ["definitionsCollapsible", "dictionaryCollapsible", "dictionaryStyles"]
+
     private static let scanModifierOptions = [
         SettingsOption("none", "No key"),
         SettingsOption("alt", "Option (⌥)"),
@@ -170,12 +183,12 @@ enum SettingsSchema {
     ]
 
     /// Whether Anki Audio's Visual novel backlog capture is on.
-    private static func capturesBacklog(_ values: [String: Any]) -> Bool {
+    nonisolated private static func capturesBacklog(_ values: [String: Any]) -> Bool {
         values["sentenceAudioBacklog"] as? Bool ?? true
     }
 
     /// Whether Anki Audio looks for the voice: in the kept audio, or in a backlog recording with speech detection on.
-    private static func detectsVoice(_ values: [String: Any]) -> Bool {
+    nonisolated private static func detectsVoice(_ values: [String: Any]) -> Bool {
         ((values["sentenceAudioHistory"] as? NSNumber)?.doubleValue ?? 5) > 0
             || (capturesBacklog(values) && values["sentenceAudioDetectVoice"] as? Bool ?? true)
     }
@@ -189,6 +202,21 @@ enum SettingsSchema {
                     hint: "The Floating Window displays incoming text in a floating box. The OCR overlay reads text directly from a game or app window on screen, and you hover over it there."
                 ),
                 SettingsField(
+                    "overlayHideShortcut", "Overlay hide key/buttons", .shortcutAndButtons(buttons: "overlayHideButtons"),
+                    hint: "Hides the overlays and shows them again from any app, as Hide Overlays in the menu bar does, with a keyboard shortcut or a button combination on a game controller set up in Settings → Controllers. Your game doesn’t see the keyboard shortcut, but it does see the controller buttons, so pick buttons it doesn’t use.",
+                    warning: { settings in
+                        let buttons = Set(settings["overlayHideButtons"] as? [String] ?? [])
+                        guard !buttons.isEmpty else { return nil }
+                        if Set(settings["gamepadScanButtons"] as? [String] ?? []) == buttons {
+                            return "These controller buttons are already used by the controller scan key, which takes priority."
+                        }
+                        if SentenceAudioController.isEnabled(settings), Set(settings["sentenceAudioButtons"] as? [String] ?? []) == buttons {
+                            return "Anki Audio already uses these buttons, so it takes priority."
+                        }
+                        return nil
+                    }
+                ),
+                SettingsField(
                     "overlaySwitchShortcut", "Overlay switch key/buttons", .shortcutAndButtons(buttons: "overlaySwitchButtons"),
                     hint: "Switches between the OCR overlay and the Floating Window from any app, with a keyboard shortcut or a button combination on a game controller set up in Settings → Controllers. Your game doesn’t see the keyboard shortcut, but it does see the controller buttons, so pick buttons it doesn’t use.",
                     warning: { settings in
@@ -199,6 +227,9 @@ enum SettingsSchema {
                         }
                         if SentenceAudioController.isEnabled(settings), Set(settings["sentenceAudioButtons"] as? [String] ?? []) == buttons {
                             return "Anki Audio already uses these buttons, so it takes priority."
+                        }
+                        if Set(settings["overlayHideButtons"] as? [String] ?? []) == buttons {
+                            return "The overlay hide key/buttons already use these buttons, so they take priority."
                         }
                         return nil
                     }
@@ -219,7 +250,7 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "ocrWindow", "Captured window", .ocrWindow,
-                    hint: "The target window read by OCR and captured for Anki {screenshot} fields. If none is selected, the entire screen is used."
+                    hint: "The target window used for OCR, Anki {screenshot} fields, Anki sentence audio and transcription. If none is selected, the entire screen/system audio are used."
                 ),
                 SettingsField(
                     "theme", "Theme", .select(support.themes.map { SettingsOption($0) }),
@@ -227,7 +258,7 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "language", "Language", .select(support.languages.map { SettingsOption($0.iso, $0.name) }),
-                    hint: "Language of the text that is being looked up. Should match your active Yomitan profile language (automatically set when importing Yomitan settings). Also used to select default audio sources, format text, and choose the language OCR reads (text in other scripts is skipped)."
+                    hint: "Language of the text that is being looked up. Should match your active Yomitan profile language (automatically set when importing Yomitan settings). Also used to select default audio sources, format text, and choose the language OCR reads (text in other scripts is skipped) and transcription expects."
                 ),
                 SettingsField(
                     "furiganaReadingMode", "Furigana style", .select([
@@ -276,6 +307,10 @@ enum SettingsSchema {
                     hint: "Reads the game’s text with OCR and adds it to the text box, like a text hooker. Only the dialogue area of the captured window is read (Settings → General → Captured window), or the whole window if there’s none. When a page fills up over time, each new sentence or paragraph becomes its own line. Lines already received over WebSocket aren’t added twice. A window might not be readable while it isn’t visible. Uses the settings in OCR, and requires Screen Recording permission."
                 ),
                 SettingsField(
+                    "floatingWindowAudio", "Read text from audio", .checkbox,
+                    hint: "Transcribes speech from the captured window’s app (or from all apps if no window is captured) and adds each sentence to the text box. Music and sound effects are skipped. Choose the model in Settings → Transcription. Requires System Audio Recording permission."
+                ),
+                SettingsField(
                     "boxFontFamily", "Font", .font(size: "fontSize", effects: "boxFontEffects"),
                     hint: "Select the font family/size/display properties from the macOS selector. A custom color picked here will override the theme’s color."
                 ),
@@ -302,7 +337,7 @@ enum SettingsSchema {
                 SettingsField("reverseLineOrder", "Show newest lines at the top", .checkbox, hint: "Adds new lines at the top of the text box instead of the bottom."),
                 SettingsField("displayVertical", "Vertical text layout", .checkbox, hint: "Shows lines from top to bottom, in columns from right to left, as Japanese books do."),
                 SettingsField("showLinePoints", "Show bullet beside each line", .checkbox, hint: "Puts a faint • before each line, which shows fully while the pointer is on that line."),
-                SettingsField("enableLineAnimation", "Animate new lines", .checkbox, hint: "New lines slide in instead of appearing all at once."),
+                SettingsField("enableLineAnimation", "Animate new lines", .checkbox, hint: "New lines slide in instead of appearing all at once (not while transcription shows words as they’re heard)."),
                 SettingsField("showFurigana", "Show furigana above words", .checkbox, hint: "Shows readings above words with kanji, in the Furigana style set in Settings → General. Needs the Yomitan API, which splits lines into words."),
                 SettingsField("termSpacing", "Add spaces between parsed words", .checkbox, hint: "Leaves a small gap between words, as Yomitan splits the line, so you can see where each word ends. Needs the Yomitan API."),
                 SettingsField("customCSS", "Custom CSS (text box)", .textarea, hint: "Your own CSS for the text box, on top of the theme (for example, #lines { line-height: 1.8; })."),
@@ -341,7 +376,7 @@ enum SettingsSchema {
                             SettingsOption("ppocrmanga", "PP-OCRv6 Manga"),
                             SettingsOption("midavocr6", "mida + VOCR6"),
                         ]),
-                        hint: "Live Text is built into macOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. PP-OCRv6 Manga (by Kellenok) is specialized for Japanese and Chinese manga. mida + VOCR6 (rtr46’s line finder with vita-vn-ocr’s reader) is fast and reads horizontal Japanese game text, but not vertical text. Screen AI (Chrome’s OCR) and OneOCR (the Windows Snipping Tool’s) recognize most languages automatically, but require importing their model files below.",
+                        hint: "Live Text is built into macOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. PP-OCRv6 Manga (by Kellenok) is specialized for Japanese and Chinese manga. mida + VOCR6 (rtr46’s line finder with vita-vn-ocr’s reader) is fast and reads Japanese game text, horizontal and vertical. Screen AI (Chrome’s OCR) and OneOCR (the Windows Snipping Tool’s) recognize most languages automatically, but require importing their model files below.",
                         warning: { settings in
                             let language = settings["language"] as? String ?? "ja"
                             let engine = settings["ocrEngine"] as? String ?? "liveText"
@@ -409,6 +444,91 @@ enum SettingsSchema {
                     SettingsField(
                         "ocrMaxWait", "Show reading anyway after (ms)", .number(min: 100),
                         hint: "If text keeps changing continuously (such as very slow typewriter text), use the latest reading after this time limit and keep updating as more text appears."
+                    ),
+                ]
+            ),
+            SettingsSection(
+                title: "Transcription", symbol: "captions.bubble",
+                description: "Speech recognition for “Read text from audio” in the Floating Window. Models run on this Mac and aren’t included with MacPopup: make a model’s .zip file with its script, then load it here.",
+                fields: [
+                    SettingsField(
+                        "transcriptionModel", "Speech recognition model",
+                        .select([
+                            SettingsOption("soda", "Live Caption"),
+                            SettingsOption("kitsune", "Kitsune P-0.3B"),
+                            SettingsOption("senseVoice", "SenseVoice Small"),
+                            SettingsOption("parakeet", "Parakeet TDT 0.6B v3"),
+                            SettingsOption("whisper", "Whisper large-v3 turbo"),
+                            SettingsOption("animeWhisper", "anime-whisper"),
+                        ]),
+                        hint: "Live Caption (Google): 16 languages, fast, with punctuation. Kitsune (Multy123): Japanese, very fast, non-commercial use only. SenseVoice (Alibaba): Chinese, Cantonese, Japanese, Korean and English, the fastest. Parakeet (NVIDIA): 25 European languages, very fast. Whisper (OpenAI): 99 languages, about a second per line. anime-whisper (litagin): Japanese, best on game and anime voices, slower.",
+                        warning: { settings in
+                            let language = settings["language"] as? String ?? "ja"
+                            guard let model = SpeechModel(rawValue: settings["transcriptionModel"] as? String ?? "soda") else { return nil }
+                            let name = support.languages.first { $0.iso == language }?.name ?? language
+                            // Parakeet reads its languages about as well as Whisper, 10 times faster.
+                            if model == .whisper && SpeechModel.parakeet.reads(language) {
+                                return "Parakeet transcribes \(name) about as accurately and 10 times faster."
+                            }
+                            guard !model.reads(language) else { return nil }
+                            let reads = switch model {
+                            case .kitsune: "Kitsune only transcribes Japanese."
+                            case .animeWhisper: "anime-whisper only transcribes Japanese."
+                            case .senseVoice: "SenseVoice only transcribes Chinese, Cantonese, Japanese, Korean and English."
+                            case .whisper: "Whisper doesn’t transcribe it."
+                            case .parakeet: "Parakeet only transcribes 25 European languages."
+                            case .soda: "Live Caption doesn’t transcribe it."
+                            }
+                            return "Your language is \(name) (Settings → General). \(reads)"
+                        }
+                    ),
+                    SettingsField(
+                        "kitsuneModels", "Kitsune models", .convertedModels(.kitsune),
+                        hint: "Run scripts/convert-kitsune.py to make a .zip file, then click Load.",
+                        showIf: { $0["transcriptionModel"] as? String == "kitsune" }
+                    ),
+                    SettingsField(
+                        "animeWhisperModels", "anime-whisper models", .convertedModels(.animeWhisper),
+                        hint: "Run scripts/convert-anime-whisper.py to make a .zip file, then click Load. The first load takes about 2 minutes.",
+                        showIf: { $0["transcriptionModel"] as? String == "animeWhisper" }
+                    ),
+                    SettingsField(
+                        "whisperModels", "Whisper models", .convertedModels(.whisper),
+                        hint: "Run scripts/convert-whisper.py to make a .zip file (add --full for the slightly more accurate 1.6 GB version), then click Load. The first load takes about 3 minutes.",
+                        showIf: { $0["transcriptionModel"] as? String == "whisper" }
+                    ),
+                    SettingsField(
+                        "senseVoiceModels", "SenseVoice models", .convertedModels(.senseVoice),
+                        hint: "Run scripts/convert-sensevoice.py to make a .zip file, then click Load. The first load takes about 2 minutes.",
+                        showIf: { $0["transcriptionModel"] as? String == "senseVoice" }
+                    ),
+                    SettingsField(
+                        "parakeetModels", "Parakeet models", .convertedModels(.parakeet),
+                        hint: "Run scripts/convert-parakeet.py to make a .zip file, then click Load.",
+                        showIf: { $0["transcriptionModel"] as? String == "parakeet" }
+                    ),
+                    SettingsField(
+                        "sodaModels", "Live Caption models", .convertedModels(.soda),
+                        hint: "Run scripts/convert-soda.py with the languages you want (such as ja-JP en-US) to download Chrome’s language packs and make a .zip file, then click Load.",
+                        showIf: { ($0["transcriptionModel"] as? String ?? "soda") == "soda" }
+                    ),
+                    SettingsField(
+                        "transcriptionLive", "Show words as they’re heard", .checkbox,
+                        hint: "Lines are filled in real time as the speaker talks and are then corrected after a pause. Disabled with Whisper and anime-whisper, as they’re not fast enough.",
+                        showIf: { (SpeechModel(rawValue: $0["transcriptionModel"] as? String ?? "") ?? .soda).hearsLive }
+                    ),
+                    SettingsField(
+                        "transcriptionSentenceEnds", "Detect sentence ends", .checkbox,
+                        hint: "Makes line splits more accurate by detecting sentence ends."
+                    ),
+                    SettingsField(
+                        "satModels", "SaT models", .convertedModels(.sat),
+                        hint: "Run scripts/convert-sat.py to make a .zip file, then click Load.",
+                        showIf: { $0["transcriptionSentenceEnds"] as? Bool == true }
+                    ),
+                    SettingsField(
+                        "transcriptionPause", "Line ends after a pause of (ms, 0 = off)", .number(min: 0),
+                        hint: "How long the speaker must pause before a line is added. Shorter pauses show lines sooner, but may cut sentences in two. Try 200 when a speaker talks without stopping or if “Detect sentence ends” is enabled. If set to 0, new lines are shown every 10 seconds or so."
                     ),
                 ]
             ),
@@ -510,6 +630,10 @@ enum SettingsSchema {
             SettingsSection(
                 title: "Yomitan Popup", symbol: "rectangle.on.rectangle",
                 fields: [
+                    SettingsField(
+                        "useYomitanDisplay", "Use Yomitan’s display settings", .checkbox,
+                        hint: "Make popups look the way your Yomitan is set up (theme, scale, fonts, layout, tags, frequencies, pitch accents and custom CSS) and stay in sync when you change it there. The settings Yomitan controls are greyed out below. This needs a Yomitan that shares its settings through its API; with an older one, the settings below are used."
+                    ),
                     SettingsField(
                         "popupThemes", "Theme", .group([
                             SettingsField("popupTheme", "Body", .select(themeOptions)),
@@ -882,6 +1006,14 @@ enum SettingsSchema {
                         hint: "Extra audio kept before and after each subtitle, since voices often start a little early and end a little late.",
                         showIf: { $0["iinaSentenceAudioEnabled"] as? Bool ?? true }
                     ),
+                    SettingsField(
+                        "iinaTranscribe", "Transcribe videos without subtitles", .checkbox,
+                        hint: "When a video has no subtitles in your language, shows a transcription as its subtitle, using the model in Settings → Transcription. Doesn’t work with live streams. Pauses “Read text from audio” while running."
+                    ),
+                    SettingsField(
+                        "iinaTranscripts", "Saved transcriptions", .iinaTranscripts,
+                        hint: "If cleared, videos will need to be transcribed again."
+                    ),
                 ]
             ),
             SettingsSection(
@@ -894,7 +1026,7 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "permission.audioCapture", "System Audio Recording", .permission(.audioCapture),
-                        hint: "Needed for Anki Audio to record your game’s voice lines. Shown as Screen & System Audio Recording in System Settings."
+                        hint: "Needed for Anki Audio and for “Read text from audio” in the Floating Window. Shown as Screen & System Audio Recording in System Settings."
                     ),
                     SettingsField(
                         "permission.accessibility", "Accessibility", .permission(.accessibility),

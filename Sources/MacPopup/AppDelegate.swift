@@ -1,4 +1,5 @@
 import AppKit
+import Transcription
 import WebKit
 
 @MainActor
@@ -16,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var ocr: OCRController!
     private var clipboardMonitor: ClipboardMonitor!
     private var sentenceAudio: SentenceAudioController!
+    private var audioTranscriber: AudioTranscriber!
     private var screenshots: ScreenshotHistory!
     /// The lines shown in the text box or read by OCR (see noteLine). `Info` is whether OCR read the line.
     private var lines = ShownLines<Bool>()
@@ -30,7 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         // The overlay's web view, with the bridge and the asset scheme.
         let configuration = WebViewFactory.makeConfiguration(bridge: bridge, schemeHandler: schemeHandler)
         overlay = OverlayController(configuration: configuration)
-        settingsWindow = SettingsWindowController { [weak self] in self?.ocr.selectWindow() }
+        settingsWindow = SettingsWindowController(selectOCRWindow: { [weak self] in self?.ocr.selectWindow() }) { [weak self] in
+            try self?.audioTranscriber.clearVideoTranscripts()
+        }
         overlay.onMouseButtonEvent = { [weak self] button, isDown in
             self?.settingsWindow.mouseButtonEvent(button: button, isDown: isDown)
         }
@@ -41,6 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         DebugLog.onSession = { [weak self] in self?.ocr.logWindow() }
         clipboardMonitor = ClipboardMonitor(overlay: overlay)
         sentenceAudio = SentenceAudioController(overlay: overlay)
+        SpeechModel.registerModels()
+        audioTranscriber = AudioTranscriber(overlay: overlay)
         screenshots = ScreenshotHistory { [weak self] fullResolution in try await self?.ocr.windowScreenshot(fullResolution: fullResolution) }
         GamepadController.shared.onSwitchAway = { [weak self] in self?.overlay.evaluate("window.__macpopupReleaseForGame?.()") }
         GamepadController.shared.onChange = { [weak self] pressed in
@@ -56,12 +62,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
             self?.ocr.inputUsed()
             if !GamepadController.shared.isHeld { self?.ocr.gameInput() }
         }
-        yomitanAPI = YomitanAPIStatus()
+        yomitanAPI = .shared
         yomitanAPI.onChange = { [weak self] in self?.updateStatusIcon() }
 
         setUpStatusItem()
         setUpEditMenu()
         setOverlayVisible(true)
+        hideShortcut.onPress = { [weak self] _ in self?.toggleOverlayVisible(from: "keyboard") }
+        SettingsStore.shared.observe { [weak self] _ in self?.applyHideShortcut() }
+        applyHideShortcut()
 
         if WelcomeWindowController.isFirstLaunch {
             welcomeWindow = WelcomeWindowController(yomitanAPI: yomitanAPI) { [weak self] section in
@@ -131,6 +140,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         setOverlayVisible(!overlay.isVisible)
     }
 
+    /// Settings → General → Overlay hide key/buttons: the keyboard shortcut (the controller buttons are matched by
+    /// overlay.js).
+    private let hideShortcut = HotkeyController(signature: 0x4D50_4F48) // "MPOH"
+
+    private func applyHideShortcut() {
+        hideShortcut.set(KeyCombination(setting: SettingsStore.shared.dictionary["overlayHideShortcut"])) { [weak self] taken in
+            self?.overlay.showToast("The overlay hide shortcut \(taken.displayName) is used by another app or shortcut")
+        }
+    }
+
+    /// Hides the overlays or shows them again, from the overlay hide key/buttons (`source`).
+    func toggleOverlayVisible(from source: String) {
+        if DebugLog.isOn { DebugLog.record(["type": "event", "event": "overlay hide", "from": source, "visible": !overlay.isVisible]) }
+        toggleOverlay()
+    }
+
     @objc private func toggleOCR() {
         ocr.setOverlayOn(!ocr.isOverlayOn)
     }
@@ -166,7 +191,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
 
     func ocrMessage(_ body: [String: Any]) -> Bool {
         // The page tells OCR when it has (re)loaded.
-        if body["action"] as? String == "ready" { overlay.pageReady() }
+        if body["action"] as? String == "ready" {
+            overlay.pageReady()
+            audioTranscriber.pageReady()
+        }
         return ocr.handle(body)
     }
 
@@ -228,17 +256,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     ///   row's UTF-16 code units].
     /// - A WebSocket or clipboard line with the same text as the last OCR line takes its place ("replacesOCR": the box
     ///   removes its last line before adding the new one).
-    func noteLine(_ text: String, age: Double, fromOCR: Bool, rows: [String], breaks: Set<Int>) -> [String: Any] {
+    /// `replaces`: the id of the transcribed line this one grew from (see AudioTranscriber), which it takes the place of
+    /// if it's still the last line.
+    func noteLine(_ text: String, age: Double, fromOCR: Bool, transcribed: Bool, replaces: Int?, rows: [String], breaks: Set<Int>) -> [String: Any] {
         if lines.count >= 100 { lines.removeFirst(lines.count - 99) }
         // A sent line is the line before it again as the text box decides it (see transformLine in overlay.js).
         let settings = SettingsStore.shared.dictionary
         let sent = ShownLines<Bool>.SentLines(
             repeats: (settings["preventLastDuplicate"] as? NSNumber)?.intValue ?? 0 > 0 || settings["preventGlobalDuplicate"] as? Bool == true,
-            grows: settings["mergeEqualLineStarts"] as? Bool == true
+            grows: settings["mergeEqualLineStarts"] as? Bool == true,
+            replaces: replaces
         )
-        guard let noted = lines.note(text, page: fromOCR, breaks: breaks, rows: rows, sent: sent, info: { fromOCR }) else { return [:] }
+        guard let noted = lines.note(text, page: fromOCR, breaks: breaks, rows: rows, sent: sent,
+                                     language: settings["language"] as? String ?? "ja", info: { fromOCR }) else { return [:] }
         let line = lines[noted.index]
-        sentenceAudio.noteLine(id: line.id, isNew: noted.isNew, text: line.text, age: age)
+        sentenceAudio.noteLine(id: line.id, isNew: noted.isNew, text: line.text, age: age, transcribed: transcribed)
         screenshots.noteLine(id: line.id, isNew: noted.isNew, grew: noted.grew, settled: fromOCR)
         var reply: [String: Any] = ["id": line.id]
         if fromOCR {
@@ -273,6 +305,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     func setConnectedWebsockets(_ urls: [String]) {
         connectedWebsockets = urls
         updateStatusIcon()
+    }
+
+    func iinaPlayerStatus(_ body: [String: Any]) {
+        audioTranscriber.playerStatus(body)
     }
 
     func reportYomitanAPIRequest(succeeded: Bool) {
@@ -356,6 +392,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         if visible {
             overlay.show()
         } else {
+            // The popups close and the controller goes back to the game (else Game Pause would keep it paused).
+            overlay.evaluate("window.__macpopupReleaseForGame?.()")
             overlay.hide()
         }
         GamepadController.shared.overlayVisible = visible

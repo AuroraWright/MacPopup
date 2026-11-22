@@ -70,7 +70,7 @@ final class AppModel: ObservableObject {
             let arguments = ProcessInfo.processInfo.arguments
             let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             if let index = arguments.firstIndex(of: "-installModels"), index + 2 < arguments.count,
-               let kind = ConvertedModelsKind(rawValue: arguments[index + 1]) {
+               let kind = ConvertedModelsKind(rawValue: arguments[index + 1]), ConvertedModelsKind.ocr.contains(kind) {
                 let start = Date()
                 do {
                     try await kind.store.installModels(from: documents.appendingPathComponent(arguments[index + 2]))

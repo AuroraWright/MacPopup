@@ -194,8 +194,8 @@ final class OCRController {
     /// MACPOPUP_DEBUG_OCR_DIR=<directory> saves what the engine read in each area there (read-N-areaI.json), and with
     /// MACPOPUP_DEBUG_OCR_PICTURES=1 each area read (read-N-areaI.png; encoding them took most of a test run's CPU time
     /// when the whole window was read).
-    private let debugDirectory = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_OCR_DIR"]
-    private let savesDebugPictures = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_OCR_PICTURES"] == "1"
+    private let debugDirectory = DevelopmentEnvironment["MACPOPUP_DEBUG_OCR_DIR"]
+    private let savesDebugPictures = DevelopmentEnvironment["MACPOPUP_DEBUG_OCR_PICTURES"] == "1"
     private var debugReadings = 0
 
     private var scWindow: SCWindow?

@@ -4,7 +4,7 @@ import ServiceManagement
 /// The macOS privacy permissions MacPopup uses, shown in Settings → Permissions.
 enum Permission {
     case screenRecording
-    /// Recording other apps' audio, for Anki Audio. System Settings lists it with Screen Recording.
+    /// Recording other apps' audio, for Anki Audio and transcription. System Settings lists it with Screen Recording.
     case audioCapture
     case accessibility
     /// MacPopup's pause helper (see GamePause), approved in System Settings → General → Login Items.
@@ -30,6 +30,13 @@ enum Permission {
         }
     }
 
+    /// Whether MacPopup may press keys, showing macOS's prompt when it still shows one. (The option is
+    /// kAXTrustedCheckOptionPrompt's value: the SDK declares that as a var, which isn't safe to read from any thread.)
+    @discardableResult
+    static func askForAccessibility() -> Bool {
+        AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+    }
+
     /// Shows macOS's prompt, when it still shows one.
     func request() async {
         switch self {
@@ -41,7 +48,7 @@ enum Permission {
                 request(TCC.audioCapture, nil) { _ in continuation.resume() }
             }
         case .accessibility:
-            AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary)
+            Permission.askForAccessibility()
         case .pauseHelper:
             // Registering it lists it in System Settings, where it's then allowed.
             do {
@@ -77,8 +84,8 @@ private enum TCC {
     typealias Preflight = @convention(c) (CFString, CFDictionary?) -> Int32
     typealias Request = @convention(c) (CFString, CFDictionary?, @escaping @convention(block) (Bool) -> Void) -> Void
 
-    static let audioCapture = "kTCCServiceAudioCapture" as CFString
-    private static let framework = dlopen("/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC", RTLD_NOW)
+    nonisolated(unsafe) static let audioCapture = "kTCCServiceAudioCapture" as CFString
+    nonisolated(unsafe) private static let framework = dlopen("/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC", RTLD_NOW)
     /// 0 when granted (1 when turned off, 2 when never asked).
     static let preflight = dlsym(framework, "TCCAccessPreflight").map { unsafeBitCast($0, to: Preflight.self) }
     /// Shows macOS's prompt when it was never asked, and calls back with whether it's granted.

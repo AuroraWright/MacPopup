@@ -1,4 +1,5 @@
 import Foundation
+import Transcription
 
 /// Commas and colons: a sentence that ends a row with one goes on in the next row. This is Unicode's SContinue
 /// (UAX #29) without its dashes, since a dash often ends a paragraph of dialogue.
@@ -27,11 +28,13 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     }
 
     /// When a line sent after another sent one (see Line.sent) is still that line, as the text box decides it
-    /// (Settings → Text Box): the same text again (`repeats`), or the line with more text (`grows`). Otherwise it's a
-    /// new line, however much it looks like the one before.
+    /// (Settings → Text Box): the same text again (`repeats`), or the line with more text (`grows`), or whatever its
+    /// text when it replaces the line with the id `replaces` (a transcribed line heard again) and that's still the last
+    /// one. Otherwise it's a new line, however much it looks like the one before.
     struct SentLines {
         var repeats = false
         var grows = false
+        var replaces: Int?
     }
 
     /// Where a line starts in a page's reading, in characters of its normalized text.
@@ -86,7 +89,7 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     /// rest of it, so `rows` (the reading's rows of text) are needed for that.
     mutating func note(
         _ shown: String, page isPage: Bool = false, breaks: Set<Int> = [], rows: [String] = [], sent sentLines: SentLines = .init(),
-        info: () -> Info
+        language: String = "ja", info: () -> Info
     ) -> Noted? {
         let text = Self.normalized(shown)
         guard !text.isEmpty else { return nil }
@@ -111,7 +114,7 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
             }
             for cut in cuts {
                 let old = String(page.text.dropFirst(cut))
-                if let noted = noteAdded(shown, text, rows: rowStarts, to: old, starts: Self.scrolled(page.starts, by: cut), last: last, breaks: breaks, info: info) {
+                if let noted = noteAdded(shown, text, rows: rowStarts, to: old, starts: Self.scrolled(page.starts, by: cut), last: last, breaks: breaks, language: language, info: info) {
                     return noted
                 }
             }
@@ -121,15 +124,18 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
                 return Noted(index: last, isNew: false, grew: false, starts: Self.moved(page.starts, from: page.text, to: text))
             }
             // The page with more text added.
-            if let noted = noteAdded(shown, text, rows: rowStarts, to: page.text, starts: page.starts, last: last, breaks: breaks, info: info) {
+            if let noted = noteAdded(shown, text, rows: rowStarts, to: page.text, starts: page.starts, last: last, breaks: breaks, language: language, info: info) {
                 return noted
             }
         }
         let noted: Noted
         let isAgain = { (seen: String) in text.hasPrefix(seen) || seen.hasPrefix(text) || OCRText.isLongAndSame(text, seen) }
         let last = lines.indices.last
+        let replacesLast = !isPage && last.map { sentLines.replaces == lines[$0].id } == true
         let isSame: Bool
-        if !isPage, let last, let sent = lines[last].sent {
+        if replacesLast {
+            isSame = true
+        } else if !isPage, let last, let sent = lines[last].sent {
             isSame = (sentLines.repeats && text == sent) || (sentLines.grows && text.hasPrefix(sent))
         } else {
             isSame = last.map { lines[$0].texts.contains(where: isAgain) } ?? false
@@ -137,7 +143,7 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         if let last, isSame {
             let grew = text.count > lines[last].texts.map(\.count).max() ?? 0
             if !lines[last].texts.contains(text) { lines[last].texts.append(text) }
-            if grew { lines[last].text = shown }
+            if grew || replacesLast { lines[last].text = shown }
             noted = Noted(index: last, isNew: false, grew: grew, starts: isPage ? [(lines[last].id, 0)] : [])
         } else {
             let index = append(shown, info: info)
@@ -160,7 +166,7 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     /// new reading, and its lines' starts with it.
     private mutating func noteAdded(
         _ shown: String, _ text: String, rows: [Int], to old: String, starts oldStarts: [Start], last: Int, breaks: Set<Int>,
-        info: () -> Info
+        language: String, info: () -> Info
     ) -> Noted? {
         let before = String(text.prefix(old.count))
         let exact = before == old
@@ -170,7 +176,7 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         guard Self.undotted(text).count > Self.undotted(old).count, exact || inserted || OCRText.isLongAndSame(before, old) else { return nil }
         var starts = Self.moved(oldStarts, from: old, to: text)
         let paragraphEnds = breaks.contains(end) && !Self.continuesSentence(text, before: end)
-        if end < text.count, paragraphEnds || Self.sentenceEnds(in: shown, after: end) {
+        if end < text.count, paragraphEnds || Self.sentenceEnds(in: shown, after: end, language: language) {
             let index = append(Self.shown(shown, after: end), info: info)
             starts.append((lines[index].id, end))
             page = (text, shown, starts, rows)
@@ -279,27 +285,21 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         return character.unicodeScalars.first.map(sentenceContinuing.contains) ?? false
     }
 
-    /// Whether a sentence ends after the first `count` non-whitespace characters of `shown`, using Unicode's sentence
-    /// boundaries (UAX #29), which work in any language. They attach opening punctuation after a sentence end to that
-    /// sentence (。」「), so the boundary may come a little later. They also attach periods after a sentence end to that
+    /// Whether a sentence ends after the first `count` non-whitespace characters of `shown`, in `language` (see
+    /// Sentences). Sentence boundaries attach opening punctuation after a sentence end to that sentence (。」「), so the
+    /// boundary may come a little later. They also attach periods after a sentence end to that
     /// sentence, and OCR may read the dots that start the next line (…) as periods (。..・), so after a sentence end that
     /// isn't a dot itself, dots count as opening too.
-    static func sentenceEnds(in shown: String, after count: Int) -> Bool {
+    static func sentenceEnds(in shown: String, after count: Int, language: String) -> Bool {
         guard let split = index(after: count, in: shown) else { return false }
         let afterEnd = shown[..<split].last(where: { !$0.isWhitespace }).map {
             !OCRText.isDot($0) && $0.unicodeScalars.first?.properties.isSentenceTerminal == true
         } ?? false
-        var ends = false
-        shown.enumerateSubstrings(in: shown.startIndex..<shown.endIndex, options: [.bySentences, .substringNotRequired]) { _, range, _, stop in
-            if range.lowerBound >= split {
-                ends = shown[split..<range.lowerBound].allSatisfy { character in
-                    (afterEnd && OCRText.isDot(character))
-                        || [.openPunctuation, .initialPunctuation].contains(character.unicodeScalars.first?.properties.generalCategory)
-                }
-                stop = true
-            }
+        guard let next = Sentences.ranges(in: shown, language: language).first(where: { $0.lowerBound >= split }) else { return false }
+        return shown[split..<next.lowerBound].allSatisfy { character in
+            (afterEnd && OCRText.isDot(character))
+                || [.openPunctuation, .initialPunctuation].contains(character.unicodeScalars.first?.properties.generalCategory)
         }
-        return ends
     }
 
     mutating func removeFirst(_ count: Int) {

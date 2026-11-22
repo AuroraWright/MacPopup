@@ -1,4 +1,5 @@
 import Foundation
+import OCREngines
 
 /// Installs the Yomitan API's native messaging host for a browser as install_yomitan_api.py (github.com/yomidevs/
 /// yomitan-api) does on macOS, with MacPopup's Swift host (Contents/Helpers/yomitan_api) in place of yomitan_api.py.
@@ -47,7 +48,7 @@ enum YomitanAPIInstaller {
     /// MACPOPUP_BROWSER_SUPPORT_DIR: a folder used in place of ~/Library/Application Support for the browsers'
     /// folders (for test runs).
     private static var applicationSupport: URL {
-        if let path = ProcessInfo.processInfo.environment["MACPOPUP_BROWSER_SUPPORT_DIR"] { return URL(fileURLWithPath: path) }
+        if let path = DevelopmentEnvironment["MACPOPUP_BROWSER_SUPPORT_DIR"] { return URL(fileURLWithPath: path) }
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     }
 

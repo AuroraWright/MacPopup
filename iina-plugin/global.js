@@ -4,19 +4,24 @@
 // Messages to MacPopup: {"sentence": text, "player": {"line", "start", "end", "video", "audio"}} for each line
 // (texthooker's format plus the player's part), where video and audio are where MacPopup reads them from (see
 // main.js): {"file", "stream"}, {"url", "stream", "headers", "proxy"}, {"fragments": key}, {"cache": key} or null.
+// To a connection that sent {"subscribe": "playing"}, each window's {"playing": {"key", "media", "track", "titles",
+// "position", "paused", "duration", "subtitles", "audio"}} each second (see main.js).
 // Requests from MacPopup, which the player window with the key (its label as of its last line) answers:
 // - {"fragments": {"id", "key", "type", "start", "end"}} for a "fragments" track: {"reply": {"id", "init", "parts":
 //   [{"url", "start", "length"}], "headers", "proxy"}}, the DASH init segment and the fragments the time range is in.
 // - {"dump": {"id", "key", "start", "end", "file"}} for a "cache" track: dumps the range into the file (in MacPopup's
 //   temporary folder, which MacPopup deletes) and answers {"reply": {"id", "file"}}.
+// - {"subtitles": {"id", "key", "file", "language"}}: loads MacPopup's transcript (in its cache folder) as a subtitle
+//   track, or reads it again, and answers {"reply": {"id"}}.
 // Or {"reply": {"id", "error"}}.
 //
 // IINA's server listens on every network interface and can't close a connection, so connections from other devices
 // are ignored: they get no lines.
 const { ws, global, preferences, console } = iina;
 
-// The connections from this Mac.
+// The connections from this Mac, and those that asked for what the windows play.
 const connections = new Set();
+const subscribed = new Set();
 // The last line, sent to MacPopup when it connects (OCR matches the window's text with it).
 let lastLine = null;
 
@@ -37,7 +42,10 @@ ws.onNewConnection((connection, info) => {
 });
 
 ws.onConnectionStateUpdate((connection, state) => {
-	if (state === 'failed' || state === 'cancelled') connections.delete(connection);
+	if (state === 'failed' || state === 'cancelled') {
+		connections.delete(connection);
+		subscribed.delete(connection);
+	}
 });
 
 // The player windows' labels (which global.postMessage can reach them by) by their keys (see main.js).
@@ -49,6 +57,11 @@ global.onMessage('line', (line, player) => {
 	for (const connection of connections) send(connection, lastLine);
 });
 
+global.onMessage('playing', (status, player) => {
+	players.set(status.key, player);
+	for (const connection of subscribed) send(connection, { playing: status });
+});
+
 // The connections waiting for a reply, by request id.
 const waiting = new Map();
 
@@ -58,20 +71,28 @@ ws.onMessage((connection, message) => {
 	let request = null;
 	try {
 		const body = JSON.parse(message.text());
-		kind = ['fragments', 'dump'].find((name) => body?.[name]);
+		if (body?.subscribe === 'playing') {
+			subscribed.add(connection);
+			return;
+		}
+		kind = ['fragments', 'dump', 'subtitles'].find((name) => body?.[name]);
 		request = kind ? body[kind] : null;
 	} catch (_) {
 		return;
 	}
+	const range = typeof request?.start === 'number' && typeof request.end === 'number'
+		&& request.start >= 0 && request.end > request.start && request.end - request.start <= 600;
 	const valid =
 		typeof request?.id === 'string' && /^[0-9A-F-]{36}$/i.test(request.id) && typeof request.key === 'string'
-		&& typeof request.start === 'number' && typeof request.end === 'number'
-		&& request.start >= 0 && request.end > request.start && request.end - request.start <= 600
 		&& (kind === 'fragments'
-			? request.type === 'video' || request.type === 'audio'
+			? range && (request.type === 'video' || request.type === 'audio')
+			: kind === 'dump'
 			// Only a file of this name in a temporary folder, whoever asks.
-			: typeof request.file === 'string'
-				&& new RegExp(`^/(private/)?var/folders/[^/]+/[^/]+/T/macpopup-dump-${request.id}\\.mkv$`).test(request.file));
+			? range && typeof request.file === 'string'
+				&& new RegExp(`^/(private/)?var/folders/[^/]+/[^/]+/T/macpopup-dump-${request.id}\\.mkv$`).test(request.file)
+			// Only a transcript in MacPopup's cache folder.
+			: typeof request.file === 'string' && typeof request.language === 'string' && /^[A-Za-z-]{2,12}$/.test(request.language)
+				&& /^\/Users\/[^/]+\/Library\/Caches\/com\.aury\.macpopup\/Transcripts\/[0-9a-f]{64}\/MacPopup transcription$/.test(request.file));
 	if (!valid) return;
 	const player = players.get(request.key);
 	if (player === undefined) {

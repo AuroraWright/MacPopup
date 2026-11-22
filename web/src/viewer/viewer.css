@@ -97,10 +97,13 @@ header a {
 	color: rgb(255 80 80 / 0.7);
 }
 
-/* The glyph in the middle of its box (see renderLines). */
+/* The glyph in the middle of its box (its shadow, see renderLines). */
 .show-boxes .ocr-char {
 	-webkit-text-fill-color: transparent;
-	text-shadow: var(--center-x, 0) var(--center-y, 0) 0 currentColor;
+}
+
+body:not(.show-boxes) .ocr-char {
+	text-shadow: none !important;
 }
 
 #readings {

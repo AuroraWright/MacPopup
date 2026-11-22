@@ -82,6 +82,9 @@ export const defaultSettings = {
 	// monitor, which opens its search page instead).
 	clipboardMonitor: false,
 	floatingWindowOCR: false,
+	// The speech of the captured window's app (or of every app) transcribed into lines, with transcriptionModel (see
+	// AudioTranscriber.swift).
+	floatingWindowAudio: false,
 	clipboardMaxLength: 1000,
 	replacements: [],
 	customCSS: '',
@@ -99,10 +102,20 @@ export const defaultSettings = {
 	displayIndex: 0,
 	windowLevel: 'screenSaver',
 
+	// Transcription (Settings → Transcription): 'soda' (Live Caption), 'kitsune', 'senseVoice', 'parakeet', 'whisper'
+	// or 'animeWhisper' (SpeechModel in Sources/Transcription), and how long a pause in the voice (ms) ends a line.
+	transcriptionModel: 'soda',
+	transcriptionPause: 1000,
+	transcriptionSentenceEnds: false,
+	transcriptionLive: false,
+
 	// OCR: the text of another app's window, read with ocrEngine (see lib/ocr-layer.js).
 	ocrMode: false,
-	// Switch ocrMode from any app (OCRController.switchOverlay): {key, modifiers} as in hotkeys, or null, and controller
-	// buttons, like gamepadScanButtons (see overlay.js).
+	// Hide or show the overlays from any app, as the menu bar's Hide Overlays (AppDelegate.toggleOverlay), and switch
+	// ocrMode (OCRController.switchOverlay): {key, modifiers} as in hotkeys, or null, and controller buttons, like
+	// gamepadScanButtons (see overlay.js).
+	overlayHideShortcut: null,
+	overlayHideButtons: [],
 	overlaySwitchShortcut: null,
 	overlaySwitchButtons: [],
 	// The window to read, {ownerName, title}, found again by these when MacPopup starts.
@@ -204,6 +217,9 @@ export const defaultSettings = {
 	popupHorizontalTextPosition: 'below',
 	popupVerticalTextPosition: 'before',
 	popupScalingFactor: 1,
+	// With a Yomitan whose API has displayOptions (see lib/yomitan-profile.js), popups take its profile's display
+	// options instead of the settings below that it has.
+	useYomitanDisplay: true,
 	popupDisplayMode: 'default',
 	// Where full-width popups go: 'top', 'bottom' or 'above-cursor'.
 	popupFullWidthPosition: 'bottom',
@@ -224,7 +240,9 @@ export const defaultSettings = {
 	popupActionBarVisibility: 'auto',
 	popupActionBarLocation: 'top',
 	definitionsCollapsible: 'not-collapsible',
-	// Each dictionary's collapse mode from Import Yomitan, [{name, mode}]; others use definitionsCollapsible.
+	// Each dictionary's collapse mode from Import Yomitan, [{name, mode}]; others use definitionsCollapsible. (A Yomitan
+	// whose API has dictionaryInfo gives its own, as it does the styles and yomitanAnkiTemplates' dictionaries and
+	// resultOutputMode below, and the dictionaries' summaries as yomitanDictionaryInfo.)
 	dictionaryCollapsible: [],
 	customPopupCss: '',
 	customPopupOuterCss: '',
@@ -324,4 +342,8 @@ export const defaultSettings = {
 	iinaScreenshotEnabled: true,
 	iinaSentenceAudioEnabled: true,
 	iinaSentenceAudioPadding: 500,
+	// VideoTranscriber.swift: an IINA video without subtitles in the language is transcribed from its file into a
+	// subtitle track (iina-plugin/main.js status messages, which the page passes on); floatingWindowAudio is paused
+	// meanwhile.
+	iinaTranscribe: true,
 };

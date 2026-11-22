@@ -7,6 +7,8 @@
 // up (words can wrap between lines) and paragraphs are separated by a "\n" text node, which ends
 // sentences and lookups.
 
+import { clearChildren } from './dom.js';
+
 const SPACE = /\s/u;
 const LINE_BREAK = /[\n\v\f\r\u0085\u2028\u2029]/u;
 const LETTER = /[\p{L}\p{N}]/u;
@@ -654,7 +656,7 @@ export function ocrCharOf(span) {
 export function renderLines(container, lines) {
 	const document = container.ownerDocument;
 	const [horizontalRatio, verticalRatio] = measureGlyphRatios(document);
-	container.textContent = '';
+	clearChildren(container);
 	const spans = [];
 	groupParagraphs(lines).forEach((paragraph, index) => {
 		if (index > 0) container.append('\n');
@@ -709,7 +711,9 @@ export function renderLines(container, lines) {
 
 	// Stretch each glyph along the line to the width of its box (letter-spacing counts as part of the
 	// character's rect). Measured all at once so layout happens only once. The spacing goes after the
-	// glyph, so where the text is shown (with Settings → General → Debug on), it's drawn shifted to the middle.
+	// glyph, so where the text is shown (with Settings → General → Debug on), it's drawn shifted to the middle: as
+	// its shadow, set here rather than through a custom property, as WebKit keeps custom property values given this
+	// way (hundreds of MB over a long OCR session).
 	// Measured unscaled: the container may still be scaled to the window since its last reading (the
 	// rects include that), until the caller scales it for these lines.
 	const transform = container.style.transform;
@@ -724,6 +728,6 @@ export function renderLines(container, lines) {
 	spans.forEach(({ span, length, vertical }, index) => {
 		const spacing = length - lengths[index];
 		span.style.letterSpacing = `${spacing}px`;
-		span.style.setProperty(vertical ? '--center-y' : '--center-x', `${spacing / 2}px`);
+		span.style.textShadow = vertical ? `0 ${spacing / 2}px 0 currentColor` : `${spacing / 2}px 0 0 currentColor`;
 	});
 }

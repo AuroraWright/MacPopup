@@ -10,9 +10,12 @@ struct SettingsActions {
     var selectOCRWindow: () -> Void
     var importYomitan: () -> Void
     var importTexthooker: () -> Void
+    var importBackup: () -> Void
+    var exportBackup: () -> Void
     var resetAll: () -> Void
     var loadModels: (ConvertedModelsKind) -> Void
     var removeModels: (ConvertedModelsKind) -> Void
+    var clearTranscripts: () -> Void
 }
 
 struct SettingsView: View {
@@ -29,12 +32,20 @@ struct SettingsView: View {
                 }
                 .listStyle(.sidebar)
                 VStack(alignment: .leading, spacing: 6) {
+                    // The same width: the sidebar's, with the titles on the left, where a menu draws its own.
                     Menu("Import") {
                         Button("Yomitan Settings…", action: actions.importYomitan)
                         Button("texthooker-ui Settings…", action: actions.importTexthooker)
+                        Divider()
+                        Button("MacPopup Settings…", action: actions.importBackup)
                     }
-                    .help("Import a settings backup file from Yomitan (Settings → Backup → Export Settings) or texthooker-ui.")
-                    Button("Reset All…", role: .destructive, action: actions.resetAll)
+                    .frame(maxWidth: .infinity)
+                    .help("Import settings from Yomitan, texthooker-ui or a MacPopup settings file.")
+                    Button(action: actions.exportBackup) { Text("Export…").frame(maxWidth: .infinity, alignment: .leading) }
+                        .help("Save all settings to a file.")
+                    Button(role: .destructive, action: actions.resetAll) {
+                        Text("Reset All…").frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -58,12 +69,16 @@ private struct SectionForm: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var recorder: ScanInputRecorder
     let actions: SettingsActions
+    @ObservedObject private var yomitan = YomitanAPIStatus.shared
 
     var body: some View {
         Form {
             Section {
                 ForEach(section.fields.filter { $0.showIf?(model.values) ?? true }) { field in
+                    let fromYomitan = isFromYomitan(field)
                     FieldRow(field: field, model: model, recorder: recorder, actions: actions)
+                        .disabled(fromYomitan)
+                        .environment(\.settingsFieldNote, fromYomitan ? "Controlled by your Yomitan settings." : nil)
                 }
             } header: {
                 VStack(alignment: .leading, spacing: 4) {
@@ -76,6 +91,25 @@ private struct SectionForm: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// A setting the Yomitan profile gives (see SettingsSchema.yomitanDisplayKeys).
+    private func isFromYomitan(_ field: SettingsField) -> Bool {
+        guard yomitan.givesProfile else { return false }
+        return SettingsSchema.yomitanDictionaryKeys.contains(field.key)
+            || (model.values["useYomitanDisplay"] as? Bool == true && SettingsSchema.yomitanDisplayKeys.contains(field.key))
+    }
+}
+
+/// A line under a field's hint, if any.
+private struct SettingsFieldNoteKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    fileprivate var settingsFieldNote: String? {
+        get { self[SettingsFieldNoteKey.self] }
+        set { self[SettingsFieldNoteKey.self] = newValue }
     }
 }
 
@@ -111,12 +145,16 @@ struct HeaderDescription: NSViewRepresentable {
 
 private struct FieldLabel: View {
     let field: SettingsField
+    @Environment(\.settingsFieldNote) private var note
 
     var body: some View {
         let label = VStack(alignment: .leading, spacing: 2) {
             Text(field.label)
             if let hint = field.hint {
                 Text(hint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if let note {
+                Text(note).font(.caption.italic()).foregroundStyle(.secondary)
             }
         }
         if let optionClick = field.optionClick {
@@ -276,6 +314,12 @@ private struct FieldRow: View {
         case .iinaPlugin:
             LabeledContent {
                 InstallIINAPluginButton()
+            } label: {
+                FieldLabel(field: field)
+            }
+        case .iinaTranscripts:
+            LabeledContent {
+                VideoTranscriptsControl(clear: actions.clearTranscripts)
             } label: {
                 FieldLabel(field: field)
             }
@@ -439,7 +483,7 @@ private struct DisplayPicker<Label: View>: View {
     var body: some View {
         LabeledContent {
             SteadyMenu(labels: displays + [disconnected]) {
-                Picker("Display", selection: Binding(get: { index }, set: commit)) {
+                Picker("Display", selection: Binding(get: { index }, set: { commit($0) })) {
                     ForEach(displays.indices, id: \.self) { Text(displays[$0]).tag($0) }
                     // Kept until another is chosen: the overlay goes back to it when it's connected again.
                     if !displays.indices.contains(index) {
@@ -527,7 +571,11 @@ private struct ConvertedModelsControl: View {
             ZStack(alignment: .trailing) {
                 loaded.hidden()
                 notLoaded.hidden()
-                if let converted = models.converted {
+                loading.hidden()
+                if models.busy {
+                    // Speech models can take up to 3 minutes the first time, while Core ML prepares them.
+                    loading
+                } else if let converted = models.converted {
                     loaded.help("Converted \(converted.formatted(date: .abbreviated, time: .shortened))")
                 } else {
                     notLoaded
@@ -544,6 +592,13 @@ private struct ConvertedModelsControl: View {
 
     private var notLoaded: some View {
         Label("Not loaded", systemImage: "exclamationmark.circle.fill").foregroundStyle(.orange)
+    }
+
+    private var loading: some View {
+        HStack(spacing: 4) {
+            ProgressView().controlSize(.small)
+            Text("Working…")
+        }
     }
 }
 
@@ -583,7 +638,7 @@ private struct AnkiFieldPicker<Label: View>: View {
     private func picker(_ fields: [String]) -> some View {
         LabeledContent {
             SteadyMenu(labels: fields + ["Choose a field", "\(name) (not found)"]) {
-                Picker("Field", selection: Binding(get: { name }, set: commit)) {
+                Picker("Field", selection: Binding(get: { name }, set: { commit($0) })) {
                     if name.isEmpty { Text("Choose a field").tag("") }
                     ForEach(fields, id: \.self) { Text($0).tag($0) }
                     // Kept until another is chosen.
@@ -759,10 +814,11 @@ private enum FontEffects {
 /// Receives the Fonts panel's changes for a FontControl: the typeface and size (changeFont) and the effects
 /// (changeAttributes) as NSFontManager's target, and the background color (changeDocumentBackgroundColor), which
 /// goes to the key window's responder chain, from right after the window.
-@MainActor
+///
 /// One for the Settings window, closed with it or when another section is shown: not with the Font row, which the form
 /// unloads when it's scrolled out of view. (Never freed, as the Settings window's responder chain points to it while
 /// the panel is open.)
+@MainActor
 final class FontPanelTarget: NSResponder, NSFontChanging {
     static let shared = FontPanelTarget()
 
@@ -1052,7 +1108,7 @@ private struct NumberField: View {
     let commit: (Any) -> Void
 
     var body: some View {
-        TextField("", value: Binding(get: { value }, set: save), format: .number.grouping(.never).precision(.fractionLength(0...(decimals ? 3 : 0))))
+        TextField("", value: Binding(get: { value }, set: { save($0) }), format: .number.grouping(.never).precision(.fractionLength(0...(decimals ? 3 : 0))))
             .labelsHidden()
             .multilineTextAlignment(.trailing)
             .frame(width: 90)
@@ -1333,6 +1389,58 @@ private struct InstallIINAPluginButton: View {
                 .fixedSize()
                 .padding()
         }
+    }
+}
+
+/// The transcripts of IINA's videos kept (VideoTranscriber), looked up again as they change while they're shown.
+@MainActor
+final class VideoTranscripts: ObservableObject {
+    static let shared = VideoTranscripts()
+    @Published private(set) var kept: (videos: Int, bytes: Int64)?
+    private var shown = 0
+
+    private init() {
+        NotificationCenter.default.addObserver(forName: VideoTranscriber.transcriptsChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.shown > 0 else { return }
+                self.refresh()
+            }
+        }
+    }
+
+    func appeared() {
+        shown += 1
+        refresh()
+    }
+
+    func disappeared() {
+        shown -= 1
+    }
+
+    private func refresh() {
+        Task {
+            let kept = await Task.detached { VideoTranscriber.kept() }.value
+            self.kept = kept
+        }
+    }
+}
+
+/// How many videos' transcripts are kept and their size, with a button to clear them.
+private struct VideoTranscriptsControl: View {
+    let clear: () -> Void
+    @ObservedObject private var transcripts = VideoTranscripts.shared
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let kept = transcripts.kept {
+                Text(kept.videos == 0 ? "None"
+                    : "\(kept.videos) \(kept.videos == 1 ? "video" : "videos"), \(ByteCountFormatter.string(fromByteCount: kept.bytes, countStyle: .file))")
+                    .foregroundStyle(.secondary)
+            }
+            Button("Clear…", action: clear).disabled((transcripts.kept?.videos ?? 0) == 0)
+        }
+        .onAppear { transcripts.appeared() }
+        .onDisappear { transcripts.disappeared() }
     }
 }
 
@@ -2096,6 +2204,9 @@ private struct HotkeysControl: View {
         }
         if SentenceAudioController.isEnabled(model.values), Set(model["sentenceAudioButtons"] as? [String] ?? []) == buttons {
             return "Anki Audio already uses these buttons, so it takes priority."
+        }
+        if Set(model["overlayHideButtons"] as? [String] ?? []) == buttons {
+            return "The overlay hide key/buttons already use these buttons, so they take priority."
         }
         if Set(model["overlaySwitchButtons"] as? [String] ?? []) == buttons {
             return "The overlay switch already uses these buttons, so it takes priority."

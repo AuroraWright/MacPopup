@@ -140,7 +140,7 @@ public final class MeikiOCR: @unchecked Sendable {
         var lines = [RecognizedLine?](repeating: nil, count: boxes.count)
         var failure: Error?
         let lock = NSLock()
-        DispatchQueue.concurrentPerform(iterations: min(concurrentLines, boxes.count)) { worker in
+        DispatchQueue.concurrentPerform(iterations: min(concurrentLines, boxes.count)) { [boxes] worker in
             for index in stride(from: worker, to: boxes.count, by: concurrentLines) {
                 let box = boxes[index]
                 let vertical = box.height > box.width

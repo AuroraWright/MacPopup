@@ -120,6 +120,11 @@ body {
 	opacity: 1;
 }
 
+/* A stretch of speech's words while it's heard ("Show words as they're heard"), until its line replaces it. */
+#lines .live-line {
+	opacity: 0.7;
+}
+
 #box-buttons .header-button.pointer-hover {
 	color: hsl(var(--p));
 }
@@ -187,10 +192,13 @@ body {
 	color: rgb(255 80 80 / 0.7);
 }
 
-/* The glyph in the middle of its box (see renderLines), without moving the text that's hovered. */
+/* The glyph in the middle of its box (its shadow, see renderLines), without moving the text that's hovered. */
 #ocr-layer.show-boxes .ocr-char {
 	-webkit-text-fill-color: transparent;
-	text-shadow: var(--center-x, 0) var(--center-y, 0) 0 currentColor;
+}
+
+#ocr-layer:not(.show-boxes) .ocr-char {
+	text-shadow: none !important;
 }
 
 #ocr-toast {

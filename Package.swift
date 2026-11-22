@@ -9,6 +9,10 @@ let package = Package(
         .library(name: "OCREngines", targets: ["OCREngines"]),
         .library(name: "LiveText", targets: ["LiveText"]),
     ],
+    dependencies: [
+        // WhisperKit, for the Whisper speech recognition models (Settings → Transcription).
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", exact: "1.1.1"),
+    ],
     targets: [
         .target(
             name: "LiveText",
@@ -35,11 +39,7 @@ let package = Package(
         // oneocr (the Windows Snipping Tool's OCR), ported to Swift; models converted by scripts/convert-oneocr.py.
         .target(
             name: "OneOCRKernels",
-            path: "Sources/OneOCRKernels",
-            // iOS builds default to the A7's instruction set, without the dot product instructions the kernels use. The
-            // iOS app's oldest device is the iPhone 13 mini (A15); the A14 is the Apple Silicon Mac's core, for the
-            // simulator.
-            cSettings: [.unsafeFlags(["-mcpu=apple-a14"], .when(platforms: [.iOS]))]
+            path: "Sources/OneOCRKernels"
         ),
         .target(
             name: "OneOCR",
@@ -70,6 +70,44 @@ let package = Package(
             dependencies: ["ScreenAI", "OneOCR", "CurlImpersonate", "OCRLineCache"],
             path: "Sources/OCREngines"
         ),
+        // Speech recognition for the Floating Window's "Read text from audio": models converted or packed by
+        // scripts/convert-{whisper,anime-whisper,kitsune,sensevoice,parakeet,sat}.py, loaded like the OCR engines' (ConvertedModels).
+        .target(
+            name: "Transcription",
+            dependencies: ["OCREngines", "SODA", .product(name: "WhisperKit", package: "argmax-oss-swift")],
+            path: "Sources/Transcription",
+            // Accelerate's current CBLAS interface (the old one is deprecated; the same results).
+            swiftSettings: [.unsafeFlags(["-Xcc", "-DACCELERATE_NEW_LAPACK"])]
+        ),
+        // Chrome's on-device speech recognition (SODA, Live Caption) as opensoda reimplements it, the packs' models run
+        // by a small TFLite interpreter with libsoda's kernels' arithmetic (the int8 ones in SODAKernels).
+        .target(
+            name: "SODAKernels",
+            path: "Sources/SODAKernels",
+            // No fused multiply-adds the source doesn't ask for: the float results must match TFLite's bit for bit.
+            cSettings: [.unsafeFlags(["-ffp-contract=off"]),
+                        .unsafeFlags(["-mcpu=apple-a14"], .when(platforms: [.iOS]))]
+        ),
+        .target(
+            name: "SODA",
+            dependencies: ["SODAKernels"],
+            path: "Sources/SODA",
+            // soda-cli reaches the stages' internals with @testable import. Accelerate's current CBLAS interface (the old
+            // one is deprecated; the same results).
+            swiftSettings: [.unsafeFlags(["-enable-testing", "-Xcc", "-DACCELERATE_NEW_LAPACK"])]
+        ),
+        // Runs SODA's stages on audio files (for checking the port against opensoda).
+        .executableTarget(
+            name: "soda-cli",
+            dependencies: ["SODA"],
+            path: "Sources/SODACLI"
+        ),
+        // Transcribes audio files (for checking the recognizers against the Python ones).
+        .executableTarget(
+            name: "transcribe-cli",
+            dependencies: ["OCREngines", "Transcription"],
+            path: "Sources/TranscribeCLI"
+        ),
         // What MacPopup and its pause helper say to each other over XPC.
         .target(
             name: "PauseHelperInterface",
@@ -84,7 +122,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "MacPopup",
-            dependencies: ["LiveText", "OCREngines", "PauseHelperInterface"],
+            dependencies: ["LiveText", "OCREngines", "PauseHelperInterface", "Transcription"],
             path: "Sources/MacPopup"
         ),
     ]

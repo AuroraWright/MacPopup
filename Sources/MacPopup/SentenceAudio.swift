@@ -1,6 +1,8 @@
 import AppKit
 import AVFoundation
+import OCREngines
 import SoundAnalysis
+import Transcription
 
 /// Adds a game's voice line to the sentence audio of cards added from a popup (Settings → Anki Audio). A shortcut takes
 /// the voice of the newest card's line from the last few minutes of the game's audio. With Visual novel backlog
@@ -49,7 +51,7 @@ final class SentenceAudioController {
     /// The cards the recording goes to.
     private var cards: Cards?
     /// MACPOPUP_TEST_AUDIO_FILE: a sound file played in place of the game's audio (for test runs).
-    private let testFile = ProcessInfo.processInfo.environment["MACPOPUP_TEST_AUDIO_FILE"]
+    private let testFile = DevelopmentEnvironment["MACPOPUP_TEST_AUDIO_FILE"]
     private let history = AudioHistory()
     /// The lines shown in the last few minutes, oldest first (see ShownLines for their ids).
     private var lines: [LineTimes] = []
@@ -62,6 +64,9 @@ final class SentenceAudioController {
         var shown: Double
         /// The earliest its voice may have started: shortly before it was shown, or before OCR saw the text change.
         var start: Double
+        /// Transcribed from the audio ("Read text from audio"): its times are where its voice and the next line's start,
+        /// so the next line can't have cut its voice off.
+        var transcribed: Bool
     }
 
     init(overlay: OverlayController) {
@@ -129,8 +134,8 @@ final class SentenceAudioController {
     }
 
     /// The line with `id` (see ShownLines) was shown in the text box or read by OCR, `age` seconds ago: a new line
-    /// (`isNew`), or the last one again.
-    func noteLine(id: Int, isNew: Bool, text: String, age: Double) {
+    /// (`isNew`), or the last one again. `transcribed`: from "Read text from audio".
+    func noteLine(id: Int, isNew: Bool, text: String, age: Double, transcribed: Bool) {
         let minutes = historyMinutes
         guard minutes > 0 else { return }
         let now = GameClock.now
@@ -142,9 +147,10 @@ final class SentenceAudioController {
             guard let index = lines.lastIndex(where: { $0.id == id }) else { return }
             lines[index].shown = min(lines[index].shown, shown)
             lines[index].start = min(lines[index].start, start)
+            lines[index].transcribed = lines[index].transcribed || transcribed
         } else {
             sentenceAudioLog(String(format: "line shown %.2f s ago (line %d): %@", now - shown, id, text))
-            lines.append(LineTimes(id: id, shown: shown, start: start))
+            lines.append(LineTimes(id: id, shown: shown, start: start, transcribed: transcribed))
             lines.removeAll { $0.shown < now - minutes * 60 - 60 }
         }
     }
@@ -185,31 +191,34 @@ final class SentenceAudioController {
             guard let index = lines.firstIndex(where: { $0.id == id }) else { return "This card’s line is older than the kept audio" }
             let now = GameClock.now
             let start = max(lines[index].start, index > 0 ? lines[index - 1].shown : 0)
+            let shownAt = lines[index].shown - start, transcribed = lines[index].transcribed
             let next = index + 1 < lines.count ? lines[index + 1].shown : nil
             let end = min(next ?? now, start + maxLength)
             // Another line followed it, or it has reached the longest a recording can be.
             let ended = next != nil || end < now
             // While the voice goes on, only its last moments are checked, rather than the whole line again.
             if speaking, !ended, let tail = await history.voice(from: max(start, end - pause - 1), to: end),
-               let voice = tail.voice, tail.clip.duration - voice.1 < pause {
+               let voice = tail.voice?.fine, tail.clip.duration - voice.1 < pause {
                 try? await Task.sleep(for: .milliseconds(500))
                 continue
             }
             guard let (clip, voice) = await history.voice(from: start, to: end) else {
                 return "This card’s line is older than the kept audio"
             }
-            let shownAt = lines[index].shown - start
             let span = String(format: "%.2f s from %.2f s before it was shown", clip.duration, shownAt)
-            if let voice, ended || clip.duration - voice.1 >= pause {
-                sentenceAudioLog(String(format: "history: voice %.2f–%.2f s of \(span)", voice.0, voice.1))
-                if next != nil, voice.1 > clip.duration - 0.35 {
+            // The clip is cut from the coarse placing, which keeps the whole voice; whether the voice ended, and was cut
+            // off, is told from the fine one, which ends nearer where the voice does.
+            if let voice, ended || clip.duration - voice.fine.1 >= pause {
+                sentenceAudioLog(String(format: "history: voice %.2f–%.2f s, finely %.2f–%.2f s, of \(span)", voice.coarse.0,
+                                        voice.coarse.1, voice.fine.0, voice.fine.1))
+                if next != nil, !transcribed, voice.fine.1 > clip.duration - 0.35 {
                     return "The line’s voice was cut off by the next line"
                 }
                 // A voice that starts with the line is kept from the line's start (the clip's), since a soft start is
                 // detected a little late.
                 let clip = clip.trimmed(
-                    voiceFrom: voice.0, to: voice.1, padding: number("sentenceAudioPadding", 500) / 1000,
-                    startingBy: voice.0 < shownAt + 1 ? 0 : .infinity
+                    voiceFrom: voice.coarse.0, to: voice.coarse.1, padding: number("sentenceAudioPadding", 500) / 1000,
+                    startingBy: voice.coarse.0 < shownAt + 1 ? 0 : .infinity
                 )
                 await addClip(clip, cards: cards)
                 return nil
@@ -378,7 +387,7 @@ final class SentenceAudioController {
         if switched || string("sentenceAudioApp", "captured") == "none" {
             try? await Task.sleep(for: .milliseconds(Int(number("sentenceAudioKeyDelay", 1000))))
         }
-        guard AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary) else {
+        guard Permission.askForAccessibility() else {
             showToast("Allow MacPopup in System Settings → Privacy & Security → Accessibility to press keys")
             return
         }
@@ -677,11 +686,9 @@ final class AudioRecording: NSObject, @unchecked Sendable {
             let all = AudioClip(format: format, buffers: buffers)
             if detectsVoice, let voiceStart {
                 // Without the end of the voice (stopped early), up to the end of the recording.
-                let coarse = (voiceStart, voiceEnd ?? all.duration)
-                let fine = VoiceDetector.refine(all, start: coarse.0, end: coarse.1)
-                sentenceAudioLog(String(format: "voice %.2f–%.2fs, finely %.2f–%.2fs, of %.2fs", coarse.0, coarse.1, fine?.0 ?? -1, fine?.1 ?? -1, all.duration))
-                let range = fine ?? coarse
-                clip = all.trimmed(voiceFrom: range.0, to: range.1, padding: padding)
+                let voice = (voiceStart, voiceEnd ?? all.duration)
+                sentenceAudioLog(String(format: "voice %.2f–%.2fs of %.2fs", voice.0, voice.1, all.duration))
+                clip = all.trimmed(voiceFrom: voice.0, to: voice.1, padding: padding)
             } else if !detectsVoice || detector == nil {
                 clip = all
             }
@@ -693,178 +700,5 @@ final class AudioRecording: NSObject, @unchecked Sendable {
             silent: frames > 0 && !heardSound
         )
         DispatchQueue.main.async { self.onEnd?(result) }
-    }
-}
-
-/// Finds speech with Apple's sound classifier.
-final class VoiceDetector: NSObject, SNResultsObserving {
-    /// The classifier's labels that are a voice.
-    private static let voiceLabels = ["speech", "shout", "yell", "whispering", "laughter"]
-    private static let threshold = 0.5
-
-    private let analyzer: SNAudioStreamAnalyzer
-    private let onResult: (CMTimeRange, Bool) -> Void
-
-    /// - Parameters:
-    ///   - window: How long each classified stretch is, in seconds (at least 0.5).
-    ///   - overlap: How much of each stretch the next one repeats, so results come every
-    ///     `window * (1 - overlap)` seconds.
-    init(format: AVAudioFormat, window: Double = 1, overlap: Double = 0.75, onResult: @escaping (CMTimeRange, Bool) -> Void) throws {
-        analyzer = SNAudioStreamAnalyzer(format: format)
-        self.onResult = onResult
-        super.init()
-        let request = try SNClassifySoundRequest(classifierIdentifier: .version1)
-        request.windowDuration = CMTime(seconds: window, preferredTimescale: 1000)
-        request.overlapFactor = overlap
-        try analyzer.add(request, withObserver: self)
-    }
-
-    /// Where the voice is in `clip`, from the first stretch of speech to the last, with the edges refined (see refine).
-    static func find(in clip: AudioClip) -> (Double, Double)? {
-        var coarse: (Double, Double)?
-        guard let detector = try? VoiceDetector(format: clip.format, onResult: { range, isSpeech in
-            guard isSpeech else { return }
-            coarse = (min(coarse?.0 ?? range.start.seconds, range.start.seconds), max(coarse?.1 ?? 0, range.end.seconds))
-        }) else { return nil }
-        var position: AVAudioFramePosition = 0
-        for buffer in clip.buffers {
-            detector.analyze(buffer, at: position)
-            position += AVAudioFramePosition(buffer.frameLength)
-        }
-        detector.finish()
-        guard let coarse else { return nil }
-        return refine(clip, start: coarse.0, end: min(coarse.1, clip.duration)) ?? coarse
-    }
-
-    /// Where the voice is in `clip` between about `start` and `end` (from a coarse pass), placed more
-    /// finely with short stretches: from the middle of the first one with speech to the middle of the
-    /// last one.
-    static func refine(_ clip: AudioClip, start: Double, end: Double) -> (Double, Double)? {
-        let from = max(0, start - 0.5), to = min(clip.duration, end + 0.5)
-        var found: (Double, Double)?
-        guard let detector = try? VoiceDetector(format: clip.format, window: 0.5, overlap: 0.9, onResult: { range, isSpeech in
-            guard isSpeech else { return }
-            let middle = from + (range.start.seconds + range.end.seconds) / 2
-            found = (min(found?.0 ?? middle, middle), max(found?.1 ?? middle, middle))
-        }) else { return nil }
-        var position: AVAudioFramePosition = 0
-        for buffer in clip.slice(from: from, to: to).buffers {
-            detector.analyze(buffer, at: position)
-            position += AVAudioFramePosition(buffer.frameLength)
-        }
-        detector.finish()
-        return found
-    }
-
-    /// Called on the recording's queue, in order.
-    func analyze(_ buffer: AVAudioPCMBuffer, at position: AVAudioFramePosition) {
-        analyzer.analyze(buffer, atAudioFramePosition: position)
-    }
-
-    func finish() {
-        analyzer.completeAnalysis()
-    }
-
-    func request(_ request: SNRequest, didProduce result: SNResult) {
-        guard let result = result as? SNClassificationResult else { return }
-        let confidence = Self.voiceLabels.compactMap { result.classification(forIdentifier: $0)?.confidence }.max() ?? 0
-        onResult(result.timeRange, confidence >= Self.threshold)
-    }
-}
-
-/// Recorded audio, kept in memory.
-struct AudioClip {
-    let format: AVAudioFormat
-    let buffers: [AVAudioPCMBuffer]
-
-    var frameCount: Int { buffers.reduce(0) { $0 + Int($1.frameLength) } }
-    var duration: Double { Double(frameCount) / format.sampleRate }
-
-    /// The voice found between `start` and `end`, with `padding` seconds on each side, starting no later than `latest`.
-    /// When the voice is clearly louder than the background (well above the music), its ends are first tightened to
-    /// where it stands out.
-    func trimmed(voiceFrom start: Double, to end: Double, padding: Double, startingBy latest: Double = .infinity) -> AudioClip {
-        let padded = { (from: Double, to: Double) in
-            self.slice(from: max(0, min(from - padding, latest)), to: min(self.duration, to + padding))
-        }
-        let step = 0.02
-        let levels = rmsLevels(window: Int(format.sampleRate * step))
-        let startIndex = max(0, Int(start / step)), endIndex = min(levels.count, Int(ceil(end / step)))
-        guard startIndex < endIndex else { return padded(start, end) }
-        // The quiet level: the 20th percentile of the whole recording.
-        let quiet = levels.sorted()[levels.count / 5]
-        let loud = max(quiet * 3.16, 0.003) // 10 dB above, and above about -50 dBFS
-        let voiced = (startIndex..<endIndex).filter { levels[$0] > loud }
-        guard let first = voiced.first, let last = voiced.last else { return padded(start, end) }
-        return padded(Double(first) * step, Double(last + 1) * step)
-    }
-
-    /// Root mean square of each `window` frames, over all channels.
-    private func rmsLevels(window: Int) -> [Float] {
-        var levels: [Float] = []
-        var sum: Float = 0
-        var count = 0
-        for buffer in buffers {
-            guard let channels = buffer.floatChannelData else { continue }
-            let channelCount = Int(buffer.format.channelCount)
-            for frame in 0..<Int(buffer.frameLength) {
-                for channel in 0..<channelCount {
-                    let sample = channels[channel][frame]
-                    sum += sample * sample
-                }
-                count += 1
-                if count == window {
-                    levels.append(sqrt(sum / Float(window * channelCount)))
-                    sum = 0
-                    count = 0
-                }
-            }
-        }
-        return levels
-    }
-
-    func slice(from start: Double, to end: Double) -> AudioClip {
-        let first = AVAudioFramePosition(start * format.sampleRate), last = AVAudioFramePosition(end * format.sampleRate)
-        var result: [AVAudioPCMBuffer] = []
-        var position: AVAudioFramePosition = 0
-        for buffer in buffers {
-            let length = AVAudioFramePosition(buffer.frameLength)
-            defer { position += length }
-            let from = max(first, position), to = min(last, position + length)
-            guard from < to, let part = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(to - from)),
-                  let source = buffer.floatChannelData, let target = part.floatChannelData else { continue }
-            part.frameLength = AVAudioFrameCount(to - from)
-            for channel in 0..<Int(format.channelCount) {
-                (target[channel]).update(from: source[channel] + Int(from - position), count: Int(to - from))
-            }
-            result.append(part)
-        }
-        return AudioClip(format: format, buffers: result)
-    }
-
-    /// Writes AAC in an .m4a file: mono or stereo (the first two channels of an input with more).
-    func write(to url: URL) throws {
-        let channels = min(format.channelCount, 2)
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: format.sampleRate,
-            AVNumberOfChannelsKey: channels,
-            AVEncoderBitRateKey: 64_000 * Int(channels),
-        ]
-        let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
-        guard let fileFormat = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: channels) else { return }
-        for buffer in buffers {
-            guard channels != format.channelCount else {
-                try file.write(from: buffer)
-                continue
-            }
-            guard let part = AVAudioPCMBuffer(pcmFormat: fileFormat, frameCapacity: buffer.frameLength),
-                  let source = buffer.floatChannelData, let target = part.floatChannelData else { continue }
-            part.frameLength = buffer.frameLength
-            for channel in 0..<Int(channels) {
-                target[channel].update(from: source[channel], count: Int(buffer.frameLength))
-            }
-            try file.write(from: part)
-        }
     }
 }

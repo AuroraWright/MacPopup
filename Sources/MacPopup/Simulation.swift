@@ -1,3 +1,4 @@
+import Accelerate
 import AppKit
 import AVFoundation
 import CryptoKit
@@ -34,7 +35,7 @@ enum OCRClock {
 /// OCRController.checkInput). Before each wait the page handles what it was sent (with the page's clock at the time it
 /// was sent: see scratch-tools/sim/sim-page.js). The app quits 4 seconds after the end.
 final class Simulation: @unchecked Sendable {
-    static let shared = Simulation(ProcessInfo.processInfo.environment)
+    static let shared = Simulation(DevelopmentEnvironment.all)
 
     private let lock = NSLock()
     /// The simulated time, in whole nanoseconds since `base` (a whole second), and when the recording started (on a
@@ -44,11 +45,9 @@ final class Simulation: @unchecked Sendable {
     private var movieStart: Int64?
     private let movie: URL, from: Double, to: Double, logURL: URL, cacheURL: URL
     private let captureTime: Double, readingCaptureTime: Double, framesPerSecond: Double
-    private var reader: AVAssetReader?
-    private var output: AVAssetReaderTrackOutput?
+    private var frames: Frames?
     private var movieSize = CGSize.zero
-    private var current: (time: Double, pixels: CVPixelBuffer)?
-    private var upcoming: (time: Double, pixels: CVPixelBuffer)?
+    private var current: Frames.Frame?
     /// Readings by engine and picture (see recognize), with how long they took (ms).
     private var cache: [String: (lines: [RecognizedLine], ms: Double)] = [:]
     /// The page, waited for before each wait (see sleep).
@@ -107,10 +106,7 @@ final class Simulation: @unchecked Sendable {
         if lock.withLock({ movieStart }) == nil { start() }
         // As a stream's latest picture, sent at most `framesPerSecond` times a second.
         let movieTime = lock.withLock { Double((nanoseconds - movieStart!) * Int64(framesPerSecond) / 1_000_000_000) / framesPerSecond + from }
-        guard let pixels = frame(at: movieTime) else { return nil }
-        var frame: CGImage?
-        VTCreateCGImageFromCVPixelBuffer(pixels, options: nil, imageOut: &frame)
-        guard let frame, let context = CGContext(
+        guard let frame = frame(at: movieTime), let context = CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         ) else { return nil }
@@ -147,17 +143,16 @@ final class Simulation: @unchecked Sendable {
 
     private func start() {
         let asset = AVURLAsset(url: movie)
-        guard let reader = try? AVAssetReader(asset: asset), let track = asset.tracks(withMediaType: .video).first else {
+        guard let reader = try? AVAssetReader(asset: asset), let (track, size) = Self.videoTrack(of: asset) else {
             FileHandle.standardError.write("simulation: can't read \(movie.path)\n".data(using: .utf8)!)
             exit(1)
         }
-        movieSize = track.naturalSize
+        movieSize = size
         reader.timeRange = CMTimeRange(start: CMTime(seconds: from, preferredTimescale: 600), end: CMTime(seconds: to + 5, preferredTimescale: 600))
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
         reader.add(output)
         reader.startReading()
-        self.reader = reader
-        self.output = output
+        frames = Frames(reader: reader, output: output, from: from, framesPerSecond: framesPerSecond)
         let started = lock.withLock {
             nanoseconds = (nanoseconds / 1_000_000_000 + 1) * 1_000_000_000
             movieStart = nanoseconds
@@ -166,17 +161,28 @@ final class Simulation: @unchecked Sendable {
         try? String(format: "start %.3f %.3f\n", started, from).write(to: logURL, atomically: true, encoding: .utf8)
     }
 
-    /// The movie's frame on screen at `movieTime`.
-    private func frame(at movieTime: Double) -> CVPixelBuffer? {
-        while true {
-            if upcoming == nil, let buffer = output?.copyNextSampleBuffer(), let pixels = CMSampleBufferGetImageBuffer(buffer) {
-                upcoming = (CMSampleBufferGetPresentationTimeStamp(buffer).seconds, pixels)
+    /// The movie's video track and its size, which AVFoundation now only loads asynchronously. Waited for, so that
+    /// nothing else moves the simulated clock before the recording starts (it starts at the same time in each run).
+    private static func videoTrack(of asset: AVURLAsset) -> (AVAssetTrack, CGSize)? {
+        let loaded = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var result: (AVAssetTrack, CGSize)?
+        Task.detached {
+            if let track = try? await asset.loadTracks(withMediaType: .video).first, let size = try? await track.load(.naturalSize) {
+                result = (track, size)
             }
-            guard let next = upcoming, next.time <= movieTime || current == nil else { break }
-            current = next
-            upcoming = nil
+            loaded.signal()
         }
-        return current?.pixels
+        loaded.wait()
+        return result
+    }
+
+    /// The movie's frame on screen at `movieTime`: the last one by then (the first before that).
+    private func frame(at movieTime: Double) -> CGImage? {
+        while let next = frames?.next(), next.time <= movieTime || current == nil {
+            current = next
+            frames?.removeNext()
+        }
+        return current?.image
     }
 
     @MainActor private func finish() {
@@ -185,18 +191,20 @@ final class Simulation: @unchecked Sendable {
         exit(0)
     }
 
-    /// The image's pixels as drawn in one format (whatever it was made from), hashed.
+    /// The image's pixels in one format (RGBA, premultiplied, device RGB; whatever it was made from), hashed. vImage
+    /// gives the same bytes as drawing it into that format, faster.
     private static func hash(_ image: CGImage) -> String {
-        let bytesPerRow = image.width * 4
-        var data = Data(count: bytesPerRow * image.height)
-        data.withUnsafeMutableBytes { bytes in
-            let context = CGContext(
-                data: bytes.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: bytesPerRow,
-                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            )
-            context?.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let format = vImage_CGImageFormat(
+            bitsPerComponent: 8, bitsPerPixel: 32, colorSpace: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        )!
+        guard let buffer = try? vImage_Buffer(cgImage: image, format: format) else { return "\(image.width)x\(image.height) ?" }
+        defer { buffer.free() }
+        var hasher = SHA256()
+        for row in 0..<image.height {
+            hasher.update(bufferPointer: UnsafeRawBufferPointer(start: buffer.data + row * buffer.rowBytes, count: image.width * 4))
         }
-        return "\(image.width)x\(image.height) " + SHA256.hash(data: data).prefix(16).map { String(format: "%02x", $0) }.joined()
+        return "\(image.width)x\(image.height) " + hasher.finalize().prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
     private func loadCache() {
@@ -232,5 +240,88 @@ final class Simulation: @unchecked Sendable {
         let numbers = (value as? [Any] ?? []).map { ($0 as? NSNumber)?.doubleValue ?? 0 }
         guard numbers.count == 4 else { return .zero }
         return CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3])
+    }
+}
+
+/// A simulation's movie frames, decoded ahead on a thread of their own and turned into the captures' color space (device
+/// RGB) with vImage once each, rather than by each capture drawing them (the same pixels). Only the frames a capture can
+/// show are kept: the first, and the last one before each of the stream's times (every 1/framesPerSecond seconds from
+/// `from`; see Simulation.capture). At most `ahead` wait at a time.
+private final class Frames: @unchecked Sendable {
+    struct Frame {
+        let time: Double
+        let image: CGImage
+    }
+
+    private static let ahead = 6
+    private let condition = NSCondition()
+    private var ready: [Frame] = []
+    private var finished = false
+
+    init(reader: AVAssetReader, output: AVAssetReaderTrackOutput, from: Double, framesPerSecond: Double) {
+        nonisolated(unsafe) let (reader, output) = (reader, output)
+        Thread.detachNewThread { [self] in
+            decode(output, from: from, framesPerSecond: framesPerSecond)
+            withExtendedLifetime(reader) {}
+        }
+    }
+
+    /// The next frame, once it's ready; nil after the last.
+    func next() -> Frame? {
+        condition.lock()
+        defer { condition.unlock() }
+        while ready.isEmpty && !finished { condition.wait() }
+        return ready.first
+    }
+
+    func removeNext() {
+        condition.lock()
+        ready.removeFirst()
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    private func decode(_ output: AVAssetReaderTrackOutput, from: Double, framesPerSecond: Double) {
+        var converter: (vImageConverter, vImage_CGImageFormat, vImage_CGImageFormat)?
+        var previous: (time: Double, pixels: CVPixelBuffer)?
+        var isFirst = true
+        // The next of the stream's times, from + stream / framesPerSecond (as Simulation.capture works it out).
+        var stream = 0
+        func keep(_ time: Double, _ pixels: CVPixelBuffer) {
+            var made: CGImage?
+            VTCreateCGImageFromCVPixelBuffer(pixels, options: nil, imageOut: &made)
+            guard let frame = made else { return }
+            if converter == nil, let source = vImage_CGImageFormat(cgImage: frame), let target = vImage_CGImageFormat(
+                bitsPerComponent: 8, bitsPerPixel: 32, colorSpace: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+            ), let made = try? vImageConverter.make(sourceFormat: source, destinationFormat: target) {
+                converter = (made, source, target)
+            }
+            guard let (converter, source, target) = converter, let input = try? vImage_Buffer(cgImage: frame, format: source),
+                  var converted = try? vImage_Buffer(width: frame.width, height: frame.height, bitsPerPixel: 32) else { return }
+            defer { input.free(); converted.free() }
+            guard (try? converter.convert(source: input, destination: &converted)) != nil,
+                  let image = try? converted.createCGImage(format: target) else { return }
+            condition.lock()
+            while ready.count >= Self.ahead { condition.wait() }
+            ready.append(Frame(time: time, image: image))
+            condition.broadcast()
+            condition.unlock()
+        }
+        while let buffer = output.copyNextSampleBuffer() {
+            guard let pixels = CMSampleBufferGetImageBuffer(buffer) else { continue }
+            let time = CMSampleBufferGetPresentationTimeStamp(buffer).seconds
+            if let (previousTime, previousPixels) = previous {
+                while Double(stream) / framesPerSecond + from < previousTime { stream += 1 }
+                if isFirst || Double(stream) / framesPerSecond + from < time { keep(previousTime, previousPixels) }
+                isFirst = false
+            }
+            previous = (time, pixels)
+        }
+        if let (time, pixels) = previous { keep(time, pixels) }
+        condition.lock()
+        finished = true
+        condition.broadcast()
+        condition.unlock()
     }
 }

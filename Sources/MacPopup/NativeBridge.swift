@@ -1,4 +1,5 @@
 import AppKit
+import OCREngines
 import WebKit
 
 /// Functionality the bridge needs from the app.
@@ -23,15 +24,19 @@ protocol BridgeHost: AnyObject {
     func pressSentenceAudioShortcut(note: Int64?)
     /// Switches between the OCR overlay and the Floating Window (see OCRController.switchOverlay).
     func switchOverlay(from source: String)
+    /// Hides the overlays or shows them again, as the menu bar's Hide Overlays.
+    func toggleOverlayVisible(from source: String)
     /// A card was added or overwritten from a popup (see SentenceAudioController.cardAdded).
     func cardAdded(note: Int64, line: Int?, nested: Bool, withAudio: Bool)
     /// Notes a line that was shown, and replies with its id and what the text box does with it (see AppDelegate.noteLine).
-    func noteLine(_ text: String, age: Double, fromOCR: Bool, rows: [String], breaks: Set<Int>) -> [String: Any]
+    func noteLine(_ text: String, age: Double, fromOCR: Bool, transcribed: Bool, replaces: Int?, rows: [String], breaks: Set<Int>) -> [String: Any]
     /// The screenshot taken when the line with id `line` was shown, if there is one (see ScreenshotHistory).
     func bufferedScreenshot(line: Int, format: String, quality: Double, fullResolution: Bool) -> Data?
     func setOverlayCursor(_ cursor: String?)
     /// The WebSocket URLs that are connected, shown on the menu bar icon.
     func setConnectedWebsockets(_ urls: [String])
+    /// What an IINA player window plays, from MacPopup's plugin.
+    func iinaPlayerStatus(_ body: [String: Any])
     /// A request to the Yomitan API worked or failed, for its status on the menu bar icon.
     func reportYomitanAPIRequest(succeeded: Bool)
     func setHotkeys(_ combinations: [KeyCombination]) -> [Bool]
@@ -169,7 +174,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "line":
             return host?.noteLine(
                 body["text"] as? String ?? "", age: (body["age"] as? NSNumber)?.doubleValue ?? 0, fromOCR: body["ocr"] as? Bool ?? false,
-                rows: body["rows"] as? [String] ?? [], breaks: Self.paragraphBreaks(body)
+                transcribed: body["transcribed"] as? Bool ?? false, replaces: (body["replaces"] as? NSNumber)?.intValue, rows: body["rows"] as? [String] ?? [], breaks: Self.paragraphBreaks(body)
             ) ?? [:]
         case "gamePause":
             // A popup opened or closed (see updateGamePause in overlay.js); replies once the game is frozen.
@@ -183,6 +188,10 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
         case "switchOverlay":
             // From the overlay switch's controller buttons (see overlay.js).
             host?.switchOverlay(from: body["from"] as? String ?? "page")
+            return nil
+        case "toggleOverlayVisible":
+            // From the overlay hide buttons (see overlay.js).
+            host?.toggleOverlayVisible(from: body["from"] as? String ?? "page")
             return nil
         case "cardAdded":
             guard let note = (body["note"] as? NSNumber)?.int64Value else { throw AppError("Missing note") }
@@ -219,12 +228,12 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             return nil
         case "debugSnapshot":
             // Development hook, only available together with MACPOPUP_TEST_SCRIPT.
-            guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil,
+            guard DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"] != nil,
                   let path = body["path"] as? String, let host else { throw AppError("Unavailable") }
             try await host.snapshotOverlay().write(to: URL(fileURLWithPath: path))
             return nil
         case "debugMouse":
-            guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
+            guard DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
                 throw AppError("Unavailable")
             }
             host.simulateMouse(
@@ -234,13 +243,16 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             )
             return ["ignoresMouseEvents": host.overlayIgnoresMouseEvents]
         case "debugSentenceAudio":
-            guard ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
+            guard DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
                 throw AppError("Unavailable")
             }
             host.pressSentenceAudioShortcut(note: (body["note"] as? NSNumber)?.int64Value)
             return nil
         case "websockets":
             host?.setConnectedWebsockets(body["connected"] as? [String] ?? [])
+            return nil
+        case "iinaPlayer":
+            host?.iinaPlayerStatus(body)
             return nil
         case "yomitanApiRequest":
             host?.reportYomitanAPIRequest(succeeded: body["succeeded"] as? Bool ?? false)

@@ -8,10 +8,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let model = SettingsModel()
     private let recorder = ScanInputRecorder()
     private let selectOCRWindow: () -> Void
+    private let clearVideoTranscripts: () throws -> Void
     private var window: NSWindow?
 
-    init(selectOCRWindow: @escaping () -> Void) {
+    init(selectOCRWindow: @escaping () -> Void, clearVideoTranscripts: @escaping () throws -> Void) {
         self.selectOCRWindow = selectOCRWindow
+        self.clearVideoTranscripts = clearVideoTranscripts
         super.init()
     }
 
@@ -31,9 +33,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 selectOCRWindow: { [weak self] in self?.selectOCRWindow() },
                 importYomitan: { [weak self] in self?.importYomitan() },
                 importTexthooker: { [weak self] in self?.importTexthooker() },
+                importBackup: { [weak self] in self?.importBackup() },
+                exportBackup: { [weak self] in self?.exportBackup() },
                 resetAll: { [weak self] in self?.resetAll() },
                 loadModels: { [weak self] in self?.loadModels($0) },
-                removeModels: { [weak self] in self?.removeModels($0) }
+                removeModels: { [weak self] in self?.removeModels($0) },
+                clearTranscripts: { [weak self] in self?.clearTranscripts() }
             )
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 820, height: 640),
@@ -92,10 +97,57 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// What Export saves and Import → MacPopup Settings reads: the stored settings, as the web pages save them, with what
+    /// made them.
+    private static let backupFormat = "macpopup-settings"
+
+    private func importBackup() {
+        guard let json = chooseFile(message: "Select a MacPopup settings file to import") else { return }
+        guard let data = json.data(using: .utf8),
+              let backup = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              backup["format"] as? String == Self.backupFormat,
+              let settings = backup["settings"] as? [String: Any] else {
+            inform("Import failed", detail: "This is not a valid MacPopup settings file", style: .warning)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Replace all settings?"
+        alert.informativeText = "Settings not in the file are reset to their defaults."
+        alert.addButton(withTitle: "Replace")
+        alert.addButton(withTitle: "Cancel")
+        guard runModal(alert) == .alertFirstButtonReturn else { return }
+        window?.makeFirstResponder(nil)
+        SettingsStore.shared.update(json: SettingsSupport.encode(settings))
+        inform("Imported \(settings.count) settings.")
+    }
+
+    private func exportBackup() {
+        // Saves a field that's still being edited.
+        window?.makeFirstResponder(nil)
+        let panel = NSSavePanel()
+        panel.message = "Select a folder to export"
+        panel.allowedContentTypes = [.json]
+        let date = Date.now.formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day())
+        panel.nameFieldStringValue = "macpopup-settings-\(date).json"
+        guard runModal(panel) == .OK, let url = panel.url else { return }
+        let info = Bundle.main.infoDictionary ?? [:]
+        let backup: [String: Any] = [
+            "format": Self.backupFormat,
+            "version": info["CFBundleShortVersionString"] as? String ?? "?",
+            "settings": SettingsStore.shared.dictionary,
+        ]
+        do {
+            let data = try JSONSerialization.data(withJSONObject: backup, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: url, options: .atomic)
+        } catch {
+            inform("Export failed", detail: error.localizedDescription, style: .warning)
+        }
+    }
+
     private func resetAll() {
         let alert = NSAlert()
         alert.messageText = "Reset all settings to their defaults?"
-        alert.informativeText = "This includes the OCR window and areas, the scan inputs and everything imported from Yomitan."
+        alert.informativeText = "This operation cannot be undone."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
@@ -146,6 +198,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    private func clearTranscripts() {
+        let alert = NSAlert()
+        alert.messageText = "Clear saved transcriptions?"
+        alert.informativeText = "Videos will be transcribed again."
+        alert.addButton(withTitle: "Clear")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].hasDestructiveAction = true
+        guard runModal(alert) == .alertFirstButtonReturn else { return }
+        do {
+            try clearVideoTranscripts()
+        } catch {
+            inform("Couldn’t clear the transcriptions", detail: error.localizedDescription, style: .warning)
+        }
+    }
+
     private func chooseFile(message: String) -> String? {
         let panel = NSOpenPanel()
         panel.message = message
@@ -189,7 +256,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         return NSApp.runModal(for: alert.window)
     }
 
-    private func runModal(_ panel: NSOpenPanel) -> NSApplication.ModalResponse {
+    private func runModal(_ panel: NSSavePanel) -> NSApplication.ModalResponse {
         guard let window, window.isVisible else { return panel.runModal() }
         panel.beginSheetModal(for: window) { NSApp.stopModal(withCode: $0) }
         return NSApp.runModal(for: panel)

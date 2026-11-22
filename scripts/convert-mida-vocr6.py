@@ -1,8 +1,11 @@
-"""Converts the mida + VOCR6 OCR models (meikipop's "mida + VOCR6 (local)" provider, github.com/rtr46/meikipop pull
-131) to Core ML, into vendor/mida-vocr6:
+"""Converts the mida + VOCR6 OCR models (meikipop's "mida + VOCR6 (local)" provider, github.com/rtr46/meikipop, as of
+commit c5ca5b1) to Core ML, into vendor/mida-vocr6:
 
-- mida (`mida_l_alpha_v0.0.1.onnx`, huggingface.co/rtr46/mida, by meikiocr's author) finds the horizontal text lines.
-- VOCR6.2-L (`VOCR6.2_L_fast.onnx`, github.com/bee-san/vita-vn-ocr, release v0.5.1-onnx.2) reads each line.
+- mida (`mida_l_alpha_v0.0.2.onnx`, huggingface.co/rtr46/mida, by meikiocr's author) finds the text lines, horizontal
+  and vertical.
+- VOCR6.2-L (`VOCR6.2_L_fast.onnx`, github.com/bee-san/vita-vn-ocr, release v0.5.1-onnx.2) reads the horizontal ones.
+- VOCR6-V (`VOCR6_V_fast.onnx`, huggingface.co/rtr46/vocr6: vita-vn-ocr's VOCR6_V_w8.vocr from release
+  v0.4.2-vertical6.1, converted to ONNX with vita-vn-ocr's own converter) reads the vertical ones, turned anticlockwise.
 
 The converted models are checked in, so this only needs running to update them. It needs Python 3.12 (coremltools
 has no native build for newer versions) with the packages below, e.g.:
@@ -11,15 +14,16 @@ has no native build for newer versions) with the packages below, e.g.:
     VIRTUAL_ENV=.venv-mida uv pip install onnx coremltools numpy onnxruntime
     .venv-mida/bin/python scripts/convert-mida-vocr6.py [--models <folder>]
 
-It downloads both models (checked against their SHA-256), unless --models names a folder that has them under their
+It downloads the models (checked against their SHA-256), unless --models names a folder that has them under their
 file names above. The ONNX graphs are rebuilt with coremltools' MIL builder, op by op (see Converter): their shapes
 follow the input's size (the detector's attention and the crops after its upsampling), which tracing through PyTorch
-would make constant. Both stay in 32-bit floats. Each converted model is checked against onnxruntime at a few sizes.
+would make constant. They stay in 32-bit floats. Each converted model is checked against onnxruntime at a few sizes.
 
-The recognizer's last step isn't converted: its "fast" head picks, per frame, whether to score the 5,127 rarer
-characters as well as the 504 common ones (an `If` with NonZero and ScatterND). The Core ML model ends at the 96
-features of each frame, and MidaVOCR6.swift scores them, with the head's weights from VOCR6Head.bin and the rest
-(its gate, the characters) from MidaVOCR6.json.
+The recognizers' last step isn't converted. VOCR6.2-L's "fast" head picks, per frame, whether to score the 5,127 rarer
+characters as well as the 504 common ones (an `If` with NonZero and ScatterND); VOCR6-V's scores all 4,987 of its
+characters. The Core ML models end at the 96 features of each frame, and MidaVOCR6.swift scores them, with the heads'
+weights from VOCR6Head.bin and VOCR6VerticalHead.bin and the rest (L's gate, the characters, the cells' calibration:
+VOCR6-V's own, and pull 131's refit for VOCR6.2-L) from MidaVOCR6.json.
 """
 
 import argparse
@@ -35,11 +39,17 @@ import onnx
 import onnxruntime
 from onnx import helper, numpy_helper
 
-MIDA = ("mida_l_alpha_v0.0.1.onnx", "https://huggingface.co/rtr46/mida/resolve/main/mida_l_alpha_v0.0.1.onnx",
-        "9f72bce58b50b1837bb16e81c5c035d32d9cd45d84dcef56f0b6fb2ef25e8aed")
+MIDA = ("mida_l_alpha_v0.0.2.onnx", "https://huggingface.co/rtr46/mida/resolve/main/mida_l_alpha_v0.0.2.onnx",
+        "7a09988b2596ef3fda2e5dfa815bfebbba6d3dcc385cc905cbb329cd8c95a4fa")
 VOCR = ("VOCR6.2_L_fast.onnx", "https://github.com/bee-san/vita-vn-ocr/releases/download/v0.5.1-onnx.2/VOCR6.2_L_fast.onnx",
         "3084fb3bd1332832c872009d869d267d5acd1bd69d26c80f742aa2f31a80c938")
-# The recognizer's last node before its head: the features, [96, frames].
+VOCR_V = ("VOCR6_V_fast.onnx", "https://huggingface.co/rtr46/vocr6/resolve/main/VOCR6_V_fast.onnx",
+          "080f0651fe2f23e87befea16995c21089e02da85be96b6189c26c2ab413ac5eb")
+# meikipop pull 131's refit of VOCR6.2-L's cell calibration (its vocr_onnx.py CHARBOX_CAL): the model's own, fit on
+# VOCR5-L, puts cells about 11% of a character too far right. meikipop now uses the model's own (c5ca5b1); against
+# Google Lens on 500 game pictures, the refit puts 92% of characters within a quarter cell of Lens' (the model's 82%).
+REFIT_CALIBRATION = [-107, 0, 183, 4, 38, 7, -4, 44, 8]
+# The recognizers' last node before their heads: the features, [96, frames].
 VOCR_FEATURES = "reshape_181"
 OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "vendor", "mida-vocr6"))
 
@@ -254,8 +264,8 @@ def with_output(model_bytes, name):
     return model.SerializeToString()
 
 
-def recognizer_head(model):
-    """The recognizer head's weights and its gate's (see MidaVOCR6.swift), from the graph's values."""
+def graph_values(model):
+    """The graph's weights and constants, its subgraphs' too."""
     values = {t.name: numpy_helper.to_array(t) for t in model.graph.initializer}
 
     def collect(graph):
@@ -268,6 +278,12 @@ def recognizer_head(model):
                     collect(a.g)
 
     collect(model.graph)
+    return values
+
+
+def recognizer_head(model):
+    """VOCR6.2-L's head's weights and its gate's (see MidaVOCR6.swift), from the graph's values."""
+    values = graph_values(model)
     # The classes' weights: int8 times a scale per class, as the graph's Cast and Mul make them.
     weights = values["wq_237"].astype(np.float32) * values["scale_240"]
     bias = values["b_386"].reshape(-1).astype(np.float32)
@@ -292,6 +308,29 @@ def recognizer_head(model):
     return weights, bias, gate
 
 
+def vertical_head(model):
+    """VOCR6-V's head's weights: every character scored from the features (the graph's MatMul and Add, then TopK)."""
+    values = graph_values(model)
+    weights = values["wq_237"].astype(np.float32) * values["scale_240"]
+    bias = values["b_246"].reshape(-1).astype(np.float32)
+    nodes = {n.output[0]: n for n in model.graph.node}
+    assert weights.shape == (96, 4987) and nodes["matmul_244"].input[0] == "transpose_235"
+    assert nodes["add_247"].input == ["matmul_244", "b_246"] and nodes["transpose_235"].input[0] == VOCR_FEATURES
+    return weights, bias
+
+
+def recognizer_info(meta):
+    """A recognizer's characters, sizes and cells' calibration, from its metadata."""
+    if meta.get("vocr.format") != "1" or meta.get("vocr.kind") != "recognizer" or meta.get("vocr.mode") != "fast":
+        sys.exit("unexpected recognizer metadata")
+    return {
+        "vocabulary": json.loads(meta["vocr.vocab"]),
+        "height": int(meta["vocr.height"]), "stride": int(meta["vocr.stride"]),
+        "minWidth": int(meta["vocr.min_width"]), "maxWidth": int(meta["vocr.max_width"]),
+        "calibration": json.loads(meta["vocr.charbox_cal"]),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--models", help="a folder with the ONNX files (otherwise they're downloaded)")
@@ -300,10 +339,13 @@ def main():
 
     mida_bytes = model_data(args.models, *MIDA)
     vocr_bytes = model_data(args.models, *VOCR)
+    vertical_bytes = model_data(args.models, *VOCR_V)
     vocr = onnx.load_model_from_string(vocr_bytes)
-    meta = {p.key: p.value for p in vocr.metadata_props}
-    if meta.get("vocr.format") != "1" or meta.get("vocr.kind") != "recognizer" or meta.get("vocr.mode") != "fast":
-        sys.exit("unexpected recognizer metadata")
+    vertical = onnx.load_model_from_string(vertical_bytes)
+    info = {
+        "horizontal": recognizer_info({p.key: p.value for p in vocr.metadata_props}),
+        "vertical": recognizer_info({p.key: p.value for p in vertical.metadata_props}),
+    }
     os.makedirs(OUT, exist_ok=True)
     rng = np.random.default_rng(0)
 
@@ -314,43 +356,58 @@ def main():
         model.save(path)
         print(f"saved {path}")
 
+    # Up to 4096 pixels a side: the provider feeds pictures of up to 600,000 pixels at their own size.
     detector = convert(onnx.load_model_from_string(mida_bytes), "images",
-                       (1, 3, ct.RangeDim(16, 1024, default=544), ct.RangeDim(16, 1024, default=960)),
+                       (1, 3, ct.RangeDim(16, 4096, default=544), ct.RangeDim(16, 4096, default=960)),
                        ["maps"], ["maps"], biases_after=True)
     detector.short_description = f"{MIDA[0]} from huggingface.co/rtr46/mida, converted"
     samples = []
-    for h, w in ((544, 960), (540, 960), (544, 725), (411, 960), (37, 960)):
+    for h, w in ((544, 960), (581, 1032), (544, 725), (411, 960), (37, 960), (1140, 526), (146, 4096)):
         image = rng.random((1, 3, h, w), dtype=np.float32)
         samples.append((image, image))
     check("detector", detector, mida_bytes, "images", "images", "maps", "maps", samples, 1e-4)
     save(detector, "MidaDetection")
 
-    recognizer = convert(vocr, "grey", (1, 1, 32, ct.RangeDim(8, 1024, default=256)), [VOCR_FEATURES], ["features"])
-    recognizer.short_description = f"{VOCR[0]} (vita-vn-ocr v0.5.1-onnx.2) up to its head's features, converted"
-    recognizer.license = "GPL-3.0-or-later, non-commercial use only (VOCR6-ATTRIBUTION.md)"
-    samples = []
-    for w in (8, 64, 256, 1024):
-        grey = rng.integers(0, 256, (1, 1, 32, w), dtype=np.uint8)
-        samples.append((grey, grey.astype(np.float32)))
-    check("recognizer", recognizer, with_output(vocr_bytes, VOCR_FEATURES), "grey", "grey", VOCR_FEATURES,
-          "features", samples, 1e-4)
-    save(recognizer, "VOCR6Recognition")
+    for model, model_bytes, name, source in ((vocr, vocr_bytes, "VOCR6Recognition", f"{VOCR[0]} (vita-vn-ocr v0.5.1-onnx.2)"),
+                                             (vertical, vertical_bytes, "VOCR6VerticalRecognition",
+                                              f"{VOCR_V[0]} (vita-vn-ocr v0.4.2-vertical6.1, from huggingface.co/rtr46/vocr6)")):
+        recognizer = convert(model, "grey", (1, 1, 32, ct.RangeDim(8, 1024, default=256)), [VOCR_FEATURES], ["features"])
+        recognizer.short_description = f"{source} up to its head's features, converted"
+        recognizer.license = "GPL-3.0-or-later, non-commercial use only (" + \
+            ("VOCR6-ATTRIBUTION.md)" if model is vocr else "VOCR6-V-ATTRIBUTION.md)")
+        samples = []
+        for w in (8, 64, 256, 1024):
+            grey = rng.integers(0, 256, (1, 1, 32, w), dtype=np.uint8)
+            samples.append((grey, grey.astype(np.float32)))
+        check(name, recognizer, with_output(model_bytes, VOCR_FEATURES), "grey", "grey", VOCR_FEATURES,
+              "features", samples, 1e-4)
+        save(recognizer, name)
 
     weights, bias, gate = recognizer_head(vocr)
-    with open(os.path.join(OUT, "VOCR6Head.bin"), "wb") as f:
-        # The classes' weights ([96][5631]), then their biases, as little-endian floats.
-        f.write(weights.astype("<f4").tobytes() + bias.astype("<f4").tobytes())
-    info = {
-        "vocabulary": json.loads(meta["vocr.vocab"]),
-        "height": int(meta["vocr.height"]), "stride": int(meta["vocr.stride"]),
-        "minWidth": int(meta["vocr.min_width"]), "maxWidth": int(meta["vocr.max_width"]),
-        "commonClasses": int(meta["vocr.level1_classes"]),
-        "gate": gate,
-    }
+    info["horizontal"]["calibration"] = REFIT_CALIBRATION
+    info["horizontal"]["commonClasses"] = int({p.key: p.value for p in vocr.metadata_props}["vocr.level1_classes"])
+    info["horizontal"]["gate"] = gate
+    vertical_weights, vertical_bias = vertical_head(vertical)
+    check_vertical_head(vertical_bytes, vertical_weights, vertical_bias, rng)
+    # The classes' weights ([96][classes]), then their biases, as little-endian floats.
+    for name, (w, b) in (("VOCR6Head.bin", (weights, bias)), ("VOCR6VerticalHead.bin", (vertical_weights, vertical_bias))):
+        with open(os.path.join(OUT, name), "wb") as f:
+            f.write(w.astype("<f4").tobytes() + b.astype("<f4").tobytes())
     with open(os.path.join(OUT, "MidaVOCR6.json"), "w") as f:
         json.dump(info, f, ensure_ascii=False)
-    print(f"saved {os.path.join(OUT, 'VOCR6Head.bin')} and MidaVOCR6.json")
+    print(f"saved VOCR6Head.bin, VOCR6VerticalHead.bin and MidaVOCR6.json in {OUT}")
 
+
+def check_vertical_head(model_bytes, weights, bias, rng):
+    """The head's weights give the graph's best classes, from its features."""
+    session = onnxruntime.InferenceSession(with_output(model_bytes, VOCR_FEATURES), providers=["CPUExecutionProvider"])
+    for w in (64, 512):
+        grey = rng.integers(0, 256, (1, 1, 32, w), dtype=np.uint8)
+        features, best = session.run([VOCR_FEATURES, "best"], {"grey": grey})
+        scores = features.T @ weights + bias
+        if not np.array_equal(scores.argmax(1), best):
+            sys.exit("the vertical recognizer's head doesn't give the graph's classes")
+    print("vertical head: same classes as onnxruntime")
 
 
 if __name__ == "__main__":

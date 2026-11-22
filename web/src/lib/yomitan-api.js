@@ -21,10 +21,13 @@ async function call(path, body = {}, signal = null) {
 	}
 	const { status, body: text } = response;
 	// A 504 is a slow request, not an API that's gone; a 503 (from OwOtan's app) is the API off or Safari not running.
-	reportRequest(status === 200 || status === 504);
+	// A 400 is Yomitan turning the request down, e.g. a path an older Yomitan doesn't have.
+	reportRequest(status === 200 || status === 504 || status === 400);
 	if (status !== 200) {
 		const Failure = status === 504 ? YomitanAPITimeout : Error;
-		throw new Failure(`Yomitan API /${path} failed (${status})${text ? `: ${text.slice(0, 300)}` : ''}`);
+		const error = new Failure(`Yomitan API /${path} failed (${status})${text ? `: ${text.slice(0, 300)}` : ''}`);
+		error.status = status;
+		throw error;
 	}
 	return JSON.parse(text);
 }
@@ -56,4 +59,25 @@ export function ankiCardFormats() {
  */
 export function ankiFields({ text, type, markers, maxEntries, includeMedia }) {
 	return call('ankiFields', { text, type, markers, maxEntries, includeMedia });
+}
+
+// The next three are only in a Yomitan with yomitan-api-endpoints.patch: older ones answer 400.
+
+/** The profile's options for showing results: {general: {...}, scanning: {enableSearchTags}}. */
+export function displayOptions() {
+	return call('displayOptions', {});
+}
+
+/** The installed dictionaries' summaries, each with the profile's {alias, enabled, definitionsCollapsible} or null. */
+export function dictionaryInfo() {
+	return call('dictionaryInfo', {});
+}
+
+/**
+ * Dictionary media files, as Yomitan's getMedia gives them.
+ * @param {{dictionary: string, path: string}[]} targets
+ * @returns {Promise<{dictionary: string, path: string, mediaType: string, width: number, height: number, content: string}[]>}
+ */
+export function dictionaryMedia(targets) {
+	return call('dictionaryMedia', { targets });
 }

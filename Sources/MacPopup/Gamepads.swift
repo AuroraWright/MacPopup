@@ -1,6 +1,7 @@
 import AppKit
 import GameController
 import IOKit.hid
+import OCREngines
 
 /// Game controllers, for looking words up with them (see web/src/overlay.js): which of their controls are held, and
 /// holding them so the app in front doesn't get their presses meanwhile.
@@ -124,13 +125,13 @@ final class GamepadController: ObservableObject {
     /// other's fields (see GamepadLearning.pushedField).
     private var stickPushes: [String: [[UInt8]]] = [:]
     /// MACPOPUP_DEBUG_GAMEPAD=<folder> saves each learning session's recording there.
-    private let debugFolder = ProcessInfo.processInfo.environment["MACPOPUP_DEBUG_GAMEPAD"]
+    private let debugFolder = DevelopmentEnvironment["MACPOPUP_DEBUG_GAMEPAD"]
     /// Whether this learning session's recording is saved without MACPOPUP_DEBUG_GAMEPAD (Set Up clicked with Option,
     /// for testers to send): to Application Support/MacPopup/Controller Recordings, then shown in Finder.
     private var savesRecording = false
 
     /// Test instances (MACPOPUP_TEST_SCRIPT) leave the user's controllers alone: their scripts send presses themselves.
-    private let isTest = ProcessInfo.processInfo.environment["MACPOPUP_TEST_SCRIPT"] != nil
+    private let isTest = DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"] != nil
 
     private var active: Bool { (wanted || clients > 0) && !isTest }
 
@@ -156,8 +157,9 @@ final class GamepadController: ObservableObject {
             $0["enabled"] as? Bool ?? true && !($0["buttons"] as? [String] ?? []).isEmpty
         }
         let sentenceAudioButtons = SentenceAudioController.isEnabled(settings) && !(settings["sentenceAudioButtons"] as? [String] ?? []).isEmpty
-        let overlaySwitchButtons = !(settings["overlaySwitchButtons"] as? [String] ?? []).isEmpty
-        wanted = (!scanButtons.isEmpty || hotkeyButtons || sentenceAudioButtons || overlaySwitchButtons) && !layouts.isEmpty
+        let overlayButtons = !(settings["overlayHideButtons"] as? [String] ?? []).isEmpty
+            || !(settings["overlaySwitchButtons"] as? [String] ?? []).isEmpty
+        wanted = (!scanButtons.isEmpty || hotkeyButtons || sentenceAudioButtons || overlayButtons) && !layouts.isEmpty
         scheduleApply()
     }
 

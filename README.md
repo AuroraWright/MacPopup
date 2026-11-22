@@ -8,7 +8,8 @@ modes:
 
 - **Floating Window**: Inspired by [JL](https://github.com/rampaa/JL). Shows text in a floating text box you can
   customize, like [texthooker-ui](https://github.com/Renji-XD/texthooker-ui). The text comes from WebSockets or the
-  clipboard (from tools like Textractor, Agent or LunaTranslator), or is read from a game's window with OCR.
+  clipboard (from tools like Textractor, Agent or LunaTranslator), or is read from a game's window with OCR or from
+  its voices.
 - **OCR overlay**: Inspired by [meikipop](https://github.com/rtr46/meikipop) and
   [GameSentenceMiner](https://github.com/bpwhelan/GameSentenceMiner). Reads the text straight from any app or game
   window, so you can point at the game's own text to look words up. It uses Apple Live Text,
@@ -36,7 +37,8 @@ Lookups and Anki card templates come from the Yomitan you already use in your br
 
 MacPopup runs in the background, without a Dock icon. Click its **speech bubble icon in the menu bar** to open
 Settings, switch between the Floating Window and the OCR overlay, choose the window to read, hide the overlay, move it
-to another display, or quit.
+to another display, or quit. To hide the overlay from any app, set the **Overlay hide key/buttons** in *Settings →
+General*.
 
 ---
 
@@ -49,6 +51,12 @@ You don't have to set MacPopup up from scratch: click **Import** at the bottom o
   collapse rules, scanning settings, audio sources, popup shortcuts, Anki settings and card templates.
 - **texthooker-ui Settings…**: Choose a texthooker-ui export to bring over your text box theme, font size, line
   settings and text replacements.
+- **MacPopup Settings…**: Restore a file saved with **Export…**. This replaces all your current settings.
+
+If your Yomitan shares its settings through its API (not in a Yomitan release yet), you don't need to import
+anything: popups follow your Yomitan's look, dictionaries and collapse rules, and stay in sync when you change them
+there. To use MacPopup's own look, turn off *Use Yomitan's display settings* in *Settings → Yomitan Popup*. With an
+older Yomitan, MacPopup uses what you imported.
 
 ---
 
@@ -58,8 +66,8 @@ The Floating Window shows the lines from every WebSocket in **Settings → WebSo
 default), as plain text or texthooker JSON (`{"sentence": "..."}`).
 
 - **Move & Resize**: Drag the text box by its top edge, and resize it from its bottom-right corner. Hover it to show
-  buttons above its top-right corner: turn clipboard reading or OCR on and off, pause new lines, clear the box, open
-  Settings, or hide the overlay.
+  buttons above its top-right corner: turn clipboard reading, OCR or audio on and off, pause new lines, clear the box,
+  open Settings, or hide the overlay.
 - **Clipboard**: Turn on **Read copied text from clipboard** (*Settings → Floating Window*) to add text you copy in
   other apps to the box. Passwords copied from password managers are skipped.
 - **Read text from OCR**: Turn on **Read text from OCR** (*Settings → Floating Window*, or the **OCR** button) to read
@@ -68,6 +76,18 @@ default), as plain text or texthooker JSON (`{"sentence": "..."}`).
   page fills up over time, as in visual novels, each new sentence or paragraph becomes its own line. Lines that
   already came over WebSocket aren't added twice. A window may not be readable while it's hidden. Lines the OCR
   overlay reads are added too, so they're there when you switch back.
+- **Read text from audio**: Turn on **Read text from audio** (*Settings → Floating Window*, or the **audio** button)
+  to add what's said in the captured window's app (or in any app, if no window is captured) to the box, a sentence
+  per line. Music and sound effects are skipped. MacPopup needs the **System Audio Recording** permission.
+  - *Models*: Choose one in *Settings → Transcription*. None come with MacPopup: make a `.zip` file with the
+    `scripts/convert-*.py` script named there, and click **Load**. **Live Caption** (the default, Chrome's speech
+    recognition) covers 16 languages, **Kitsune** is fast and accurate for Japanese, **SenseVoice** covers Chinese,
+    Cantonese, Japanese, Korean and English, **Parakeet** 25 European languages, **Whisper** 99 languages, and
+    **anime-whisper** is the most accurate for game and anime voices but slower.
+  - *Lines*: A new line starts when the speaker pauses for a second (change it with **Line ends after a pause of**).
+    To end lines where sentences end instead, which is also more accurate, turn on **Detect sentence ends**, load the
+    SaT model the same way, and set the pause to 200. To see the words as they're spoken, turn on **Show words as
+    they're heard** (not available with Whisper and anime-whisper).
 - **Font & Formatting**: Pick the box's font, size, color, underline, strikethrough, shadow and background in the
   macOS Fonts panel (*Settings → Floating Window → Font*). Show furigana above words (in hiragana, katakana, romaji or
   the dictionary reading), add spaces between words, show text vertically, or hide duplicate lines and lines that
@@ -139,16 +159,16 @@ and others), without putting it down.
 - **Switching Apps**: Bringing another app to the front closes the popups and gives the controller back, so you can
   use it there. With **Pause the game while a popup is open** on, the game also stays paused while you look up words
   with the controller.
-- **Other Shortcuts**: The sentence audio recording (*Settings → Anki Audio*) and the **Overlay switch key/buttons**
-  (*Settings → General*) can have controller buttons too, which work at any time. As with the scan key, pick buttons
-  your game doesn't use.
+- **Other Shortcuts**: The sentence audio recording (*Settings → Anki Audio*) and the **Overlay hide key/buttons** and
+  **Overlay switch key/buttons** (*Settings → General*) can have controller buttons too, which work at any time. As
+  with the scan key, pick buttons your game doesn't use.
 
 ---
 
 ## OCR overlay
 
 Switch to the OCR overlay with **OCR Overlay** in the menu bar, with **Overlay type** in *Settings → General*, or from
-any app with the **Overlay switch key/buttons** set just below it. The text box hides, and you can point at the text
+any app with the **Overlay switch key/buttons** set below it. The text box hides, and you can point at the text
 in your game or app directly. Overlay options are in *Settings → OCR Overlay*, and how text is read (also by **Read
 text from OCR**) in *Settings → OCR*. MacPopup needs the **Screen Recording** permission (*System Settings → Privacy &
 Security*).
@@ -191,7 +211,7 @@ Choose the engine in **Settings → OCR → Text recognition engine**. Lines wit
 - **PP-OCRv6 Manga**: Built-in Core ML models by Kellenok, fine-tuned from PaddleOCR's PP-OCRv6 for manga and anime:
   vertical text in speech bubbles, and sound effects (Japanese and Chinese).
 - **mida + VOCR6**: Built-in Core ML models: rtr46's mida finds the lines and vita-vn-ocr's VOCR6 reads them, as in
-  meikipop. About twice as fast as meikiocr, for Japanese game text, but horizontal text only.
+  meikipop. Faster than meikiocr, for Japanese game text, horizontal and vertical.
 - **Screen AI**: Google Chrome's own OCR engine, running on Core ML. Reads most scripts, and works out the layout and
   reading order by itself.
   - *Setup*: Make sure Chrome has downloaded its Screen AI component (`~/Library/Application
@@ -361,6 +381,13 @@ The `meikiocr` Core ML models (`vendor/meikiocr`) are licensed under the **LGPL-
 The PP-OCRv6 Manga Core ML models (`vendor/ppocr-manga`) are licensed under the **Apache License 2.0** (see
 `vendor/ppocr-manga/README.md`).
 
-The VOCR6 Core ML model and head (`vendor/mida-vocr6`) are licensed under the **GPL-3.0-or-later**, for
+The VOCR6 Core ML models and heads (`vendor/mida-vocr6`) are licensed under the **GPL-3.0-or-later**, for
 **non-commercial use only**, and `Sources/OCREngines/MidaVOCR6.swift` is adapted from meikipop's provider and
 vita-vn-ocr's code under the **GPL-3.0-or-later** (see `vendor/mida-vocr6/README.md`). The mida model is by rtr46.
+
+The speech recognition models for **Read text from audio** don't come with MacPopup: the `scripts/convert-*.py`
+scripts download them from their authors. Kitsune is licensed under **CC BY-NC 4.0** (**non-commercial use only**),
+SenseVoice under the FunASR model licence, Parakeet under **CC BY 4.0**, and Whisper, anime-whisper and SaT under the
+**MIT License**. Whisper runs with Argmax's [WhisperKit](https://github.com/argmaxinc/WhisperKit) (**MIT License**).
+Live Caption's language packs are Google's: `scripts/convert-soda.py` downloads them from Chrome's update server for
+your own use only (don't share them or the `.zip` file). MacPopup runs them itself (`Sources/SODA`), without Chrome.

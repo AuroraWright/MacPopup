@@ -1,5 +1,6 @@
 import Accelerate
 import AVFoundation
+import Transcription
 
 /// Keeps the last few minutes of the game's audio (see AudioTap) in memory as 16-bit samples, about 11 MB a minute for
 /// stereo at 48 kHz. This lets SentenceAudioController take a line's voice after the line was shown, without replaying
@@ -100,7 +101,7 @@ final class AudioHistory: @unchecked Sendable {
 
     /// The audio from `start` to `end`, and where the voice is in it, in seconds from the clip's start (see
     /// VoiceDetector.find). Nil when the audio from `start` is no longer kept.
-    func voice(from start: Double, to end: Double) async -> (clip: AudioClip, voice: (Double, Double)?)? {
+    func voice(from start: Double, to end: Double) async -> (clip: AudioClip, voice: (coarse: (Double, Double), fine: (Double, Double))?)? {
         await withCheckedContinuation { continuation in
             queue.async {
                 guard let clip = self.slice(from: start, to: end) else { return continuation.resume(returning: nil) }
