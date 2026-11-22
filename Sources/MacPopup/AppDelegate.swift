@@ -32,7 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         // The overlay's web view, with the bridge and the asset scheme.
         let configuration = WebViewFactory.makeConfiguration(bridge: bridge, schemeHandler: schemeHandler)
         overlay = OverlayController(configuration: configuration)
-        settingsWindow = SettingsWindowController { [weak self] in self?.ocr.selectWindow() }
+        settingsWindow = SettingsWindowController(selectOCRWindow: { [weak self] in self?.ocr.selectWindow() }) { [weak self] in
+            try self?.audioTranscriber.clearVideoTranscripts()
+        }
         overlay.onMouseButtonEvent = { [weak self] button, isDown in
             self?.settingsWindow.mouseButtonEvent(button: button, isDown: isDown)
         }

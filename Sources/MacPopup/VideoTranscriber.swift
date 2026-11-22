@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import CryptoKit
+import OCREngines
 import Transcription
 
 /// Settings → IINA Integration → "Transcribe videos without subtitles": a video IINA plays without subtitles in the
@@ -108,6 +109,37 @@ final class VideoTranscriber {
                 self?.update()
             }
         }
+    }
+
+    /// Where the transcripts are kept, a folder each; MACPOPUP_TRANSCRIPTS_DIRECTORY for test runs (ending in
+    /// Library/Caches/com.aury.macpopup/Transcripts, as the plugin knows the transcript by its path).
+    nonisolated static let folder = DevelopmentEnvironment["MACPOPUP_TRANSCRIPTS_DIRECTORY"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("com.aury.macpopup/Transcripts")
+
+    /// Posted when a transcript is saved, or they're cleared.
+    static let transcriptsChanged = Notification.Name("VideoTranscriber.transcriptsChanged")
+
+    /// The transcripts kept (for Settings → IINA Integration): how many videos, and the bytes their files take.
+    nonisolated static func kept() -> (videos: Int, bytes: Int64) {
+        let manager = FileManager.default
+        let videos = (try? manager.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        var bytes: Int64 = 0
+        for video in videos {
+            for file in (try? manager.contentsOfDirectory(at: video, includingPropertiesForKeys: [.totalFileAllocatedSizeKey])) ?? [] {
+                bytes += Int64((try? file.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?.totalFileAllocatedSize ?? 0)
+            }
+        }
+        return (videos.count, bytes)
+    }
+
+    /// Settings → IINA Integration → Clear: the transcripts kept are removed, the one being made too (without saving
+    /// it again), which is then started over from where the video is played.
+    func clearTranscripts() throws {
+        job?.discard()
+        job = nil
+        defer { NotificationCenter.default.post(name: Self.transcriptsChanged, object: nil) }
+        if FileManager.default.fileExists(atPath: Self.folder.path) { try FileManager.default.removeItem(at: Self.folder) }
+        update()
     }
 
     func configure(_ settings: Settings?) {
@@ -233,8 +265,6 @@ private final class Job {
     /// blink (and mpv tells the plugin that line again): it's told only once a changed line starts within this many
     /// seconds of the position played, so lines transcribed far ahead are loaded together as playback nears them.
     private static let lead = 30.0
-    private static let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("com.aury.macpopup/Transcripts")
 
     let key: String
     let settings: VideoTranscriber.Settings
@@ -252,6 +282,8 @@ private final class Job {
     private let onFailed: () -> Void
     /// Stopped (another video or other settings): IINA is no longer told about it.
     private var stopped = false
+    /// Cleared in Settings: no longer saved.
+    private var discarded = false
     private let subtitlesURL: URL
     private let linesURL: URL
     private var entries: [Entry] = []
@@ -271,7 +303,7 @@ private final class Job {
         self.settings = settings
         self.report = report
         self.onFailed = onFailed
-        let folder = Self.folder.appendingPathComponent(key)
+        let folder = VideoTranscriber.folder.appendingPathComponent(key)
         subtitlesURL = folder.appendingPathComponent("MacPopup transcription")
         linesURL = folder.appendingPathComponent("lines.json")
         load()
@@ -301,6 +333,13 @@ private final class Job {
         stopped = true
         stopWorker()
         save(notify: false)
+    }
+
+    /// Stopped, its transcript removed.
+    func discard() {
+        discarded = true
+        stopped = true
+        stopWorker()
     }
 
     private func start(at time: Double) {
@@ -418,6 +457,7 @@ private final class Job {
     }
 
     private func save(notify: Bool) {
+        guard !discarded else { return }
         lastSaved = Date()
         var done = covered
         if let worker, worker.finished > worker.from {
@@ -436,6 +476,7 @@ private final class Job {
             transcriptionLog("couldn't save the transcript: \(error.localizedDescription)")
             return
         }
+        NotificationCenter.default.post(name: VideoTranscriber.transcriptsChanged, object: nil)
         guard notify, !entries.isEmpty, let player, !loaded || (changedFrom ?? .infinity) < position + Self.lead else { return }
         loaded = true
         changedFrom = nil

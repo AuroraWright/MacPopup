@@ -393,7 +393,7 @@ private final class PickerView: NSView {
                 let name = hovered.title.isEmpty ? hovered.ownerName : "\(hovered.ownerName) — \(hovered.title)"
                 drawLabel(name, centeredAt: CGPoint(x: rect.midX, y: rect.midY))
             }
-            instructions = "Click the window to read with OCR"
+            instructions = "Click the window to use for OCR, Anki screenshots/audio and transcription"
         case let .regions(window):
             // Dim everything except the window, and the marked areas inside it even more clearly.
             NSColor.black.withAlphaComponent(0.45).setFill()

@@ -77,6 +77,8 @@ struct SettingsField: Identifiable {
         case convertedModels(ConvertedModelsKind)
         /// A button that opens the IINA plugin in IINA to install it (not a setting).
         case iinaPlugin
+        /// The transcripts of IINA's videos kept, with a button to clear them (not a setting).
+        case iinaTranscripts
     }
 
     enum ConnectionTest {
@@ -248,7 +250,7 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "ocrWindow", "Captured window", .ocrWindow,
-                    hint: "The target window read by OCR and captured for Anki {screenshot} fields. If none is selected, the entire screen is used."
+                    hint: "The target window used for OCR, Anki {screenshot} fields, Anki sentence audio and transcription. If none is selected, the entire screen/system audio are used."
                 ),
                 SettingsField(
                     "theme", "Theme", .select(support.themes.map { SettingsOption($0) }),
@@ -1007,6 +1009,10 @@ enum SettingsSchema {
                     SettingsField(
                         "iinaTranscribe", "Transcribe videos without subtitles", .checkbox,
                         hint: "When a video has no subtitles in your language, shows a transcription as its subtitle, using the model in Settings → Transcription. Doesn’t work with live streams. Pauses “Read text from audio” while running."
+                    ),
+                    SettingsField(
+                        "iinaTranscripts", "Saved transcriptions", .iinaTranscripts,
+                        hint: "If cleared, videos will need to be transcribed again."
                     ),
                 ]
             ),

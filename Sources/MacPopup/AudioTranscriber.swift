@@ -99,6 +99,11 @@ final class AudioTranscriber: StretchTranscriberHost {
         video.playerStatus(body)
     }
 
+    /// Settings → IINA Integration → IINA transcriptions → Clear.
+    func clearVideoTranscripts() throws {
+        try video.clearTranscripts()
+    }
+
     /// The box's page (re)loaded.
     func pageReady() {
         showLoading()

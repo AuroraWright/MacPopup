@@ -15,6 +15,7 @@ struct SettingsActions {
     var resetAll: () -> Void
     var loadModels: (ConvertedModelsKind) -> Void
     var removeModels: (ConvertedModelsKind) -> Void
+    var clearTranscripts: () -> Void
 }
 
 struct SettingsView: View {
@@ -313,6 +314,12 @@ private struct FieldRow: View {
         case .iinaPlugin:
             LabeledContent {
                 InstallIINAPluginButton()
+            } label: {
+                FieldLabel(field: field)
+            }
+        case .iinaTranscripts:
+            LabeledContent {
+                VideoTranscriptsControl(clear: actions.clearTranscripts)
             } label: {
                 FieldLabel(field: field)
             }
@@ -1382,6 +1389,58 @@ private struct InstallIINAPluginButton: View {
                 .fixedSize()
                 .padding()
         }
+    }
+}
+
+/// The transcripts of IINA's videos kept (VideoTranscriber), looked up again as they change while they're shown.
+@MainActor
+final class VideoTranscripts: ObservableObject {
+    static let shared = VideoTranscripts()
+    @Published private(set) var kept: (videos: Int, bytes: Int64)?
+    private var shown = 0
+
+    private init() {
+        NotificationCenter.default.addObserver(forName: VideoTranscriber.transcriptsChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.shown > 0 else { return }
+                self.refresh()
+            }
+        }
+    }
+
+    func appeared() {
+        shown += 1
+        refresh()
+    }
+
+    func disappeared() {
+        shown -= 1
+    }
+
+    private func refresh() {
+        Task {
+            let kept = await Task.detached { VideoTranscriber.kept() }.value
+            self.kept = kept
+        }
+    }
+}
+
+/// How many videos' transcripts are kept and their size, with a button to clear them.
+private struct VideoTranscriptsControl: View {
+    let clear: () -> Void
+    @ObservedObject private var transcripts = VideoTranscripts.shared
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let kept = transcripts.kept {
+                Text(kept.videos == 0 ? "None"
+                    : "\(kept.videos) \(kept.videos == 1 ? "video" : "videos"), \(ByteCountFormatter.string(fromByteCount: kept.bytes, countStyle: .file))")
+                    .foregroundStyle(.secondary)
+            }
+            Button("Clear…", action: clear).disabled((transcripts.kept?.videos ?? 0) == 0)
+        }
+        .onAppear { transcripts.appeared() }
+        .onDisappear { transcripts.disappeared() }
     }
 }
 

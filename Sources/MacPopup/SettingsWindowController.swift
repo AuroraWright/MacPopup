@@ -8,10 +8,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let model = SettingsModel()
     private let recorder = ScanInputRecorder()
     private let selectOCRWindow: () -> Void
+    private let clearVideoTranscripts: () throws -> Void
     private var window: NSWindow?
 
-    init(selectOCRWindow: @escaping () -> Void) {
+    init(selectOCRWindow: @escaping () -> Void, clearVideoTranscripts: @escaping () throws -> Void) {
         self.selectOCRWindow = selectOCRWindow
+        self.clearVideoTranscripts = clearVideoTranscripts
         super.init()
     }
 
@@ -35,7 +37,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 exportBackup: { [weak self] in self?.exportBackup() },
                 resetAll: { [weak self] in self?.resetAll() },
                 loadModels: { [weak self] in self?.loadModels($0) },
-                removeModels: { [weak self] in self?.removeModels($0) }
+                removeModels: { [weak self] in self?.removeModels($0) },
+                clearTranscripts: { [weak self] in self?.clearTranscripts() }
             )
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 820, height: 640),
@@ -144,7 +147,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private func resetAll() {
         let alert = NSAlert()
         alert.messageText = "Reset all settings to their defaults?"
-        alert.informativeText = "This includes the OCR window and areas, the scan inputs and everything imported from Yomitan."
+        alert.informativeText = "This operation cannot be undone."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
@@ -192,6 +195,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             }
             models.busy = false
             models.refresh()
+        }
+    }
+
+    private func clearTranscripts() {
+        let alert = NSAlert()
+        alert.messageText = "Clear saved transcriptions?"
+        alert.informativeText = "Videos will be transcribed again."
+        alert.addButton(withTitle: "Clear")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].hasDestructiveAction = true
+        guard runModal(alert) == .alertFirstButtonReturn else { return }
+        do {
+            try clearVideoTranscripts()
+        } catch {
+            inform("Couldn’t clear the transcriptions", detail: error.localizedDescription, style: .warning)
         }
     }
 
