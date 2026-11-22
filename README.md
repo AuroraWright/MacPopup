@@ -192,7 +192,7 @@ already drawn.
 MacPopup remembers the window by its app and title, even after a restart, including Windows apps in Parallels'
 Coherence mode. It's only read while you can see it: on screen in the current Space, and not covered by other windows
 (partly covered is fine). The window is also used for clean `{screenshot}`s on Anki cards, even in the Floating
-Window.
+Window, and its app's audio for sentence audio and **Read text from audio**.
 
 ### Reading the Dialogue
 
@@ -289,8 +289,8 @@ permission (*Settings → Permissions*).
 
 ### Videos in IINA
 
-The [IINA](https://iina.io) plugin in `iina-plugin/` sends the subtitles you're watching to MacPopup, and gives cards
-made from them the line's own frame and audio:
+The [IINA](https://iina.io) plugin in `iina-plugin/` sends the subtitles you're watching to MacPopup, gives cards
+made from them the line's own frame and audio, and can transcribe videos without subtitles:
 
 1. Click **Install** in *Settings → IINA Integration* to open the plugin in IINA (or, for development, run
    `iina-plugin link iina-plugin` from IINA's `Contents/MacOS`), turn it on in IINA's *Settings → Plugins*, and
@@ -304,6 +304,12 @@ made from them the line's own frame and audio:
    This also works with network streams, including web videos IINA plays through yt-dlp: MacPopup fetches them with
    IINA's headers, cookies and proxy. For live streams, it takes the line from IINA's cache, which holds about the
    last minute played.
+4. To watch a video that has no subtitles in your language, turn on **Transcribe videos without subtitles** (*Settings
+   → IINA Integration*). MacPopup transcribes it ahead of where you're watching, with the model in *Settings →
+   Transcription*, and shows it as a subtitle track (**MacPopup transcription**) whose lines work like any other
+   subtitles. It stops if you add a subtitle file in your language, and doesn't work with live streams. **Read text
+   from audio** pauses meanwhile. Transcriptions are saved, so a video isn't transcribed twice: to delete them, click
+   **Clear…** next to **Saved transcriptions**.
 
 ---
 
