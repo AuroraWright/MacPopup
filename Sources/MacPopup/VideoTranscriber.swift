@@ -184,6 +184,10 @@ private final class Job {
     /// Seconds a line stays after its speech, and the least it's shown (unless the next one comes sooner).
     private static let hold = 0.5
     private static let shortest = 1.0
+    /// IINA reads the whole track again each time it's told the transcript changed, which can make the line on screen
+    /// blink (and mpv tells the plugin that line again): it's told only once a changed line starts within this many
+    /// seconds of the position played, so lines transcribed far ahead are loaded together as playback nears them.
+    private static let lead = 30.0
     private static let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("com.aury.macpopup/Transcripts")
 
@@ -191,7 +195,14 @@ private final class Job {
     let settings: VideoTranscriber.Settings
     var source: MediaClip.Source?
     /// The window showing it, and the plugin's socket.
-    var player: (key: String, socket: URL)?
+    var player: (key: String, socket: URL)? {
+        didSet { if player?.key != oldValue?.key { loaded = false } }
+    }
+    /// Whether the window has the transcript as a track, and the earliest start of a line changed since it last read it.
+    private var loaded = false
+    private var changedFrom: Double?
+    /// Where the video is played, as last told.
+    private var position = 0.0
     private let report: (Error) -> Void
     private let subtitlesURL: URL
     private let linesURL: URL
@@ -220,6 +231,8 @@ private final class Job {
     /// Transcribes on from where the video is played (`position`), unless that's done or being done.
     func follow(_ position: Double, duration: Double?) {
         if let duration { self.duration = duration }
+        self.position = position
+        if let changedFrom, changedFrom < position + Self.lead { scheduleSave() }
         if let worker, position >= worker.from - 1, position <= worker.reached + 10 { return }
         if let range = covered.first(where: { $0.contains(position) }) {
             if let worker, abs(worker.from - range.upperBound) < 1 { return }
@@ -276,10 +289,12 @@ private final class Job {
         if line.grows, let id = worker.lastEntry, let index = entries.firstIndex(where: { $0.id == id }) {
             entries[index].text = text
             entries[index].end = max(entries[index].end, speechEnd)
+            changedFrom = min(changedFrom ?? entries[index].start, entries[index].start)
         } else {
             // Already there from another time (the worker runs into a part done).
             guard !text.isEmpty, !covered.contains(where: { $0.lowerBound <= line.start && line.start < $0.upperBound }) else { return }
             entries.append(Entry(id: nextID, start: line.start, end: speechEnd, text: text))
+            changedFrom = min(changedFrom ?? line.start, line.start)
             worker.lastEntry = nextID
             nextID += 1
         }
@@ -357,13 +372,17 @@ private final class Job {
             transcriptionLog("couldn't save the transcript: \(error.localizedDescription)")
             return
         }
-        guard notify, !entries.isEmpty, let player else { return }
+        guard notify, !entries.isEmpty, let player, !loaded || (changedFrom ?? .infinity) < position + Self.lead else { return }
+        loaded = true
+        changedFrom = nil
         let file = subtitlesURL, language = settings.language
-        Task {
+        Task { [weak self] in
             do {
                 try await Player.subtitles(key: player.key, file: file, language: language, socket: player.socket)
             } catch {
                 transcriptionLog("IINA didn't load the transcript: \(error.localizedDescription)")
+                // Told again with the next save.
+                self?.loaded = false
             }
         }
     }
