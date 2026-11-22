@@ -105,8 +105,7 @@ body {
 #lines .show-bullet::before {
 	content: '• ';
 	/* Not underlined or struck through with the line (Settings → Floating Window → Font), keeping its space. With no
-	   height of its own: in its fallback font it would make the line taller than its text, and WebKit would then
-	   leave part of a highlight on screen when it's removed. */
+	   height of its own: in its fallback font it would make the line taller than its text. */
 	display: inline-block;
 	white-space: pre;
 	line-height: 0;
@@ -210,15 +209,28 @@ body {
 	white-space: nowrap;
 }
 
-::highlight(macpopup-scan) {
+/* The scanned word and the controller's place (see lib/highlight-boxes.js), under the text: in the text box over its
+   lines (clipped as they are), in the OCR overlay over its text. */
+.highlight-boxes {
+	position: absolute;
+	left: 0;
+	top: 0;
+	pointer-events: none;
+}
+.highlight-boxes > div {
+	position: absolute;
+}
+#box-highlights {
+	overflow: hidden;
+	z-index: -1;
+}
+.highlight-boxes > .scan {
 	background-color: hsl(var(--p) / 0.35);
 }
-
-/* Where the controller is (see highlightCursor in overlay.js): the character it's on, or, when it moves by word
-   without "Select matched text", its word. */
-::highlight(macpopup-gamepad) {
+/* The controller's place: the character it's on, or, when it moves by word without "Select matched text", its word. */
+.highlight-boxes > .gamepad {
 	background-color: hsl(var(--p) / 0.35);
-	text-decoration: underline 2px hsl(var(--p));
+	box-shadow: inset 0 -2px hsl(var(--p));
 }
 
 /* The overlay is never the active window, so WebKit would draw selections in the inactive (grey)

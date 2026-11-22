@@ -6,7 +6,8 @@ import { log, nativeCall } from './lib/native.js';
 import { logDebug, logEvent } from './lib/debug-log.js';
 import { getPopupPosition } from './lib/popup-position.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
-import { getTextSourceFromPoint, searchTextSource, setHighlight, textSourceAt } from './lib/scanner.js';
+import { getTextSourceFromPoint, searchTextSource, setHighlight, textSourceAt, useHighlightBoxes } from './lib/scanner.js';
+import { HighlightBoxes, showHighlight } from './lib/highlight-boxes.js';
 import { correctWithText, decodeLines, joinLines, letterCount, lineText, ocrCharOf, paragraphBreaks, renderLines, wrappedReach } from './lib/ocr-layer.js';
 import { applyReplacements } from './lib/replacements.js';
 import { isInLanguage } from './lib/languages.js';
@@ -25,6 +26,8 @@ const box = $('#box');
 const boxButtons = $('#box-buttons');
 const tooltip = new Tooltip(document);
 const linesElement = $('#lines');
+const highlightBoxes = [new HighlightBoxes(linesElement, $('#box-highlights')), new HighlightBoxes($('#ocr-text'), $('#ocr-highlights'))];
+useHighlightBoxes(...highlightBoxes);
 
 function icon(path, size = 20) {
 	return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${path}"/></svg>`;
@@ -430,13 +433,9 @@ function createLineElement(line, animate) {
 				const furigana = settings.showFurigana && reading && !isPunctuation(text) ? convertReading(reading, settings.furiganaReadingMode) : '';
 				if (furigana) {
 					const ruby = document.createElement('ruby');
-					// In an <rb>, so the scan highlight shows on it (see wrapRubyBases).
-					const rb = document.createElement('rb');
-					rb.append(text);
-					ruby.append(rb);
 					const rt = document.createElement('rt');
 					rt.textContent = furigana;
-					ruby.append(rt);
+					ruby.append(text, rt);
 					span.append(ruby);
 				} else {
 					span.append(text);
@@ -2477,17 +2476,9 @@ async function moveWord(direction) {
 
 // Moving by character
 
-let cursorHighlight = null;
-
-/** Shows the controller's place in the text (a range, or null for none) with the macpopup-gamepad highlight. */
+/** Shows the controller's place in the text (a range, or null for none) with the "gamepad" highlight boxes. */
 function highlightCursor(range) {
-	if (typeof CSS === 'undefined' || !CSS.highlights) return;
-	if (cursorHighlight === null) {
-		cursorHighlight = new Highlight();
-		CSS.highlights.set('macpopup-gamepad', cursorHighlight);
-	}
-	cursorHighlight.clear();
-	if (range) cursorHighlight.add(range);
+	showHighlight(highlightBoxes, 'gamepad', range ? [range] : []);
 }
 
 /** Puts the cursor on a character of `chars` (null removes it). */

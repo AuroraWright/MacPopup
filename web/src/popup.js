@@ -14,7 +14,8 @@ import { log, nativeCall } from './lib/native.js';
 import { logEvent } from './lib/debug-log.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
 import { adaptCssForWebKit } from './lib/webkit-css.js';
-import { getTextSourceFromPoint, searchTextSource, setHighlight, wrapRubyBases } from './lib/scanner.js';
+import { getTextSourceFromPoint, searchTextSource, setHighlight, useHighlightBoxes } from './lib/scanner.js';
+import { HighlightBoxes } from './lib/highlight-boxes.js';
 import { getSettings, resolveTheme, setLocalSettings } from './lib/settings.js';
 import { ankiFields, dictionaryMedia, kanjiEntries } from './lib/yomitan-api.js';
 import { getAudio, getAudioSources, getLoadedInfoList, startAudio } from './lib/audio-sources.js';
@@ -23,6 +24,7 @@ import { clearChildren } from './lib/dom.js';
 import { Tooltip } from './lib/tooltip.js';
 
 const overlay = () => window.parent.macpopupOverlay;
+useHighlightBoxes(new HighlightBoxes(document.querySelector('#content-scroll'), document.querySelector('#scan-highlights')));
 
 const flagNames = { 1: 'Red', 2: 'Orange', 3: 'Green', 4: 'Blue', 5: 'Pink', 6: 'Turquoise', 7: 'Purple' };
 const flagColors = {
@@ -399,7 +401,6 @@ class Popup {
 				? this.generator.createTermEntry(dictionaryEntry, dictionaryInfo)
 				: this.generator.createKanjiEntry(dictionaryEntry, dictionaryInfo);
 			entry.dataset.index = `${i}`;
-			wrapRubyBases(entry);
 			this.addEntryEventListeners(entry);
 			this.container.appendChild(entry);
 			this.entryNodes.push(entry);

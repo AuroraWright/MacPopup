@@ -2,6 +2,7 @@
 // sentence extraction behave like Yomitan's. Each bundle (overlay, popup) operates on its own document.
 import { TextSourceGenerator } from '../../../vendor/yomitan/ext/js/dom/text-source-generator.js';
 import { TextSourceRange } from '../../../vendor/yomitan/ext/js/dom/text-source-range.js';
+import { showHighlight } from './highlight-boxes.js';
 import { getSettings } from './settings.js';
 import { kanjiEntries, termEntries } from './yomitan-api.js';
 
@@ -28,8 +29,6 @@ function getTerminatorMaps(mode, characters) {
 }
 
 const textSourceGenerator = new TextSourceGenerator();
-
-const HIGHLIGHT_NAME = 'macpopup-scan';
 
 export function getTextSourceFromPoint(x, y) {
 	const source = textSourceGenerator.getRangeFromPoint(x, y, {
@@ -104,36 +103,18 @@ export async function searchTextSource(textSource, { searchTerms = true, searchK
 	return { type, dictionaryEntries, query, fullQuery, sentence };
 }
 
-// One Highlight stays registered and only its ranges change: WebKit doesn't repaint text whose
-// highlight is removed with CSS.highlights.delete() or replaced with set(), so it would stay visible.
-let highlight = null;
+// The documents' highlight boxes (see lib/highlight-boxes.js).
+let highlightBoxes = [];
 
-export function setHighlight(textSource) {
-	if (typeof CSS === 'undefined' || !CSS.highlights) return;
-	if (highlight === null) {
-		highlight = new Highlight();
-		CSS.highlights.set(HIGHLIGHT_NAME, highlight);
-	}
-	highlight.clear();
-	// Yomitan's "Select matched text".
-	if (textSource?.range && getSettings().selectMatchedText) {
-		for (const range of textRanges(textSource.range)) highlight.add(range);
-	}
+/** Where the matched text is highlighted: each has the text of one part of the page. */
+export function useHighlightBoxes(...boxes) {
+	highlightBoxes = boxes;
 }
 
-/**
- * Puts the base text of ruby elements under `root` in <rb> elements: WebKit doesn't paint highlights
- * on text directly in a <ruby>.
- */
-export function wrapRubyBases(root) {
-	for (const ruby of root.querySelectorAll('ruby')) {
-		for (const node of [...ruby.childNodes]) {
-			if (node.nodeType !== Node.TEXT_NODE || node.data.trim().length === 0) continue;
-			const rb = document.createElement('rb');
-			ruby.replaceChild(rb, node);
-			rb.append(node);
-		}
-	}
+export function setHighlight(textSource) {
+	// Yomitan's "Select matched text".
+	const ranges = textSource?.range && getSettings().selectMatchedText ? textRanges(textSource.range) : [];
+	showHighlight(highlightBoxes, 'scan', ranges);
 }
 
 /** The text of `range` as one range per text node, without the furigana, which wasn't matched. */
