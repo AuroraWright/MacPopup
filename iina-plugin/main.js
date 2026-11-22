@@ -171,6 +171,10 @@ function source(type) {
 const transcriptTitle = 'MacPopup transcription';
 const isTranscript = (track) => /\/Library\/Caches\/com\.aury\.macpopup\/Transcripts\/[0-9a-f]{64}\/MacPopup transcription$/.test(track['external-filename'] ?? '');
 
+// A subtitle file's language: mpv's, or else from its name as mpv reads it for the files it loads itself ("Episode
+// 1.en.srt", "Episode 1.pt-BR.ass"), since IINA adds them with sub-add, which leaves it out.
+const fileLanguage = (track) => track.lang ?? /\.([a-z]{2,3}(?:-[a-z0-9]{2,4})?)\.[^./]+$/i.exec(track['external-filename'] ?? '')?.[1] ?? '';
+
 let audioSource = { id: null, source: null, time: 0 };
 
 /** source('audio'), worked out again when the track or where it's read from changes, or each half a minute (cookies). */
@@ -184,8 +188,8 @@ function statusAudio() {
 }
 
 // What this window plays, each second: its address and audio track (which the transcript is kept by), its names (the
-// window's title is one of them), where it's played, its subtitle tracks' languages (but the transcript's), and where
-// its audio is read from.
+// window's title is one of them), where it's played, its subtitle tracks' languages (but the transcript's), those of
+// the ones from files (added by the user, or by IINA from the video's folder), and where its audio is read from.
 function sendStatus() {
 	const path = mpv.getString('path');
 	const position = mpv.getNative('time-pos');
@@ -202,6 +206,7 @@ function sendStatus() {
 			paused: mpv.getFlag('pause'),
 			duration: typeof duration === 'number' ? duration : null,
 			subtitles: tracks.filter((t) => t.type === 'sub' && !isTranscript(t)).map((t) => t.lang ?? ''),
+			files: tracks.filter((t) => t.type === 'sub' && t.external && !isTranscript(t)).map(fileLanguage),
 			audio: statusAudio(),
 		});
 	}

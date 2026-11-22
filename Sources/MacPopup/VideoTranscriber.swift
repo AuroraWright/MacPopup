@@ -40,6 +40,8 @@ final class VideoTranscriber {
         let duration: Double?
         /// Its subtitle tracks' languages (mpv's "lang", e.g. "jpn" or "ja", or ""), other than MacPopup's.
         let subtitles: [String]
+        /// Those of the ones from files: added by the user, or by IINA from the video's folder.
+        let files: [String]
         /// Where its audio is read from; nil when it can't be (e.g. a live stream).
         let audio: MediaClip.Source?
         let received = Date()
@@ -58,6 +60,7 @@ final class VideoTranscriber {
             paused = body["paused"] as? Bool ?? false
             duration = (body["duration"] as? NSNumber).map(\.doubleValue).flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
             subtitles = (body["subtitles"] as? [Any] ?? []).map { $0 as? String ?? "" }
+            files = (body["files"] as? [Any] ?? []).map { $0 as? String ?? "" }
             let audio = (body["audio"] as? [String: Any]).flatMap { try? MediaClip.Source($0, socket: socket.absoluteString) }
             if case .cache = audio {
                 self.audio = nil
@@ -124,7 +127,8 @@ final class VideoTranscriber {
         players = players.filter { Date().timeIntervalSince($0.value.received) < 3 }
         let status = settings == nil ? nil : player()
         let unwanted = settings == nil ? "off" : status == nil ? "no IINA video"
-            : status!.subtitles.contains { Self.isLanguage($0, settings!.language) } ? "it has \(settings!.language) subtitles"
+            : status!.subtitles.contains { Self.isLanguage($0, settings!.language) }
+                || status!.files.contains { Self.isLanguage($0, settings!.language, unknown: true) } ? "it has \(settings!.language) subtitles"
             : status!.audio == nil ? "its audio can't be read ahead"
             : Self.key(status!, settings!) == failed ? "the model couldn't transcribe it" : nil
         if unwanted == nil {
@@ -190,14 +194,16 @@ final class VideoTranscriber {
     }
 
     /// Whether a subtitle track's language is `language` (Yomitan's code). One without a language known (none, "und",
-    /// or a code that isn't ISO 639's) counts as English.
-    private static func isLanguage(_ track: String, _ language: String) -> Bool {
+    /// or a code that isn't ISO 639's) counts as English if it's in the video (most are), or as `language` if `unknown`
+    /// (a file of subtitles added to the video, e.g. "Episode 1.srt": most likely those of the language read).
+    private static func isLanguage(_ track: String, _ language: String, unknown: Bool = false) -> Bool {
         func code(_ text: String) -> String? {
             guard let code = Locale(identifier: text).language.languageCode, code.isISOLanguage, code.identifier != "und"
             else { return nil }
             return code.identifier
         }
-        return (code(track) ?? "en") == code(language) ?? language
+        guard let track = code(track) else { return unknown || code(language) ?? language == "en" }
+        return track == code(language) ?? language
     }
 
     private static func key(_ status: Status, _ settings: Settings) -> String {
