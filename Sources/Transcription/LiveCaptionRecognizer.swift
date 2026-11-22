@@ -50,12 +50,16 @@ final class LiveCaptionRecognizer: Recognizer, @unchecked Sendable {
 
     /// The Japanese pack's punctuation model puts a 。 after most numbers, also mid-sentence (1。つ, 9。月上旬, and
     /// 約1。1。× 3.5。× 6。CM for 約11 × 3.5 × 6 CM), as Google's libsoda does: they'd split the line there. A 。 after a
-    /// digit is left out when the text goes on after it.
+    /// digit is left out when the text goes on after it, but not before a bracket (「全部で3。」と, 5。「次), where it
+    /// ends a sentence.
     static func withoutStopsAfterNumbers(_ transcript: Transcript) -> Transcript {
         let text = Array(transcript.text)
         let digits = "0123456789０１２３４５６７８９"
+        let brackets = "「」『』（）()【】〈〉《》\"“”"
         guard let last = text.lastIndex(where: { !$0.isWhitespace }) else { return transcript }
-        let dropped = Set(text.indices.filter { $0 > 0 && $0 < last && text[$0] == "。" && digits.contains(text[$0 - 1]) })
+        let dropped = Set(text.indices.filter {
+            $0 > 0 && $0 < last && text[$0] == "。" && digits.contains(text[$0 - 1]) && !brackets.contains(text[$0 + 1])
+        })
         guard !dropped.isEmpty else { return transcript }
         let kept = text.indices.filter { !dropped.contains($0) }
         return Transcript(text: String(kept.map { text[$0] }), times: transcript.times.map { times in kept.map { times[$0] } })

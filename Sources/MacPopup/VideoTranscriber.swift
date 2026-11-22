@@ -80,6 +80,16 @@ final class VideoTranscriber {
     /// When IINA's video could last be transcribed.
     private var lastWanted = Date.distantPast
     private var lastUnwanted: String?
+    /// The video and settings (a job's key) the model couldn't transcribe, not tried again until the models change.
+    private var failed: String?
+    /// The captured window, as last looked up.
+    private var captured: (window: Captured, checked: Date)?
+
+    private enum Captured {
+        case absent
+        case iina(title: String)
+        case other
+    }
 
     init(onActive: @escaping () -> Void, report: @escaping (Error) -> Void) {
         self.onActive = onActive
@@ -87,6 +97,13 @@ final class VideoTranscriber {
         // Players that stopped telling (closed, or IINA quit).
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.update() }
+        }
+        // E.g. Live Caption's language packs imported.
+        NotificationCenter.default.addObserver(forName: SpeechRecognizer.modelsChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.failed = nil
+                self?.update()
+            }
         }
     }
 
@@ -108,7 +125,8 @@ final class VideoTranscriber {
         let status = settings == nil ? nil : player()
         let unwanted = settings == nil ? "off" : status == nil ? "no IINA video"
             : status!.subtitles.contains { Self.isLanguage($0, settings!.language) } ? "it has \(settings!.language) subtitles"
-            : status!.audio == nil ? "its audio can't be read ahead" : nil
+            : status!.audio == nil ? "its audio can't be read ahead"
+            : Self.key(status!, settings!) == failed ? "the model couldn't transcribe it" : nil
         if unwanted == nil {
             lastWanted = Date()
         } else if job != nil, settings != nil, Date().timeIntervalSince(lastWanted) < 3 {
@@ -123,7 +141,12 @@ final class VideoTranscriber {
             if job?.key != key {
                 job?.stop()
                 transcriptionLog("transcribing IINA's video ahead: \(status.media)")
-                job = Job(key: key, settings: settings, report: report)
+                job = Job(key: key, settings: settings, report: report) { [weak self] in
+                    self?.failed = key
+                    // Stopped now, not after a moment.
+                    self?.lastWanted = .distantPast
+                    self?.update()
+                }
             }
             job?.source = audio
             job?.player = (status.key, status.socket)
@@ -140,14 +163,30 @@ final class VideoTranscriber {
     }
 
     /// The player window to transcribe: the captured one (Settings → General) if it's IINA's, found by its video's name
-    /// as the window's title, or else the one playing, or else the one heard from last.
+    /// as the window's title; or else one playing (the one transcribed while it plays, rather than switching each second
+    /// between two that play); or else, unless another app's window is captured (whose audio "Read text from audio"
+    /// then listens to), the one transcribed or the one heard from last.
     private func player() -> Status? {
         guard !players.isEmpty else { return nil }
         let recent = players.values.sorted { $0.received > $1.received }
-        let window = OCRController.savedWindow().flatMap {
-            NSRunningApplication(processIdentifier: $0.ownerPID)?.bundleIdentifier == "com.colliderli.iina" ? $0.title : nil
-        }
-        return recent.first { window != nil && $0.titles.contains(window!) } ?? recent.first { !$0.paused } ?? recent.first
+        let window = capturedWindow()
+        if case let .iina(title) = window, let status = recent.first(where: { $0.titles.contains(title) }) { return status }
+        let current = job?.player?.key
+        let playing = recent.filter { !$0.paused }
+        if let status = playing.first(where: { $0.key == current }) ?? playing.first { return status }
+        if case .other = window { return nil }
+        return recent.first { $0.key == current } ?? recent.first
+    }
+
+    /// The captured window, looked up again at most every 5 seconds (that lists every window, and statuses come
+    /// several times a second): an IINA window's title changes with its video.
+    private func capturedWindow() -> Captured {
+        if let captured, Date().timeIntervalSince(captured.checked) < 5 { return captured.window }
+        let window: Captured = OCRController.savedWindow().map {
+            NSRunningApplication(processIdentifier: $0.ownerPID)?.bundleIdentifier == "com.colliderli.iina" ? .iina(title: $0.title) : .other
+        } ?? .absent
+        captured = (window, Date())
+        return window
     }
 
     /// Whether a subtitle track's language is `language` (Yomitan's code). One without a language known (none, "und",
@@ -204,6 +243,9 @@ private final class Job {
     /// Where the video is played, as last told.
     private var position = 0.0
     private let report: (Error) -> Void
+    private let onFailed: () -> Void
+    /// Stopped (another video or other settings): IINA is no longer told about it.
+    private var stopped = false
     private let subtitlesURL: URL
     private let linesURL: URL
     private var entries: [Entry] = []
@@ -217,10 +259,12 @@ private final class Job {
     private var saveScheduled = false
     private var lastSaved: Date?
 
-    init(key: String, settings: VideoTranscriber.Settings, report: @escaping (Error) -> Void) {
+    init(key: String, settings: VideoTranscriber.Settings, report: @escaping (Error) -> Void,
+         onFailed: @escaping () -> Void) {
         self.key = key
         self.settings = settings
         self.report = report
+        self.onFailed = onFailed
         let folder = Self.folder.appendingPathComponent(key)
         subtitlesURL = folder.appendingPathComponent("MacPopup transcription")
         linesURL = folder.appendingPathComponent("lines.json")
@@ -248,6 +292,7 @@ private final class Job {
     }
 
     func stop() {
+        stopped = true
         stopWorker()
         save(notify: false)
     }
@@ -291,8 +336,12 @@ private final class Job {
             entries[index].end = max(entries[index].end, speechEnd)
             changedFrom = min(changedFrom ?? entries[index].start, entries[index].start)
         } else {
-            // Already there from another time (the worker runs into a part done).
-            guard !text.isEmpty, !covered.contains(where: { $0.lowerBound <= line.start && line.start < $0.upperBound }) else { return }
+            // Already there from another time (the worker runs into a part done). Its growing doesn't replace the
+            // worker's line before it.
+            guard !text.isEmpty, !covered.contains(where: { $0.lowerBound <= line.start && line.start < $0.upperBound }) else {
+                worker.lastEntry = nil
+                return
+            }
             entries.append(Entry(id: nextID, start: line.start, end: speechEnd, text: text))
             changedFrom = min(changedFrom ?? line.start, line.start)
             worker.lastEntry = nextID
@@ -326,6 +375,15 @@ private final class Job {
         stopWorker()
     }
 
+    /// The model couldn't transcribe a stretch (e.g. its files aren't there, or it doesn't know the language): the
+    /// rest would fail too.
+    func failed(_ worker: Worker, error: Error) {
+        guard worker === self.worker else { return }
+        transcriptionLog("the model couldn't transcribe IINA's video: \(error.localizedDescription)")
+        report(error)
+        onFailed()
+    }
+
     // MARK: Files
 
     private func load() {
@@ -349,7 +407,7 @@ private final class Job {
         Task {
             try? await Task.sleep(for: .seconds(wait))
             saveScheduled = false
-            save(notify: true)
+            save(notify: !stopped)
         }
     }
 
@@ -536,7 +594,7 @@ private final class Worker: StretchTranscriberHost {
     }
 
     func transcribed(error: Error?) {
-        if let error { transcriptionLog("couldn't transcribe a line of IINA's video: \(error.localizedDescription)") }
+        if let error { job?.failed(self, error: error) }
     }
 
     func sentenceEndsFailed(_ error: Error) {

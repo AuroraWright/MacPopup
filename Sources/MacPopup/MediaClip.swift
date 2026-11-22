@@ -143,27 +143,33 @@ enum MediaClip {
         process.standardError = errors
         nonisolated(unsafe) var errorData = Data()
         let errorsRead = DispatchSemaphore(value: 0)
+        // Read once it runs: a pipe it never got stays open here, and the read would wait forever.
+        try process.run()
         Thread.detachNewThread {
             errorData = errors.fileHandleForReading.readDataToEndOfFile()
             errorsRead.signal()
         }
-        try process.run()
         let chunk = 1600 * MemoryLayout<Float>.size
         var pending = Data()
         var stopped = false
+        var readError: Error?
         func give(_ bytes: Data) -> Bool {
             var samples = [Float](repeating: 0, count: bytes.count / MemoryLayout<Float>.size)
             samples.withUnsafeMutableBytes { _ = bytes.copyBytes(to: $0) }
             return handler(samples)
         }
-        while !stopped, let data = try output.fileHandleForReading.read(upToCount: 65536), !data.isEmpty {
-            pending.append(data)
-            while pending.count >= chunk, !stopped {
-                stopped = !give(pending.prefix(chunk))
-                pending = pending.dropFirst(chunk)
+        do {
+            while !stopped, let data = try output.fileHandleForReading.read(upToCount: 65536), !data.isEmpty {
+                pending.append(data)
+                while pending.count >= chunk, !stopped {
+                    stopped = !give(pending.prefix(chunk))
+                    pending = pending.dropFirst(chunk)
+                }
             }
+        } catch {
+            readError = error
         }
-        if stopped {
+        if stopped || readError != nil {
             process.terminate()
         } else if pending.count >= MemoryLayout<Float>.size {
             stopped = !give(pending.prefix(pending.count / MemoryLayout<Float>.size * MemoryLayout<Float>.size))
@@ -171,6 +177,7 @@ enum MediaClip {
         try? output.fileHandleForReading.close()
         process.waitUntilExit()
         errorsRead.wait()
+        if let readError { throw readError }
         if stopped { return false }
         guard process.terminationStatus == 0 else {
             let message = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

@@ -48,7 +48,7 @@ final class AudioTranscriber: StretchTranscriberHost {
     private lazy var video = VideoTranscriber(onActive: { [weak self] in
         self?.showVideoActive()
         self?.applySettings()
-    }, report: { [weak self] in self?.report($0) })
+    }, report: { [weak self] in self?.report($0, video: true) })
     /// The models listening or the IINA video's transcription use (SaT: whether it's used), so the others are let go.
     private var modelsUsed: Set<SpeechModel> = []
     private var sentenceEndsUsed = false
@@ -317,9 +317,10 @@ final class AudioTranscriber: StretchTranscriberHost {
         (try? JSONSerialization.data(withJSONObject: [text])).flatMap { String(data: $0, encoding: .utf8) }.map { "\($0)[0]" }
     }
 
-    private func report(_ error: Error) {
+    /// Shown once (until a line is transcribed again); the video's also with "Read text from audio" off.
+    private func report(_ error: Error, video: Bool = false) {
         let message = error.localizedDescription
-        guard message != shownError, model != nil else { return }
+        guard message != shownError, model != nil || video else { return }
         shownError = message
         overlay.showToast(message)
     }

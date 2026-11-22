@@ -1129,14 +1129,21 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
 		const rects = [...source.getRects()].map(({ left, top, right, bottom }) => ({ left, top, right, bottom }));
 		return popupManager.show(0, result, rects, vertical);
 	};
+	// Ended also when the popup couldn't be shown, or its line would keep holding back its words.
 	if (delay > 0) {
 		setTimeout(async () => {
-			if (token === scan.token) await show();
-			endLooking(token);
+			try {
+				if (token === scan.token) await show();
+			} finally {
+				endLooking(token);
+			}
 		}, delay);
 	} else {
-		await show();
-		endLooking(token);
+		try {
+			await show();
+		} finally {
+			endLooking(token);
+		}
 	}
 	return true;
 }
