@@ -256,7 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     ///   removes its last line before adding the new one).
     /// `replaces`: the id of the transcribed line this one grew from (see AudioTranscriber), which it takes the place of
     /// if it's still the last line.
-    func noteLine(_ text: String, age: Double, fromOCR: Bool, replaces: Int?, rows: [String], breaks: Set<Int>) -> [String: Any] {
+    func noteLine(_ text: String, age: Double, fromOCR: Bool, transcribed: Bool, replaces: Int?, rows: [String], breaks: Set<Int>) -> [String: Any] {
         if lines.count >= 100 { lines.removeFirst(lines.count - 99) }
         // A sent line is the line before it again as the text box decides it (see transformLine in overlay.js).
         let settings = SettingsStore.shared.dictionary
@@ -268,7 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         guard let noted = lines.note(text, page: fromOCR, breaks: breaks, rows: rows, sent: sent,
                                      language: settings["language"] as? String ?? "ja", info: { fromOCR }) else { return [:] }
         let line = lines[noted.index]
-        sentenceAudio.noteLine(id: line.id, isNew: noted.isNew, text: line.text, age: age)
+        sentenceAudio.noteLine(id: line.id, isNew: noted.isNew, text: line.text, age: age, transcribed: transcribed)
         screenshots.noteLine(id: line.id, isNew: noted.isNew, grew: noted.grew, settled: fromOCR)
         var reply: [String: Any] = ["id": line.id]
         if fromOCR {

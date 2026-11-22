@@ -34,8 +34,12 @@ public final class SpeechStretches: @unchecked Sendable {
         case dropped(stretch: Int)
     }
 
-    /// A stretch cut from the recording, given once it's placed (`place`): finding its voice more finely takes a while
-    /// for a long stretch (1.4 s for 21 s), so the app does it apart while the next stretch is heard.
+    /// A stretch cut from the recording, given once it's placed (`place`): its audio taken from the recording, which the
+    /// app converts to 16 kHz mono apart while the next stretch is heard.
+    ///
+    /// The stretch is taken as the classifier placed it, with `padding`: placing it more finely (VoiceDetector.refine)
+    /// cut the first syllables of many lines, more so over music (Bocchi the Rock! episode 2, anime-whisper: 22% of its
+    /// subtitles' text missing, 13% without; scratch-tools/diarization/bocchi).
     public struct Cut: @unchecked Sendable {
         public enum Placed: Sendable {
             case speech(Speech)
@@ -49,7 +53,7 @@ public final class SpeechStretches: @unchecked Sendable {
             /// No speech to give, but the voice's end (at this time on the clock) still ends the line.
             case voiceEnd(at: Double)
             /// `all`, the audio after the last stretch and up to this one's end, which starts at `time` on the clock
-            /// and `recording` seconds into the recording; its voice between `from` and `to`, in seconds into it. For the
+            /// and `recording` seconds into the recording; its speech between `from` and `to`, in seconds into it. For the
             /// log: the stretch, in seconds into the recording, and what ended it.
             case audio(all: AudioClip, from: Double, to: Double, time: Double, recording: Double, cut: (Double, Double),
                        after: String)
@@ -72,16 +76,11 @@ public final class SpeechStretches: @unchecked Sendable {
             case let .voiceEnd(at):
                 return endVoice(at: at)
             case let .audio(all, from, to, time, recording, (start, end), after):
-                // Within the stretch (one cut at the longest length goes on in the next), and the coarse one when the fine
-                // one is empty.
-                let range = VoiceDetector.refine(all, start: from, end: to)
-                    .map { (max($0.0, from), min($0.1, to)) }
-                    .flatMap { $0.1 - $0.0 >= 0.1 ? $0 : nil } ?? (from, to)
-                let kept = all.voiceRange(from: range.0, to: range.1, padding: SpeechStretches.padding)
-                let clip = all.slice(from: kept.lowerBound, to: kept.upperBound)
-                log(String(format: "speech %.2f–%.2f s, finely %.2f–%.2f s%@", start, end, recording + range.0,
-                           recording + range.1, after))
-                guard let samples = clip.monoSamples(sampleRate: SpeechStretches.sampleRate), !samples.isEmpty else {
+                // `all` ends at the stretch's end, so the padding takes no words from the next one either.
+                let kept = all.voiceRange(from: from, to: to, padding: SpeechStretches.padding)
+                log(String(format: "speech %.2f–%.2f s%@", start, end, after))
+                guard let samples = all.slice(from: kept.lowerBound, to: kept.upperBound)
+                    .monoSamples(sampleRate: SpeechStretches.sampleRate), !samples.isEmpty else {
                     return endVoice(at: time - recording + end)
                 }
                 return [.speech(Speech(id: id, samples: samples, start: time + kept.lowerBound, pause: pause))]
@@ -300,8 +299,8 @@ public final class SpeechStretches: @unchecked Sendable {
         }
     }
 
-    /// Cuts the speech between `start` and `end` (seconds into the recording), to be placed more finely, and lets the
-    /// audio before `end` go. `pause`: as Speech's.
+    /// Cuts the speech between `start` and `end` (seconds into the recording), to be placed, and lets the audio before
+    /// `end` go. `pause`: as Speech's.
     private func give(from start: Double, to end: Double, pause: Double) {
         let after = pause.isInfinite ? ", voice ended" : pause > 0 ? String(format: ", %.2f s pause", pause) : ""
         voiceStart = nil

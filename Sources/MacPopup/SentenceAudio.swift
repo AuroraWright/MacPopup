@@ -64,6 +64,9 @@ final class SentenceAudioController {
         var shown: Double
         /// The earliest its voice may have started: shortly before it was shown, or before OCR saw the text change.
         var start: Double
+        /// Transcribed from the audio ("Read text from audio"): its times are where its voice and the next line's start,
+        /// so the next line can't have cut its voice off.
+        var transcribed: Bool
     }
 
     init(overlay: OverlayController) {
@@ -131,8 +134,8 @@ final class SentenceAudioController {
     }
 
     /// The line with `id` (see ShownLines) was shown in the text box or read by OCR, `age` seconds ago: a new line
-    /// (`isNew`), or the last one again.
-    func noteLine(id: Int, isNew: Bool, text: String, age: Double) {
+    /// (`isNew`), or the last one again. `transcribed`: from "Read text from audio".
+    func noteLine(id: Int, isNew: Bool, text: String, age: Double, transcribed: Bool) {
         let minutes = historyMinutes
         guard minutes > 0 else { return }
         let now = GameClock.now
@@ -144,9 +147,10 @@ final class SentenceAudioController {
             guard let index = lines.lastIndex(where: { $0.id == id }) else { return }
             lines[index].shown = min(lines[index].shown, shown)
             lines[index].start = min(lines[index].start, start)
+            lines[index].transcribed = lines[index].transcribed || transcribed
         } else {
             sentenceAudioLog(String(format: "line shown %.2f s ago (line %d): %@", now - shown, id, text))
-            lines.append(LineTimes(id: id, shown: shown, start: start))
+            lines.append(LineTimes(id: id, shown: shown, start: start, transcribed: transcribed))
             lines.removeAll { $0.shown < now - minutes * 60 - 60 }
         }
     }
@@ -187,31 +191,34 @@ final class SentenceAudioController {
             guard let index = lines.firstIndex(where: { $0.id == id }) else { return "This card’s line is older than the kept audio" }
             let now = GameClock.now
             let start = max(lines[index].start, index > 0 ? lines[index - 1].shown : 0)
+            let shownAt = lines[index].shown - start, transcribed = lines[index].transcribed
             let next = index + 1 < lines.count ? lines[index + 1].shown : nil
             let end = min(next ?? now, start + maxLength)
             // Another line followed it, or it has reached the longest a recording can be.
             let ended = next != nil || end < now
             // While the voice goes on, only its last moments are checked, rather than the whole line again.
             if speaking, !ended, let tail = await history.voice(from: max(start, end - pause - 1), to: end),
-               let voice = tail.voice, tail.clip.duration - voice.1 < pause {
+               let voice = tail.voice?.fine, tail.clip.duration - voice.1 < pause {
                 try? await Task.sleep(for: .milliseconds(500))
                 continue
             }
             guard let (clip, voice) = await history.voice(from: start, to: end) else {
                 return "This card’s line is older than the kept audio"
             }
-            let shownAt = lines[index].shown - start
             let span = String(format: "%.2f s from %.2f s before it was shown", clip.duration, shownAt)
-            if let voice, ended || clip.duration - voice.1 >= pause {
-                sentenceAudioLog(String(format: "history: voice %.2f–%.2f s of \(span)", voice.0, voice.1))
-                if next != nil, voice.1 > clip.duration - 0.35 {
+            // The clip is cut from the coarse placing, which keeps the whole voice; whether the voice ended, and was cut
+            // off, is told from the fine one, which ends nearer where the voice does.
+            if let voice, ended || clip.duration - voice.fine.1 >= pause {
+                sentenceAudioLog(String(format: "history: voice %.2f–%.2f s, finely %.2f–%.2f s, of \(span)", voice.coarse.0,
+                                        voice.coarse.1, voice.fine.0, voice.fine.1))
+                if next != nil, !transcribed, voice.fine.1 > clip.duration - 0.35 {
                     return "The line’s voice was cut off by the next line"
                 }
                 // A voice that starts with the line is kept from the line's start (the clip's), since a soft start is
                 // detected a little late.
                 let clip = clip.trimmed(
-                    voiceFrom: voice.0, to: voice.1, padding: number("sentenceAudioPadding", 500) / 1000,
-                    startingBy: voice.0 < shownAt + 1 ? 0 : .infinity
+                    voiceFrom: voice.coarse.0, to: voice.coarse.1, padding: number("sentenceAudioPadding", 500) / 1000,
+                    startingBy: voice.coarse.0 < shownAt + 1 ? 0 : .infinity
                 )
                 await addClip(clip, cards: cards)
                 return nil
@@ -679,11 +686,9 @@ final class AudioRecording: NSObject, @unchecked Sendable {
             let all = AudioClip(format: format, buffers: buffers)
             if detectsVoice, let voiceStart {
                 // Without the end of the voice (stopped early), up to the end of the recording.
-                let coarse = (voiceStart, voiceEnd ?? all.duration)
-                let fine = VoiceDetector.refine(all, start: coarse.0, end: coarse.1)
-                sentenceAudioLog(String(format: "voice %.2f–%.2fs, finely %.2f–%.2fs, of %.2fs", coarse.0, coarse.1, fine?.0 ?? -1, fine?.1 ?? -1, all.duration))
-                let range = fine ?? coarse
-                clip = all.trimmed(voiceFrom: range.0, to: range.1, padding: padding)
+                let voice = (voiceStart, voiceEnd ?? all.duration)
+                sentenceAudioLog(String(format: "voice %.2f–%.2fs of %.2fs", voice.0, voice.1, all.duration))
+                clip = all.trimmed(voiceFrom: voice.0, to: voice.1, padding: padding)
             } else if !detectsVoice || detector == nil {
                 clip = all
             }

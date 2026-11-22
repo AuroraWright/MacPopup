@@ -134,16 +134,18 @@ struct LoggedStretch {
 }
 
 func loggedStretches(_ path: String) throws -> [LoggedStretch] {
-    let pattern = try NSRegularExpression(pattern: #"speech ([\d.]+)–([\d.]+) s, (?:finely ([\d.]+)–([\d.]+) s|too quiet)(, voice ended|, ([\d.]+) s pause)?"#)
+    let pattern = try NSRegularExpression(pattern: #"speech ([\d.]+)–([\d.]+) s(, too quiet)?(, voice ended|, ([\d.]+) s pause)?"#)
     let log = try String(contentsOfFile: path, encoding: .utf8)
     var previousEnd = 0.0
     return pattern.matches(in: log, range: NSRange(log.startIndex..., in: log)).map { match in
         let value = { (index: Int) in Range(match.range(at: index), in: log).flatMap { Double(log[$0]) } }
-        let ended = Range(match.range(at: 5), in: log).map { log[$0] == ", voice ended" } ?? false
-        let pause = ended ? .infinity : value(6) ?? 0
+        let ended = Range(match.range(at: 4), in: log).map { log[$0] == ", voice ended" } ?? false
+        let pause = ended ? .infinity : value(5) ?? 0
         defer { previousEnd = value(2) ?? previousEnd }
-        guard let start = value(3), let end = value(4) else { return LoggedStretch(start: 0, end: 0, pause: pause) }
-        return LoggedStretch(start: start, end: end, pause: pause, before: value(2) ?? .infinity, after: previousEnd)
+        guard match.range(at: 3).location == NSNotFound, let start = value(1), let end = value(2) else {
+            return LoggedStretch(start: 0, end: 0, pause: pause)
+        }
+        return LoggedStretch(start: start, end: end, pause: pause, before: end, after: previousEnd)
     }
 }
 

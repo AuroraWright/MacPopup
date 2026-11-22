@@ -24,8 +24,10 @@ public final class VoiceDetector: NSObject, SNResultsObserving {
         try analyzer.add(request, withObserver: self)
     }
 
-    /// Where the voice is in `clip`, from the first stretch of speech to the last, with the edges refined (see refine).
-    public static func find(in clip: AudioClip) -> (Double, Double)? {
+    /// Where the voice is in `clip`, from the first stretch of speech to the last: as the classifier places it (`coarse`,
+    /// a second at a time, so up to most of a second wider than the voice) and with the edges refined (`fine`, see
+    /// refine; the coarse one when that finds none), which ends nearer where the voice does.
+    public static func find(in clip: AudioClip) -> (coarse: (Double, Double), fine: (Double, Double))? {
         var coarse: (Double, Double)?
         guard let detector = try? VoiceDetector(format: clip.format, onResult: { range, isSpeech in
             guard isSpeech else { return }
@@ -37,8 +39,9 @@ public final class VoiceDetector: NSObject, SNResultsObserving {
             position += AVAudioFramePosition(buffer.frameLength)
         }
         detector.finish()
-        guard let coarse else { return nil }
-        return refine(clip, start: coarse.0, end: min(coarse.1, clip.duration)) ?? coarse
+        guard let found = coarse else { return nil }
+        let placed = (found.0, min(found.1, clip.duration))
+        return (placed, refine(clip, start: placed.0, end: placed.1) ?? placed)
     }
 
     /// Where the voice is in `clip` between about `start` and `end` (from a coarse pass), placed more
@@ -91,53 +94,17 @@ public struct AudioClip {
     public var duration: Double { Double(frameCount) / format.sampleRate }
 
     /// The voice found between `start` and `end`, with `padding` seconds on each side, starting no later than `latest`.
-    /// When the voice is clearly louder than the background (well above the music), its ends are first tightened to
-    /// where it stands out.
     public func trimmed(voiceFrom start: Double, to end: Double, padding: Double, startingBy latest: Double = .infinity) -> AudioClip {
         let range = voiceRange(from: start, to: end, padding: padding, startingBy: latest)
         return slice(from: range.lowerBound, to: range.upperBound)
     }
 
-    /// Where `trimmed` cuts, in seconds.
+    /// Where `trimmed` cuts, in seconds. Nothing is taken off the voice as the classifier placed it: tightening it to
+    /// where it's loud, or placing it more finely (VoiceDetector.refine), cut the first and last syllables of many
+    /// lines over music (scratch-tools/diarization/bocchi).
     public func voiceRange(from start: Double, to end: Double, padding: Double, startingBy latest: Double = .infinity) -> ClosedRange<Double> {
-        let padded = { (from: Double, to: Double) in
-            let lower = max(0, min(from - padding, latest))
-            return lower...max(lower, min(self.duration, to + padding))
-        }
-        let step = 0.02
-        let levels = rmsLevels(window: Int(format.sampleRate * step))
-        let startIndex = max(0, Int(start / step)), endIndex = min(levels.count, Int(ceil(end / step)))
-        guard startIndex < endIndex else { return padded(start, end) }
-        // The quiet level: the 20th percentile of the whole recording.
-        let quiet = levels.sorted()[levels.count / 5]
-        let loud = max(quiet * 3.16, 0.003) // 10 dB above, and above about -50 dBFS
-        let voiced = (startIndex..<endIndex).filter { levels[$0] > loud }
-        guard let first = voiced.first, let last = voiced.last else { return padded(start, end) }
-        return padded(Double(first) * step, Double(last + 1) * step)
-    }
-
-    /// Root mean square of each `window` frames, over all channels.
-    private func rmsLevels(window: Int) -> [Float] {
-        var levels: [Float] = []
-        var sum: Float = 0
-        var count = 0
-        for buffer in buffers {
-            guard let channels = buffer.floatChannelData else { continue }
-            let channelCount = Int(buffer.format.channelCount)
-            for frame in 0..<Int(buffer.frameLength) {
-                for channel in 0..<channelCount {
-                    let sample = channels[channel][frame]
-                    sum += sample * sample
-                }
-                count += 1
-                if count == window {
-                    levels.append(sqrt(sum / Float(window * channelCount)))
-                    sum = 0
-                    count = 0
-                }
-            }
-        }
-        return levels
+        let lower = max(0, min(start - padding, latest))
+        return lower...max(lower, min(duration, end + padding))
     }
 
     public func slice(from start: Double, to end: Double) -> AudioClip {

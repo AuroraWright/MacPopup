@@ -339,8 +339,7 @@ func transcriptionLog(_ message: String) {
 
 /// Records an app's audio (or plays a sound file in its place, for tests) and gives each stretch of speech in it
 /// (SpeechStretches), mixed to mono at 16 kHz. Everything but `start` and `stop` runs on its own queue, and stretches
-/// are placed on another one (`placing`), which takes a while for a long one (1.4 s for 21 s), while the next one is
-/// heard.
+/// are placed (taken from the recording and converted) on another one (`placing`), while the next one is heard.
 final class SpeechListener: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.aury.macpopup.transcription", qos: .userInitiated)
     /// Where stretches are placed, one at a time.

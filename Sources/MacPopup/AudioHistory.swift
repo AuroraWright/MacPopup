@@ -101,7 +101,7 @@ final class AudioHistory: @unchecked Sendable {
 
     /// The audio from `start` to `end`, and where the voice is in it, in seconds from the clip's start (see
     /// VoiceDetector.find). Nil when the audio from `start` is no longer kept.
-    func voice(from start: Double, to end: Double) async -> (clip: AudioClip, voice: (Double, Double)?)? {
+    func voice(from start: Double, to end: Double) async -> (clip: AudioClip, voice: (coarse: (Double, Double), fine: (Double, Double))?)? {
         await withCheckedContinuation { continuation in
             queue.async {
                 guard let clip = self.slice(from: start, to: end) else { return continuation.resume(returning: nil) }

@@ -239,8 +239,8 @@ function readsOcr(settings = getSettings()) {
  * the same line, this one takes its place. Returns the line (ShownLine), whose id comes later.
  */
 // `shown`: called with the line shown (or null when the box left it out); `paused`: called instead when the box is
-// paused.
-function addLine(rawText, player = null, age = 0, { shown = null, replaces = null, paused = null } = {}) {
+// paused; `transcribed`: from "Read text from audio".
+function addLine(rawText, player = null, age = 0, { shown = null, replaces = null, paused = null, transcribed = false } = {}) {
 	const line = { id: null, player };
 	if (state.paused) paused?.();
 	if (state.paused || typeof rawText !== 'string') return line;
@@ -261,7 +261,7 @@ function addLine(rawText, player = null, age = 0, { shown = null, replaces = nul
 	}
 	// The host replaces its line too, by id, if it's also still its last.
 	const replacesId = replaces && state.lines.at(-1) === replaces ? replaces.shown?.id : null;
-	void nativeCall('line', { text, age, replaces: replacesId ?? undefined })
+	void nativeCall('line', { text, age, transcribed, replaces: replacesId ?? undefined })
 		.catch(() => ({}))
 		.then((result) => {
 			line.id = result?.id ?? null;
@@ -1319,6 +1319,7 @@ window.__macpopupTranscript = (text, age, grows = false, endsLive = null) => {
 		},
 		paused: endLive,
 		replaces: previous,
+		transcribed: true,
 	});
 };
 
