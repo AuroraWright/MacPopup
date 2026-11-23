@@ -1,4 +1,4 @@
-// The overlay's WebSocket connections follow the saved URLs while it runs (after scratch-tools/settings-shot/
+// The overlay's WebSocket connections follow the saved URLs while it runs (after evals/settings-shot/
 // ws-count.js, which counted its icons; websocket-limit.test.js checks them at launch): with 2 saved, 2 icons; then 7
 // saved (as an import or Settings would, with a blank one that doesn't count), the first 5, all connected; then 1 saved,
 // 1 icon. Each server sees a connection only while its URL is among the first 5.

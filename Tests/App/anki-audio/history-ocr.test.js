@@ -1,6 +1,6 @@
 // Anki Audio's kept game audio, with lines read by OCR Mode (Live Text) from the game's window: as
 // history-websocket.test.js (the same game, cards and expectations), the lines' times coming from OCR instead of a
-// WebSocket. Expected as on 2026-11-22 (scratch-tools game-tests README, "Placing change", matrix.sh's ocr cases, then
+// WebSocket. Expected as on 2026-11-22 (evals game-tests README, "Placing change", matrix.sh's ocr cases, then
 // with meikiocr: lines 0, 2, 3 whole from the history, line 1 refused as cut off).
 // It plays sound: the test window's music and Kyoko's lines, quietly (volume 0.15), for about 35 s.
 // interactive

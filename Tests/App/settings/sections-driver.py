@@ -1,5 +1,5 @@
 # sections-driver.py <sections|steady>, for sections.test.js and steady.test.js: Settings' sections over Accessibility
-# and window-only screenshots (screencapture -l, in the run folder), after scratch-tools/settings-shot.
+# and window-only screenshots (screencapture -l, in the run folder), after evals/settings-shot.
 #   sections: shows each section in turn (the sidebar's, which must be the ones in MARKERS): a text of its own shows, the
 #     screenshot is the window's size and not blank, and a second one a second later shows the same form, pixel for
 #     pixel (once more when it doesn't: the window's turning active or not may tint it).

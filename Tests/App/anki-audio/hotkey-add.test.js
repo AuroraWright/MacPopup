@@ -1,7 +1,7 @@
 // The popup shortcut "add the card with its line's voice" (addNoteSentenceAudio, the only one set up; pressed as the
 // host does on its global shortcut, window.__macpopupHotkey(0), since synthetic key presses don't reach global
 // shortcuts) does what an Option-click does: as option-add.test.js (a popup on line 2 once line 3 shows), the card
-// (note 444) gets line 2's voice whole. Expected from scratch-tools game-tests optadd-hotkey.js (Option-click's result).
+// (note 444) gets line 2's voice whole. Expected from evals game-tests optadd-hotkey.js (Option-click's result).
 // It plays sound: the test window's music and Kyoko's lines, quietly (volume 0.15), for about 35 s.
 // While the popup shows, the app registers ⌃⌥⇧F19 as a global shortcut (the popup shortcut's key).
 // interactive

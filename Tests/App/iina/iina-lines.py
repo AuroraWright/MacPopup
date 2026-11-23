@@ -1,7 +1,7 @@
 # iina-lines.py: the driver of iina/plugin-lines.test.js. Plays the test video (media/local/test.mkv, its Japanese
 # subtitle track selected) in the user's IINA and reads the plugin's WebSocket as MacPopup's page does (subscribed to
 # what the window plays): its three lines with their times, where their video and audio are (the file, streams 0
-# and 1), sent as each is shown; and each second's status of the window. From scratch-tools/iina/plugin-run.sh and
+# and 1), sent as each is shown; and each second's status of the window. From evals/iina/plugin-run.sh and
 # client.mjs (2026-11-07: "logs the plugin's messages until the third line"; the plugin's own screenshot was removed
 # since).
 import os, re, sys, time

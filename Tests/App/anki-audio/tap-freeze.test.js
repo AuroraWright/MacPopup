@@ -2,7 +2,7 @@
 // and go: the game (windows/freezegame.swift) plays silence as its music and starts a quiet Tink (afplay, volume 0.05)
 // as its child every 3 s, so the kept audio's tap is made again as each sound starts and ends. tap-freeze-driver.py
 // samples the app after each of 20 sounds: its main thread never stays waiting on a queue or in AudioDeviceStop (the
-// 2026-11-14 deadlock), taps are made and none fails. Expected from scratch-tools/sentence-audio/verify-freeze.sh ("no
+// 2026-11-14 deadlock), taps are made and none fails. Expected from evals/sentence-audio/verify-freeze.sh ("no
 // freeze in 20 sounds") and the 2026-11-14 fix (memory: with a delay added to widen the race, the fixed code made 49
 // taps without freezing). Gentle on purpose: a flood of sound processes once crashed coreaudiod; never make it faster.
 // It plays sound: a quiet Tink every 3 s for about 75 s.

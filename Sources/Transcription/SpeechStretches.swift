@@ -39,7 +39,7 @@ public final class SpeechStretches: @unchecked Sendable {
     ///
     /// The stretch is taken as the classifier placed it, with `padding`: placing it more finely (VoiceDetector.refine)
     /// cut the first syllables of many lines, more so over music (Bocchi the Rock! episode 2, anime-whisper: 22% of its
-    /// subtitles' text missing, 13% without; scratch-tools/diarization/bocchi).
+    /// subtitles' text missing, 13% without; evals/diarization/bocchi).
     public struct Cut: @unchecked Sendable {
         public enum Placed: Sendable {
             case speech(Speech)

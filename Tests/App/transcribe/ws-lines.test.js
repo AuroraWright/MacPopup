@@ -7,7 +7,7 @@
 // some without. The host's lines (its notes, with MACPOPUP_DEBUG_OCR and Anki on) never turn from a WebSocket line into
 // a transcribed one or back (a grown line taking the place of the WebSocket line after it); a line that grows with
 // none after it takes its place in the box and in the host's lines ("grew"); the box has every WebSocket line once, in
-// order, no line twice, and each sentence in its transcribed lines. From scratch-tools/transcribe ws-lines.py and
+// order, no line twice, and each sentence in its transcribed lines. From evals/transcribe ws-lines.py and
 // check-ws-lines.py.
 // mock: MOCK_RUN_FILES=1 MOCK_WEBSOCKET=1
 // setup: python3 -I "$REPO/Tests/App/transcribe/speech.py" halves sat

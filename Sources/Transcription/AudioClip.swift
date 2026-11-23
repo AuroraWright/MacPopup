@@ -101,7 +101,7 @@ public struct AudioClip {
 
     /// Where `trimmed` cuts, in seconds. Nothing is taken off the voice as the classifier placed it: tightening it to
     /// where it's loud, or placing it more finely (VoiceDetector.refine), cut the first and last syllables of many
-    /// lines over music (scratch-tools/diarization/bocchi).
+    /// lines over music (evals/diarization/bocchi).
     public func voiceRange(from start: Double, to end: Double, padding: Double, startingBy latest: Double = .infinity) -> ClosedRange<Double> {
         let lower = max(0, min(start - padding, latest))
         return lower...max(lower, min(duration, end + padding))

@@ -4,7 +4,7 @@
 # says the line's video and audio are read from, then the card's media in mock.log: the sentence audio is 5.5–9 s
 # (iinaSentenceAudioPadding 500), silent, then the tone from 0.5 to 3.0 s, then silent; the screenshot is the frame from
 # the line's middle (7.25 s), told by the brightness band at the top of the picture.
-# From scratch-tools/iina/e2e-run.sh (local file) and streams/e2e.sh (the streams; 2026-11-10: "audio exact, frame
+# From evals/iina/e2e-run.sh (local file) and streams/e2e.sh (the streams; 2026-11-10: "audio exact, frame
 # within ±1" for local, HTTP, VOD HLS, split audio-add, live HLS, DASH EDL split, proxy and cookie gates).
 import base64, json, os, re, sys, time
 sys.dont_write_bytecode = True  # (no __pycache__ in the repo)

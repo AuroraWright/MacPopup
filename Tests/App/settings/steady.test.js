@@ -1,5 +1,5 @@
 // Settings' labels and hints stay put when a control changes width (sections-driver.py steady, after
-// scratch-tools/settings-shot/steady-pairs.sh): Anki Screenshot's resolution (1x, full), OCR Overlay's controller
+// evals/settings-shot/steady-pairs.sh): Anki Screenshot's resolution (1x, full), OCR Overlay's controller
 // start (bottom, top), General's language and captured window (ja and a window "A", en and a long title), Yomitan
 // Popup's themes, scale and size (narrow and wide values). The page sets each value while Settings is open, as the
 // driver asks; the left column's texts keep their frames and pixels (screenshots in the run folder).

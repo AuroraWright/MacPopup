@@ -3,7 +3,7 @@
 // (speech.py plain). Each sentence's words show as a live line at least a second before its line comes, the line takes
 // the live line's place (its text close to the live line's last), lines don't slide in, each sentence is a line, no
 // line twice, and no live line is left at the end. Live Caption's models are cloned from the user's (setup fails without
-// them). From scratch-tools/transcribe run-live.js and fixes-none.js (no steps).
+// them). From evals/transcribe run-live.js and fixes-none.js (no steps).
 // mock: MOCK_RUN_FILES=1
 // setup: python3 -I "$REPO/Tests/App/transcribe/speech.py" plain
 // env: MACPOPUP_TEST_TRANSCRIPTION_FILE=$RUN/speech.wav

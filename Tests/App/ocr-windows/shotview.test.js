@@ -1,4 +1,4 @@
-// A screenshot of the captured window and popups closing (after scratch-tools/harness/shot-run.sh), with OCR Mode on
+// A screenshot of the captured window and popups closing (after evals/harness/shot-run.sh), with OCR Mode on
 // Live Text (pinned) reading windows/shotview.swift: the Anki screenshot is the window alone, at 1x its size in points
 // for "1x" and for no resolution, and at its backing scale for "full" (rounded to even pixels); a popup on the OCR text's
 // 手 closes once the window is reported hidden; then, with the Floating Window, a popup on a line's 手 closes on a

@@ -4,7 +4,7 @@
 // resumed 1 s into the 5th's. While paused no live words and no lines show, and the 3rd sentence's live line goes when
 // its line comes (not shown); after, live words and lines show again: the box has the 1st, 2nd, 5th and 6th sentences
 // only, and no live line is left. Checks the review fix "a live line goes when its stretch's text comes while the box is
-// paused, and no new live words show while paused" (58aa084). From scratch-tools/transcribe fixes-pause.js.
+// paused, and no new live words show while paused" (58aa084). From evals/transcribe fixes-pause.js.
 // mock: MOCK_RUN_FILES=1
 // setup: python3 -I "$REPO/Tests/App/transcribe/speech.py" plain
 // env: MACPOPUP_TEST_TRANSCRIPTION_FILE=$RUN/speech.wav

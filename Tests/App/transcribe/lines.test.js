@@ -3,7 +3,7 @@
 // synthetic music (speech.py plain music; make-music.py), 4 s of music alone before them and 5 s after. Each sentence
 // is a line in the box (most of its characters), no line comes from the music alone, no line twice, the audio button
 // ends green (loaded) and was never red, and no toast (a model's error) shows. Live Caption's models are cloned from
-// the user's (setup fails without them). From scratch-tools/transcribe run.sh and run.js.
+// the user's (setup fails without them). From evals/transcribe run.sh and run.js.
 // mock: MOCK_RUN_FILES=1
 // setup: python3 -I "$REPO/Tests/App/transcribe/speech.py" plain music
 // env: MACPOPUP_TEST_TRANSCRIPTION_FILE=$RUN/speech.wav

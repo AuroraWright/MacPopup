@@ -1,6 +1,6 @@
 """make-music.py <out.wav>: 60 s of synthetic background music (plucked chords, a bass line and a soft beat, 16 kHz
 mono) to play under the test voices: no speech in it, for the sound classifier to tell apart. Made at test time by
-speech.py (from scratch-tools/transcribe)."""
+speech.py (from evals/transcribe)."""
 import sys, wave
 import numpy as np
 

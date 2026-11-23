@@ -3,7 +3,7 @@
 // 24 s over WebSocket; once line 3 shows, a popup on line 2 in the text box (debugMouse, not the real pointer) has its
 // first add button clicked with Option (a click event with altKey, as a real Option-click makes). The card (note 444,
 // MOCK_ADD_NOTE) gets line 2's voice whole (clip-driver.py, corr.swift) and a screenshot showing line 2, not line 3
-// (MOCK_SHOT's {screenshot} field, screenshotHistory 20; read with Vision). Expected from scratch-tools game-tests
+// (MOCK_SHOT's {screenshot} field, screenshotHistory 20; read with Vision). Expected from evals game-tests
 // verify-audio.sh (Option-click add on line 2: the line's voice, whole) and the 2026-11-14 screenshot buffer test ("card
 // for line 2 shows line 2").
 // It plays sound: the test window's music and Kyoko's lines, quietly (volume 0.15), for about 35 s.

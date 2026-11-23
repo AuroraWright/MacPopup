@@ -3,7 +3,7 @@
 // as a game with music) says a Japanese line at 7.5 s and another app (afplay) an English one at 2.2 s, both quietly
 // (record-driver.py). The recording is of the captured app alone, ends once its voice does, and the card gets a clip
 // with the Japanese line whole and not the English one (clip-driver.py, corr.swift). Expected from
-// scratch-tools/sentence-audio/run.sh (its "app" case) and SentenceAudio.swift (AudioRecording).
+// evals/sentence-audio/run.sh (its "app" case) and SentenceAudio.swift (AudioRecording).
 // It plays sound: a Japanese and an English line (say's voices, volume 0.15), about 5 s each.
 // interactive
 // mock: MOCK_RUN_FILES=1 MOCK_EDITOR=closed

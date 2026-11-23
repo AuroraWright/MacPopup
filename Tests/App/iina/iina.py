@@ -35,7 +35,7 @@ WEB = 'http://127.0.0.1:59885'
 FFMPEG = shutil.which('ffmpeg') or '/opt/homebrew/bin/ffmpeg'
 FFPROBE = shutil.which('ffprobe') or '/opt/homebrew/bin/ffprobe'
 
-# The test video's lines (scratch-tools/iina/subs.srt): text, start, end; a tone plays only while each shows (440 Hz,
+# The test video's lines (evals/iina/subs.srt): text, start, end; a tone plays only while each shows (440 Hz,
 # 880 Hz, 660 Hz). A band at the top of the picture is as bright as 12 levels a second (0 at 0 s, 87 at 7.25 s), for
 # telling which frame a screenshot is.
 LINES = [('今日はいい天気ですね。', 2.0, 4.0), ('明日も晴れるといいな。', 6.0, 8.5), ('猫が窓の外を見ている。', 11.0, 13.0)]

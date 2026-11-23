@@ -1,5 +1,5 @@
 // shotview <title>: a 600x300 window with one line of Japanese, for screenshots and popups (after
-// scratch-tools/harness/shotviewer). Shown without taking focus at the right of the main screen, 100 points of it off
+// evals/harness/shotviewer). Shown without taking focus at the right of the main screen, 100 points of it off
 // the edge (its text on screen, to be hovered; other windows can't count as covering it). Prints its steps as
 // "<ms since 1970> <step>": "shown <width>x<height> scale <backing scale>" (its frame in points, title bar included);
 // quits after 60 s.

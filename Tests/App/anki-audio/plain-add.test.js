@@ -1,6 +1,6 @@
 // A plain click on a popup's add button (no Option) adds the card without its line's voice: as option-add.test.js (a
 // popup on line 2 once line 3 shows), the click without altKey. The card (note 444) is noted with "no voice asked for",
-// and no sentence audio is stored nor given to a card. Expected from scratch-tools game-tests optrun.sh's Option false
+// and no sentence audio is stored nor given to a card. Expected from evals game-tests optrun.sh's Option false
 // case and SentenceAudioController.cardAdded.
 // It plays sound: the test window's music and Kyoko's lines, quietly (volume 0.15), for about 35 s.
 // interactive

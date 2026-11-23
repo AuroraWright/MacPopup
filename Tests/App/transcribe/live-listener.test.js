@@ -6,7 +6,7 @@
 // (the old listener's stretches don't remove the new one's live lines, whose numbers start from 0 again), the new
 // listener's lines have each sentence, and no live line is left at the end. Checks the review fix "after the listener
 // restarts (another pause setting), the old listener's last stretch no longer removes the new one's live line with the
-// same number" (58aa084). From scratch-tools/transcribe fixes-listener.js.
+// same number" (58aa084). From evals/transcribe fixes-listener.js.
 // mock: MOCK_RUN_FILES=1
 // setup: python3 -I "$REPO/Tests/App/transcribe/speech.py" plain
 // env: MACPOPUP_TEST_TRANSCRIPTION_FILE=$RUN/speech.wav

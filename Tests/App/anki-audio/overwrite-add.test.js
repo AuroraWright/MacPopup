@@ -2,7 +2,7 @@
 // audio replaces it with the line's voice when "Overwrite sentence audio" is on (sentenceAudioOverwrite, the default):
 // as option-add.test.js (a popup on line 2 once line 3 shows), every lookup's card being note 333, which has
 // [sound:old.m4a] (MOCK_OVER). Note 333 gets line 2's voice whole. Expected from the rules of 2026-11-14 (memory:
-// only sentenceAudioOverwrite decides, whatever Yomitan's per-field overwrite mode) and scratch-tools mock-over.py.
+// only sentenceAudioOverwrite decides, whatever Yomitan's per-field overwrite mode) and evals mock-over.py.
 // It plays sound: the test window's music and Kyoko's lines, quietly (volume 0.15), for about 35 s.
 // interactive
 // mock: MOCK_RUN_FILES=1 MOCK_WEBSOCKET=1 MOCK_EDITOR=closed MOCK_OVER=1

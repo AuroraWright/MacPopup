@@ -3,7 +3,7 @@
 // it (debugMouse) pauses the game, and its first two entries' add buttons are Option-clicked 1.5 s apart; 4 s later the
 // popup is closed. The game stays stopped all the time the popup is open after the first add (its process state, from
 // harness/tools/gamestate.py), and both cards get line 0's voice, whole, once it goes on (after the popup closed).
-// Expected from scratch-tools game-tests README (pause-multi, 2026-11-15: the game running in 0 of 34 checks after the
+// Expected from evals game-tests README (pause-multi, 2026-11-15: the game running in 0 of 34 checks after the
 // fix, both cards getting the voice once it goes on). Without the pause helper it fails first with "NOT RUN: …".
 // It pauses the test window's process (voicegame, with the pause helper) and plays sound: its music and a line,
 // quietly (volume 0.15), for about 30 s.

@@ -3,7 +3,7 @@
 // downloads them. The user's IINA (iina.py; history and recent files off for the run) plays the test video muted with
 // its MacPopup plugin on 6680; the box shows line 2 (明日も晴れるといいな。, 6–8.5 s), a popup on 晴 adds a card, and the card gets
 // the line's audio with 0.5 s around it (5.5–9 s: silent, the 880 Hz tone from 0.5 to 3.0 s, silent) and the frame from
-// its middle (7.25 s), checked by iina-card.py from mock.log. Expected values: scratch-tools/iina/make-video.sh,
+// its middle (7.25 s), checked by iina-card.py from mock.log. Expected values: evals/iina/make-video.sh,
 // e2e-run.sh, streams/e2e.sh (2026-11-10: "audio exact, frame within ±1").
 // Opens the user's IINA (muted; not while it runs) and quits it; its settings and plugins are checked unchanged.
 // interactive

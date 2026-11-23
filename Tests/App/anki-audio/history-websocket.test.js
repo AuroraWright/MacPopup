@@ -4,7 +4,7 @@
 // then one from line 3 at 27.3 s, while its voice still plays. Lines 0, 2 and 3 get their line's voice, whole, cut from
 // the kept audio (line 3's once its voice ends); line 1 is refused as cut off by the next line (the visual novel
 // backlog fallback is off). clip-driver.py checks the clips against the voices (corr.swift). Expected as on 2026-11-22
-// (scratch-tools game-tests README, "Placing change": lines 0, 2, 3 whole from the history, line 1 refused as cut off).
+// (evals game-tests README, "Placing change": lines 0, 2, 3 whole from the history, line 1 refused as cut off).
 // It plays sound: the test window's music and Kyoko's lines, quietly (volume 0.15), for about 35 s.
 // interactive
 // mock: MOCK_RUN_FILES=1 MOCK_WEBSOCKET=1 MOCK_EDITOR=closed

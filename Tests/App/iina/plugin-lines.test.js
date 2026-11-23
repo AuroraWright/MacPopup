@@ -2,7 +2,7 @@
 // muted (20 s, Japanese subtitles at 2–4, 6–8.5 and 11–13 s) with its MacPopup plugin on 6680. iina-lines.py reads the
 // plugin's WebSocket as MacPopup does: the three lines with their times, the file and its streams as their video and
 // audio, each sent as it's shown, and the window's status each second (subtitles ["jpn"], 20 s, not paused). The box
-// shows each line once, in order. From scratch-tools/iina/plugin-run.sh and client.mjs.
+// shows each line once, in order. From evals/iina/plugin-run.sh and client.mjs.
 // Opens the user's IINA (muted; not while it runs) and quits it; its settings and plugins are checked unchanged.
 // interactive
 // setup: python3 -I "$REPO/Tests/App/iina/iina.py" setup test

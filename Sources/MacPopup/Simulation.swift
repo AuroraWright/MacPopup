@@ -33,7 +33,7 @@ enum OCRClock {
 /// long as each reading took the first time (the engine reads each picture once: its readings are kept in the cache).
 /// Nothing else happens on the system's clock that OCR goes by (e.g. input isn't watched: see
 /// OCRController.checkInput). Before each wait the page handles what it was sent (with the page's clock at the time it
-/// was sent: see scratch-tools/sim/sim-page.js). The app quits 4 seconds after the end.
+/// was sent: see evals/sim/sim-page.js). The app quits 4 seconds after the end.
 final class Simulation: @unchecked Sendable {
     static let shared = Simulation(DevelopmentEnvironment.all)
 
