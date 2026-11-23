@@ -8,12 +8,19 @@ with what failed, and exits with 1 on a failure.
 | unit | `Unit/` | `swift test` (Swift Testing) | nothing | ~45 s with the first debug build, then seconds |
 | web | `web/` | `node --test Tests/web/` | Node | under a second |
 | app | `App/` | `scripts/test.sh app [--no-build] [--interactive] [test or folder...]` | a Mac session; the user's MacPopup and IINA closed | about 10 s a test, plus the build |
+| manual | `Manual/` | `Tests/App/run.sh --interactive Tests/Manual/<name>.test.js`, or by hand | a person (and for some, a controller, Parallels or the network) | minutes each |
 
 ## Unit (`Unit/`)
 
 Plain logic in the Swift targets, one file per area. The test target imports the app and its modules with
 `@testable import`, so internal types are reachable. Logic that sits in a SwiftUI view is moved out into a plain type
-first (as `EditedLines` was out of Settings' `LinesEditor`).
+first (as `EditedLines` was out of Settings' `LinesEditor`), and private functions a test needs are made internal (as
+`VideoTranscriber.isLanguage` and OneOCR's `mlasSumExp`). Pictures are drawn in the test (`OCRLayoutTests`,
+`OCRFuriganaTests`), not taken from games.
+
+Not a suite: `python3 -I scripts/check-settings.py` checks that every setting in `web/src/lib/settings-defaults.js` is
+read somewhere in `web/src` or `Sources`, and that every key read from the settings or shown in Settings is defined
+there (PASS, or what's wrong and exit 1). Neither `scripts/test.sh` nor the build runs it.
 
 ## Web (`web/`)
 
@@ -81,12 +88,14 @@ already has sentence audio).
 | `popup/` | the dictionary popup: images, audio and its menu, notes, Anki's editor, tooltips, Yomitan's display settings, collapsible definitions, scanning inside it |
 | `overlay/` | the text box: highlight boxes after a resize and with the real pointer (a wrapped row, a scrolling box, furigana), fonts and effects, the debug log, sentence audio shortcut, switching the overlay |
 | `ocr/` | OCR mode's text while a popup is open, the crash guard, the language filter |
-| `ocr-windows/` | OCR mode (Live Text) on test windows (`windows/`, shown without taking focus, at or past the main screen's right edge): typed, sparse, fading, animated, covered and untitled windows, blinking icons, moving text, a visual novel's page in the text box, kept screenshots; and the debug log, stale debug glyphs and noted lines |
+| `ocr-windows/` | OCR mode (Live Text) on test windows (`windows/`, shown without taking focus, at or past the main screen's right edge): typed, sparse, fading, animated, covered and untitled windows, blinking icons, moving text, a visual novel's page in the text box, kept screenshots, the captured window's screenshot sizes and popups closing when it hides or the space changes (Live Text pinned); and the debug log, stale debug glyphs and noted lines |
 | `gamepad/` | the controller in the text box and on OCR text, and switching to another app while it has focus |
-| `settings/` | Settings over Accessibility: scanning inputs, Yomitan's display settings, the WebSocket limit; typing into the WebSocket URL box and resizing the window with real keys and pointer |
+| `settings/` | Settings over Accessibility: each section rendering (window-only screenshots, the same a second later), labels and hints staying put when a control changes width, scanning inputs, Yomitan's display settings, the WebSocket limit and connections following the saved URLs, clearing IINA's saved transcriptions (made-up ones in the run folder); typing into the WebSocket URL box and resizing the window with real keys and pointer (`sections-driver.py` needs Python's PIL) |
 | `picker/` | the window picker: bringing the OCR window to the front, Escape, another app coming to the front |
-| `game-pause/` | Game Pause's pause and scan shortcut on a typed line, and its end when another app comes to the front (they stop the test window's process with the pause helper: `harness/tools/gamestate.py` logs its state) |
+| `game-pause/` | Game Pause's pause and scan shortcut on a typed line, its end when another app comes to the front, and the pause helper refusing another program (`pause-client.swift`, signed ad hoc; not interactive) (they stop the test window's process with the pause helper: `harness/tools/gamestate.py` logs its state) |
 | `anki-audio/` | Anki Audio with a game that speaks (`windows/`, voices made with `say -o` by `voices.sh` at test time): voices cut from the kept audio (WebSocket and OCR lines), Option-click, shortcut and overwrite adds, two cards in one pause, recording the captured app (warm, cold, a web view) and no voice, and the kept audio's tap not freezing the app; `clip-driver.py` checks the clips (`corr.swift`) and screenshots (`readtext.swift`) |
+| `profile/` | the app's memory (footprint) and CPU while idle and over 48 lookups, against ceilings about 1.5x what was measured (`profile-driver.py`, samples in the run folder's `samples.jsonl`) |
+| `transcribe/` | "Read text from audio" (Live Caption) on a sound file the app reads in place of an app's audio (`MACPOPUP_TEST_TRANSCRIPTION_FILE`, nothing played): Kyoko's sentences made with `say -o` at test time by `speech.py` (music by `make-music.py`), which also clones Live Caption's models (and SaT) from the user's and fails without them. Lines over music, words as they're heard, the box paused and the listener restarted meanwhile, WebSocket lines between lines that grow ("Detect sentence ends") |
 | `welcome/` | the first launch's window |
 | `yomitan-api/` | lines dropped before their tokenize reaches Yomitan |
 | `iina/` | the IINA plugin in the user's IINA (`iina.py`; all interactive): its plugin must be the repo's, on 6680; history and recent files are off for the run, and its settings and plugins are checked unchanged; transcripts go to `/Users/Shared/Library/Caches/com.aury.macpopup/Transcripts`. Its lines and statuses, cards' sentence audio and screenshots from a file and from streams (HTTP, HLS, split, DASH, live, proxy, cookie), dumps from IINA's cache, transcripts of videos without subtitles |
@@ -98,10 +107,14 @@ for a driver's log line with `driverSaid(prefix)`. Drivers use `driver.py`'s `mo
 clicks and drags only where a window of the test instance is in front, without modifiers), `keep_pointer` (puts the
 pointer back when the driver ends), `keys` (`tools/keys.swift`: one key press, only while one of the given processes is
 the frontmost app and none of its menus is open), `activate` (System Events brings a test window's app to the front),
-`frontmost`, `logged` (a page's `TEST` line) and `beside_log`; `tools/wins.swift` lists the on-screen windows and
-`ax … frame` a control's frame. Test windows that come to the front: `picker/plainwin.swift`. Left manual: the
-controller's cursor box while someone scrolls the text box with a trackpad (scratch-tools/popup-timing/scroll-rec.sh,
-which records frames of the test window: a page can't see the text lag behind the boxes in WebKit's scrolling).
+`frontmost`, `logged` (a page's `TEST` line) and `beside_log`; `tools/wins.swift` lists the on-screen windows,
+`ax … frame` a control's frame and `ax … frames` a window's texts with theirs. Test windows that come to the front: `picker/plainwin.swift`. Left manual: the
+controller's cursor box while someone scrolls the text box with a trackpad (`Manual/scroll-boxes.test.js`, which
+records the test window: a page can't see the text lag behind the boxes in WebKit's scrolling).
+
+## Manual (`Manual/`)
+
+What needs a person or hardware, with when and how to check it and the tools for it: see `Manual/README.md`.
 
 ## Helpers (`Helpers/`)
 

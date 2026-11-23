@@ -1,6 +1,6 @@
 // Anki Audio's recording ends as "no voice" when the captured app says nothing: with the kept audio off, the shortcut
 // (card 333) records the captured app (windows/audiowin.swift, cold: it never plays), and after the 10 s voice wait the
-// recording ends as no voice, nothing kept nor given to the card. Expected from scratch-tools/sentence-audio/novoice.sh
+// recording ends as no voice, nothing kept nor given to the card. Expected from research/sentence-audio/novoice.sh
 // ("the recording should end as no voice after the 10 s wait"; it had Anki off, which now stops before recording, so
 // card 333 is the mock's) and SentenceAudio.swift (AudioRecording: noVoice once voiceWait seconds are recorded, the
 // silence filled in while nothing plays). Nothing is played.

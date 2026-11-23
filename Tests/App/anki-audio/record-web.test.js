@@ -1,6 +1,6 @@
 // As record-app.test.js, with a captured app whose sound plays in a web view (WKAudioTest.app, made in the run folder
 // by wkaudio-app.sh from windows/wkaudio.swift): WebKit plays it from its own processes, which are recorded as the
-// app's. The card gets the Japanese line whole, not the English one. Expected from scratch-tools/sentence-audio/run.sh
+// app's. The card gets the Japanese line whole, not the English one. Expected from research/sentence-audio/run.sh
 // (its "web" case) and AudioTap.swift (an app's helper processes, e.g. WebKit's GPU process, are the app's).
 // It plays sound: a Japanese and an English line (say's voices, volume 0.15), about 5 s each.
 // interactive
