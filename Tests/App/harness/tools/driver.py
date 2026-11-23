@@ -17,8 +17,10 @@ def check(ok, message):
 
 
 def equal(actual, expected, message):
+    """Equal as JSON values (2 and 2.0 alike, keys in any order)."""
     a, e = json.dumps(actual, ensure_ascii=False), json.dumps(expected, ensure_ascii=False)
-    return check(a == e, f'{message}: {a}' + ('' if a == e else f' (expected {e})'))
+    same = json.loads(a) == json.loads(e)
+    return check(same, f'{message}: {a}' + ('' if same else f' (expected {e})'))
 
 
 def tool(name):

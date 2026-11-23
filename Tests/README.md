@@ -89,7 +89,7 @@ already has sentence audio).
 | `anki-audio/` | Anki Audio with a game that speaks (`windows/`, voices made with `say -o` by `voices.sh` at test time): voices cut from the kept audio (WebSocket and OCR lines), Option-click, shortcut and overwrite adds, two cards in one pause, recording the captured app (warm, cold, a web view) and no voice, and the kept audio's tap not freezing the app; `clip-driver.py` checks the clips (`corr.swift`) and screenshots (`readtext.swift`) |
 | `welcome/` | the first launch's window |
 | `yomitan-api/` | lines dropped before their tokenize reaches Yomitan |
-| `iina/` | the IINA plugin in a copy of IINA kept apart from the user's (`iina.py`; all interactive): its lines and statuses, cards' sentence audio and screenshots from a file and from streams (HTTP, HLS, split, DASH, live, proxy, cookie), dumps from IINA's cache, transcripts of videos without subtitles |
+| `iina/` | the IINA plugin in the user's IINA (`iina.py`; all interactive): its plugin must be the repo's, on 6680; history and recent files are off for the run, and its settings and plugins are checked unchanged; transcripts go to `/Users/Shared/Library/Caches/com.aury.macpopup/Transcripts`. Its lines and statuses, cards' sentence audio and screenshots from a file and from streams (HTTP, HLS, split, DASH, live, proxy, cookie), dumps from IINA's cache, transcripts of videos without subtitles |
 
 Tests with `// interactive` (e.g. `popup/image-open`, which opens Preview) only run with `--interactive`; a line under
 the description says what each does to the Mac. Pages move the real pointer with `pointerMove(from, to, ms)` and
