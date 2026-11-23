@@ -140,36 +140,14 @@ if [[ "${MACPOPUP_HARDENED:-}" == 1 ]]; then
     SIGN=(codesign --force --timestamp --options runtime --sign "$IDENTITY")
     ENTITLEMENTS=(--entitlements Resources/MacPopup.entitlements)
 fi
-# With a certificate, the designated requirement names the team instead of the certificate (the default names its
-# subject, "Apple Development: …" or "Developer ID Application: …"), so development and notarized builds have the
-# same one: macOS keys the privacy permissions and the background items' records (the pause helper's) on it, and
-# switching between the two kinds of build otherwise asked for the permissions again and left the pause helper
-# unstartable (its record no longer matching).
-TEAM=""
-if [[ "$IDENTITY" != "-" ]]; then
-    TEAM="$(security find-certificate -c "$IDENTITY" -p | openssl x509 -noout -subject -nameopt sep_multiline \
-        | sed -n 's/^ *OU=//p' | head -n 1)" || TEAM=""
-    [[ -n "$TEAM" ]] || echo "warning: no team in \"$IDENTITY\"; signing with the default designated requirement"
-fi
-# codesign's --requirements for the given identifier, one argument a line (none without a team; "=" makes it text).
-requirement() {
-    if [[ -n "$TEAM" ]]; then
-        printf '%s\n' --requirements \
-            "=designated => identifier \"$1\" and anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\""
-    fi
-}
 if [[ -d "$APP/Contents/Frameworks" ]]; then
     "${SIGN[@]}" "$APP"/Contents/Frameworks/*.dylib >/dev/null
 fi
-sign() {  # <identifier> <path> [options...]
-    local identifier=$1 target=$2; shift 2
-    "${SIGN[@]}" --identifier "$identifier" ${(f)"$(requirement "$identifier")"} "$@" "$target" >/dev/null
-}
-sign com.aury.macpopup.yomitan-api "$APP/Contents/Helpers/yomitan_api"
-sign com.aury.macpopup.pause-helper "$APP/Contents/Helpers/pause-helper"
+"${SIGN[@]}" --identifier com.aury.macpopup.yomitan-api "$APP/Contents/Helpers/yomitan_api" >/dev/null
+"${SIGN[@]}" --identifier com.aury.macpopup.pause-helper "$APP/Contents/Helpers/pause-helper" >/dev/null
 if [[ -f "$APP/Contents/Helpers/ffmpeg" ]]; then
-    sign com.aury.macpopup.ffmpeg "$APP/Contents/Helpers/ffmpeg"
+    "${SIGN[@]}" --identifier com.aury.macpopup.ffmpeg "$APP/Contents/Helpers/ffmpeg" >/dev/null
 fi
-sign com.aury.macpopup "$APP" "${ENTITLEMENTS[@]}"
+"${SIGN[@]}" "${ENTITLEMENTS[@]}" "$APP" >/dev/null
 
 echo "Built $APP"
