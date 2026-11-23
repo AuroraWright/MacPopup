@@ -80,15 +80,9 @@ let package = Package(
             name: "SODA",
             dependencies: ["SODAKernels"],
             path: "Sources/SODA",
-            // soda-cli reaches the stages' internals with @testable import. Accelerate's current CBLAS interface (the old
-            // one is deprecated; the same results).
+            // transcribe-cli soda reaches the stages' internals with @testable import. Accelerate's current CBLAS
+            // interface (the old one is deprecated; the same results).
             swiftSettings: [.unsafeFlags(["-enable-testing", "-Xcc", "-DACCELERATE_NEW_LAPACK"])]
-        ),
-        // Runs SODA's stages on audio files (for checking the port against opensoda).
-        .executableTarget(
-            name: "soda-cli",
-            dependencies: ["SODA"],
-            path: "Sources/SODACLI"
         ),
         // Reads picture files with the OCR engines (for the test corpus), and runs Screen AI's and oneocr's pieces (for
         // checking the ports against the C++ and Python ones when Google's or Microsoft's engines change).
@@ -97,10 +91,11 @@ let package = Package(
             dependencies: ["LiveText", "OCREngines", "ScreenAI", "OneOCR"],
             path: "Sources/OCRCLI"
         ),
-        // Transcribes audio files (for checking the recognizers against the Python ones).
+        // Transcribes audio files (for checking the recognizers against the Python ones), and runs SODA's stages (for
+        // checking the port against opensoda when Google's packs change).
         .executableTarget(
             name: "transcribe-cli",
-            dependencies: ["OCREngines", "Transcription"],
+            dependencies: ["OCREngines", "SODA", "Transcription"],
             path: "Sources/TranscribeCLI"
         ),
         // What MacPopup and its pause helper say to each other over XPC.
