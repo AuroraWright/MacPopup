@@ -1,0 +1,39 @@
+// Option-clicking a popup's add button that overwrites a card (duplicateBehavior overwrite) which already has sentence
+// audio replaces it with the line's voice when "Overwrite sentence audio" is on (sentenceAudioOverwrite, the default):
+// as option-add.test.js (a popup on line 2 once line 3 shows), every lookup's card being note 333, which has
+// [sound:old.m4a] (MOCK_OVER). Note 333 gets line 2's voice whole. Expected from the rules of 2026-11-14 (memory:
+// only sentenceAudioOverwrite decides, whatever Yomitan's per-field overwrite mode) and scratch-tools mock-over.py.
+// It plays sound: the test window's music and Kyoko's lines, quietly (volume 0.15), for about 35 s.
+// interactive
+// mock: MOCK_RUN_FILES=1 MOCK_WEBSOCKET=1 MOCK_EDITOR=closed MOCK_OVER=1
+// settings: {"ocrMode": false, "ocrWindow": {"ownerName": "voicegame", "title": "AudioTest"}, "websocketUrls": ["ws://127.0.0.1:59880"], "clipboardMonitor": false, "ankiEnabled": true, "sentenceAudioField": "SentenceAudio", "sentenceAudioEnabled": true, "sentenceAudioHistory": 5, "sentenceAudioShortcut": null, "sentenceAudioApp": "none", "sentenceAudioOpenKeys": [], "sentenceAudioCloseKeys": [], "sentenceAudioDetectVoice": true, "sentenceAudioPause": 1500, "sentenceAudioVoiceWait": 10, "sentenceAudioPadding": 300, "sentenceAudioPlay": false, "sentenceAudioBacklog": false, "screenshotHistory": 0, "duplicateBehavior": "overwrite", "sentenceAudioOverwrite": true, "ankiRenderTemplatesLocally": true}
+// setup: "$REPO/Tests/App/anki-audio/voices.sh" "$RUN"
+// beside: "$("$HARNESS/tools/build.sh" "$REPO/Tests/App/anki-audio/windows/voicegame.swift")" "$RUN" 0.15 8 14 17 24
+// driver: python3 -I "$REPO/Tests/App/anki-audio/clip-driver.py" voice0 voice1 voice2 voice3
+// timeout: 120
+
+test('overlay', async () => {
+	const text = (await runFile('voice2.txt')).trim();
+	await windowStep('line 3 shown', 60000);
+	const line = await lineWith(text.slice(0, 6), 10000);
+	// In view first: with four long lines the box is scrolled, and this one is partly under the header.
+	line.scrollIntoView({ block: 'center', behavior: 'instant' });
+	await wait(300);
+	await native('debugMouse', center(rangeOf(line, text.charAt(1)).getBoundingClientRect()));
+	const button = await until('the add button', () => [...(popupDocument()?.querySelectorAll(
+		'.note-actions-container .action-button[data-action=save-note][data-card-format-index="0"]') ?? [])].find((b) => !b.disabled), 10000);
+	const before = (await sentenceAudioNotes()).length;
+	button.dispatchEvent(new (button.ownerDocument.defaultView.MouseEvent)('click', { bubbles: true, cancelable: true, altKey: true }));
+	const added = await until('the card', async () => (await sentenceAudioNotes()).slice(before).find((n) => n.startsWith('card ')), 10000).catch(() => '');
+	expect(/^card 333 added, line \d+: its line.s voice asked for$/.test(added), `the card added: "${added}"`);
+	const outcome = await until('Anki Audio', async () => (await sentenceAudioNotes()).slice(before).find((n) =>
+		/^[\d.]+s, macpopup-sentence-/.test(n)
+		|| (/^message: /.test(n) && !/^message: Waiting for the voice/.test(n)) // (shown while it waits, not an outcome)
+		|| (/^history: /.test(n) && !/^history: (line \d|voice |waiting |no voice in )/.test(n))), 20000).catch(() => '');
+	expect(/^[\d.]+s, macpopup-sentence-/.test(outcome), `a clip from the kept audio: "${outcome}"`);
+	await wait(1500);
+	const mock = await mockLog();
+	expect(mock.some((l) => / updateNoteFields .*"SentenceAudio": "\[sound:macpopup-sentence-/.test(l) && l.includes('"id": 333')), 'note 333 got the clip');
+	expect(!mock.some((l) => / addNote /.test(l)), 'no new card added (overwritten)');
+	log('clip 1 voice2');
+});

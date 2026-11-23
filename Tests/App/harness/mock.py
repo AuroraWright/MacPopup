@@ -3,7 +3,7 @@
 # (logs each request's time, answers with 0.1 s of silence). Each request goes to <log>, which GET /__log on 59879
 # answers with. A test's "// mock:" line sets the MOCK_* switches below (images, notes, an Anki editor, a Yomitan
 # profile, tokenizing, an added note's id, the run folder's files, WebSocket lines, WebSocket servers that stay connected,
-# a screenshot field).
+# a screenshot field, a note that has sentence audio already).
 import base64, io, json, os, struct, sys, threading, time, wave, zlib
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 log_path = sys.argv[1]
@@ -42,7 +42,8 @@ if os.environ.get('MOCK_NOTES') == '1':
 # MOCK_EDITOR=browser|closed: AnkiConnect as it is with a card browser open on the note (browser) or no browser open
 # (closed): note 333, added today, with a sentence and an empty SentenceAudio field; guiBrowse changes the browser's
 # selection (nid:1 none, nid:<ids> those), and updateNoteFields refuses a note selected there, as AnkiConnect refuses
-# notes open in an editor. Every lookup's note exists as 333 (for duplicateBehavior overwrite).
+# notes open in an editor. Every lookup's note exists as 333 (for duplicateBehavior overwrite). MOCK_OVER=1: note 333
+# already has sentence audio ([sound:old.m4a]) and, with MOCK_SHOT, a picture (Anki Audio's overwrite rules).
 if os.environ.get('MOCK_EDITOR') in ('browser', 'closed'):
     card_formats = [{'type': 'term', 'model': 'Mock', 'name': 'Mock', 'deck': 'Mock',
                      'fields': {'Word': {'value': '{expression}'}, 'Sentence': {'value': '{sentence}'}, 'SentenceAudio': {'value': ''}}}]
@@ -55,8 +56,13 @@ if os.environ.get('MOCK_EDITOR') in ('browser', 'closed'):
         if action == 'findNotes':
             return [333]
         if action == 'notesInfo':
-            return [{'noteId': 333, 'modelName': 'Mock', 'tags': [], 'cards': [3330], 'fields': {
-                'Word': {'value': '晴れる', 'order': 0}, 'Sentence': {'value': '明日も<b>晴れる</b>といいね', 'order': 1}, 'SentenceAudio': {'value': '', 'order': 2}}}]
+            fields = {'Word': {'value': '晴れる', 'order': 0}, 'Sentence': {'value': '明日も<b>晴れる</b>といいね', 'order': 1}, 'SentenceAudio': {'value': '', 'order': 2}}
+            # MOCK_OVER=1: note 333 already has sentence audio (and, with MOCK_SHOT, a picture).
+            if os.environ.get('MOCK_OVER') == '1':
+                fields['SentenceAudio']['value'] = '[sound:old.m4a]'
+                if os.environ.get('MOCK_SHOT') == '1':
+                    fields['Picture'] = {'value': '<img src="old.jpg">', 'order': 3}
+            return [{'noteId': 333, 'modelName': 'Mock', 'tags': [], 'cards': [3330], 'fields': fields}]
         if action == 'storeMediaFile':
             return params.get('filename')
         if action == 'guiSelectedNotes':

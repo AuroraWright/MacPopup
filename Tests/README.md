@@ -65,24 +65,43 @@ More header lines, for what a page script can't do (see `harness/launch.sh`):
   sections and controls over Accessibility with `tools/ax.swift`, window-only screenshots); Swift tools are compiled
   into `build/test/tools` by `tools/build.sh` when needed. Settings is SwiftUI, so its tests are drivers.
 
+With `"gamePause": true` in a test's settings, launch.sh first makes a window of its own (`tools/frontguard.swift`) the
+frontmost app, and doesn't run the test if it can't: Game Pause freezes the frontmost app when the OCR window isn't
+found, which would otherwise be the terminal running the tests.
+
 `harness/mock.py`'s switches (`// mock:`): `MOCK_IMAGES` (dictionary images), `MOCK_NOTES` (notes 111 and 222 exist),
 `MOCK_EDITOR=browser|closed` (Anki's card browser), `MOCK_ADD_NOTE=<id>`, `MOCK_PROFILE` and `MOCK_PROFILE_FAIL=<n>`
 (Yomitan's display options), `MOCK_TOKENIZE` (furigana), `MOCK_MATCH_LENGTH=<n>`, `MOCK_WEBSOCKET` (a WebSocket server
 on 59880 sending what's POSTed to 59881), `MOCK_WEBSOCKET_PORTS=<port>,…` (servers that stay connected),
-`MOCK_RUN_FILES`, `MOCK_SHOT` (with `MOCK_EDITOR`: a {screenshot} field).
+`MOCK_RUN_FILES`, `MOCK_SHOT` (with `MOCK_EDITOR`: a {screenshot} field), `MOCK_OVER` (with `MOCK_EDITOR`: note 333
+already has sentence audio).
 
 | Folder | What |
 |---|---|
 | `popup/` | the dictionary popup: images, audio and its menu, notes, Anki's editor, tooltips, Yomitan's display settings, collapsible definitions, scanning inside it |
-| `overlay/` | the text box: highlight boxes after a resize, fonts and effects, the debug log, sentence audio shortcut, switching the overlay |
+| `overlay/` | the text box: highlight boxes after a resize and with the real pointer (a wrapped row, a scrolling box, furigana), fonts and effects, the debug log, sentence audio shortcut, switching the overlay |
 | `ocr/` | OCR mode's text while a popup is open, the crash guard, the language filter |
 | `ocr-windows/` | OCR mode (Live Text) on test windows (`windows/`, shown without taking focus, at or past the main screen's right edge): typed, sparse, fading, animated, covered and untitled windows, blinking icons, moving text, a visual novel's page in the text box, kept screenshots; and the debug log, stale debug glyphs and noted lines |
-| `gamepad/` | the controller in the text box and on OCR text |
-| `settings/` | Settings over Accessibility: scanning inputs, Yomitan's display settings, the WebSocket limit |
+| `gamepad/` | the controller in the text box and on OCR text, and switching to another app while it has focus |
+| `settings/` | Settings over Accessibility: scanning inputs, Yomitan's display settings, the WebSocket limit; typing into the WebSocket URL box and resizing the window with real keys and pointer |
+| `picker/` | the window picker: bringing the OCR window to the front, Escape, another app coming to the front |
+| `game-pause/` | Game Pause's pause and scan shortcut on a typed line, and its end when another app comes to the front (they stop the test window's process with the pause helper: `harness/tools/gamestate.py` logs its state) |
+| `anki-audio/` | Anki Audio with a game that speaks (`windows/`, voices made with `say -o` by `voices.sh` at test time): voices cut from the kept audio (WebSocket and OCR lines), Option-click, shortcut and overwrite adds, two cards in one pause, recording the captured app (warm, cold, a web view) and no voice, and the kept audio's tap not freezing the app; `clip-driver.py` checks the clips (`corr.swift`) and screenshots (`readtext.swift`) |
 | `welcome/` | the first launch's window |
 | `yomitan-api/` | lines dropped before their tokenize reaches Yomitan |
+| `iina/` | the IINA plugin in a copy of IINA kept apart from the user's (`iina.py`; all interactive): its lines and statuses, cards' sentence audio and screenshots from a file and from streams (HTTP, HLS, split, DASH, live, proxy, cookie), dumps from IINA's cache, transcripts of videos without subtitles |
 
-Tests with `// interactive` (e.g. `popup/image-open`, which opens Preview) only run with `--interactive`.
+Tests with `// interactive` (e.g. `popup/image-open`, which opens Preview) only run with `--interactive`; a line under
+the description says what each does to the Mac. Pages move the real pointer with `pointerMove(from, to, ms)` and
+`pointerClick(at)` (page points; `// driver: python3 -I "$HARNESS/tools/pointer.py"`, with `MOCK_RUN_FILES=1`), and wait
+for a driver's log line with `driverSaid(prefix)`. Drivers use `driver.py`'s `mouse` (`tools/mouse.swift`: moves,
+clicks and drags only where a window of the test instance is in front, without modifiers), `keep_pointer` (puts the
+pointer back when the driver ends), `keys` (`tools/keys.swift`: one key press, only while one of the given processes is
+the frontmost app and none of its menus is open), `activate` (System Events brings a test window's app to the front),
+`frontmost`, `logged` (a page's `TEST` line) and `beside_log`; `tools/wins.swift` lists the on-screen windows and
+`ax … frame` a control's frame. Test windows that come to the front: `picker/plainwin.swift`. Left manual: the
+controller's cursor box while someone scrolls the text box with a trackpad (scratch-tools/popup-timing/scroll-rec.sh,
+which records frames of the test window: a page can't see the text lag behind the boxes in WebKit's scrolling).
 
 ## Helpers (`Helpers/`)
 

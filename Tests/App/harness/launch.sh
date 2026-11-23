@@ -61,6 +61,22 @@ s = json.load(open(sys.argv[1])); s.update(json.loads(sys.argv[2] or "{}")); pri
 defaults delete $SUITE 2>/dev/null
 defaults write $SUITE settings -string "$settings"
 
+# Game Pause on: a window of our own is made the frontmost app first, as Game Pause freezes the frontmost app when the
+# saved OCR window isn't found, which would otherwise be the terminal running the tests (tools/frontguard.swift).
+guard=
+if python3 -I -c 'import json, sys; sys.exit(0 if json.loads(sys.argv[1]).get("gamePause") is True else 1)' "$settings"; then
+    tool=$("$HARNESS/tools/build.sh" frontguard) || { echo "NOT RUN: couldn't build frontguard"; exit 2; }
+    "$tool" > "$RUN/frontguard.log" 2>&1 & guard=$!
+    end=$((SECONDS + 8))
+    until grep -q '^frontmost' "$RUN/frontguard.log" 2>/dev/null; do
+        if (( SECONDS > end )) || ! kill -0 $guard 2>/dev/null; then
+            kill $guard 2>/dev/null; defaults delete $SUITE 2>/dev/null
+            echo "NOT RUN: Game Pause is on and the front guard window didn't become the frontmost app"; exit 2
+        fi
+        sleep 0.1
+    done
+fi
+
 env ${=MOCK} python3 -I "$HARNESS/mock.py" "$RUN/mock.log" & mock=$!
 beside=
 if [[ -n "$BESIDE" ]]; then
@@ -84,7 +100,8 @@ grep -q "^test(" "$TEST" && page=1
 driver_status=0
 if [[ -n "$DRIVER" ]]; then
     PID=$app zsh -c "$DRIVER" > "$RUN/driver.log" 2>&1 & driver=$!
-    ( sleep ${TIMEOUT:-60}; kill $driver 2>/dev/null ) & watchdog=$!
+    # (Its output away from run.sh's: a sleep left over when it's killed would hold that open until it ends.)
+    ( sleep ${TIMEOUT:-60}; kill $driver 2>/dev/null ) > /dev/null 2>&1 & watchdog=$!
 fi
 if (( page )) && logged ready 30; then
     [[ -n "$CLIPBOARD" ]] && sleep 1 && "$PB" $SUITE "$CLIPBOARD"
@@ -92,9 +109,11 @@ if (( page )) && logged ready 30; then
 fi
 if [[ -n "$DRIVER" ]]; then
     wait $driver; driver_status=$?
-    kill $watchdog 2>/dev/null; wait $watchdog 2>/dev/null
+    # Its sleep too: left over, it would kill whatever process has the driver's pid by then.
+    pkill -P $watchdog 2>/dev/null; kill $watchdog 2>/dev/null; wait $watchdog 2>/dev/null
 fi
 kill $app $mock 2>/dev/null; wait $app $mock 2>/dev/null
+[[ -n "$guard" ]] && { kill $guard 2>/dev/null; wait $guard 2>/dev/null }
 if [[ -n "$beside" ]]; then
     pkill -P $beside 2>/dev/null; kill $beside 2>/dev/null; wait $beside 2>/dev/null
 fi

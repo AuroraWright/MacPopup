@@ -2,7 +2,9 @@
 // A test calls test(page, body): body runs in that page only, and checks with expect/equal/near. Each check is logged
 // ("TEST ok …" or "TEST FAIL …"); launch.sh passes a test that logged "TEST done", at least one check and no failure.
 /* exported test, native, log, wait, until, expect, equal, near, lineWith, rangeOf, center, mockLog, popupDocument,
-   runFile, debugRecords, boxText, popupVisible, gamepadPress, windowSteps, windowStep, watch, ocrText */
+   runFile, debugRecords, boxText, popupVisible, gamepadPress, windowSteps, windowStep, watch, ocrText, pointerMove,
+   pointerClick, driverSaid, processStates, gamePauseNotes,
+   sentenceAudioNotes */
 'use strict';
 
 function native(cmd, args = {}) {
@@ -168,6 +170,66 @@ function watch(read, every = 50) {
 /** The text OCR Mode shows over the window ('' when none). */
 function ocrText() {
 	return document.querySelector('#ocr-text')?.textContent ?? '';
+}
+
+/**
+ * The first line of the driver's log (driver.log) starting with `prefix`, once it's there: for a page that waits on its
+ * driver (interactive tests). Needs MOCK_RUN_FILES=1.
+ */
+async function driverSaid(prefix, timeout = 30000) {
+	return until(`the driver's "${prefix}"`,
+		async () => (await runFile('driver.log')).split('\n').find((line) => line.startsWith(prefix)), timeout);
+}
+
+let pointerRequests = 0;
+
+/** Asks harness/tools/pointer.py (the driver) to move or click the real pointer: whether it did. */
+async function pointerRequest(kind, points, ms) {
+	const name = `p${++pointerRequests}`;
+	log(`pointer ${kind} ${name} ${innerWidth}x${innerHeight} ${[...points.flatMap((p) => [p.x, p.y]).map(Math.round), ...(ms === undefined ? [] : [ms])].join(' ')}`);
+	const answer = await driverSaid(`pointer ${name} `, (ms ?? 0) + 15000).catch((e) => e.message);
+	return expect(/^pointer \S+ (moved|clicked)$/.test(answer), `the real pointer: ${answer}`);
+}
+
+/**
+ * Moves the real pointer from `from` to `to` (this page's points) over `ms`, and waits until it's there: whether it
+ * moved (it isn't moved where the test instance's window isn't in front). For interactive tests whose driver is
+ * harness/tools/pointer.py, with MOCK_RUN_FILES=1.
+ */
+function pointerMove(from, to, ms = 300) {
+	return pointerRequest('move', [from, to], Math.round(ms));
+}
+
+/** Clicks the real pointer at `at` (this page's points), as pointerMove: whether it clicked. */
+function pointerClick(at) {
+	return pointerRequest('click', [at]);
+}
+
+/**
+ * The test window's process states so far, as harness/tools/gamestate.py (the driver) logs them every 0.1 s: { time,
+ * state } with ps's state ('T…' stopped, 'gone' once it quit), times as Date.now()'s. Needs MOCK_RUN_FILES=1.
+ */
+async function processStates() {
+	return (await runFile('state.log')).split('\n').map((line) => line.match(/^(\d{12,}) (\S+)/))
+		.filter(Boolean).map(([, time, state]) => ({ time: Number(time), state }));
+}
+
+/**
+ * Game Pause's notes in app.log so far (with "// env: MACPOPUP_DEBUG_OCR=1"): "game paused: …", "game not paused: …"
+ * (e.g. "the pause helper isn't allowed"), "the pause helper didn't answer: …", "the pause helper stopped n of m
+ * processes", "switched to … while the game was paused". Needs MOCK_RUN_FILES=1.
+ */
+async function gamePauseNotes() {
+	return (await runFile('app.log')).split('\n').map((line) => line.match(/^\[ocr [\d.]+\] (.*)$/)?.[1])
+		.filter((note) => note && /^(game paused|game not paused|the pause helper|switched to )/.test(note));
+}
+
+/**
+ * Anki Audio's notes in app.log so far (its "[sentence audio] …" lines: "line shown … (line <id>): <text>", "history: …",
+ * "<s>s, macpopup-sentence-….m4a", "message: <toast>", …). Needs MOCK_RUN_FILES=1.
+ */
+async function sentenceAudioNotes() {
+	return (await runFile('app.log')).split('\n').map((line) => line.match(/^\[sentence audio\] (.*)$/)?.[1]).filter(Boolean);
 }
 
 function test(page, body) {

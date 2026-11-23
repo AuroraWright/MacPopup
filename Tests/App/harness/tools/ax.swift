@@ -8,6 +8,9 @@
 //   set <role> <text> <n> <value>    focuses that text field, sets its value and confirms it (as Return does)
 //   type <role> <text> <n> <value>   the same without confirming: the field stays focused, still being edited
 //   focus <role> <text> <n>          focuses it (which ends the editing of another field)
+//   frame <role> <text> <n>          its frame (x y w h, global points from the top left), then its parent's (e.g. a
+//                                    text area's scroll view) on a second line
+// <text> "*" matches any control of that role.
 // Prints "ok" or what went wrong, and exits with 1 on a failure. Needs the Accessibility permission of the app it's run
 // from (e.g. the terminal).
 import ApplicationServices
@@ -56,7 +59,7 @@ func fail(_ message: String) -> Never {
 }
 
 func find(_ role: String, _ text: String, _ n: Int) -> AXUIElement {
-    let matches = all.filter { string($0.element, kAXRoleAttribute) == role && texts($0.element).contains(text) }
+    let matches = all.filter { string($0.element, kAXRoleAttribute) == role && (text == "*" || texts($0.element).contains(text)) }
     guard n >= 1, n <= matches.count else { fail("only \(matches.count) \(role) \"\(text)\"") }
     return matches[n - 1].element
 }
@@ -110,6 +113,18 @@ case "focus":
     guard args.count >= 6, let n = Int(args[5]) else { fail("usage: focus <role> <text> <n>") }
     focus(find(args[3], args[4], n))
     print("ok")
+case "frame":
+    guard args.count >= 6, let n = Int(args[5]) else { fail("usage: frame <role> <text> <n>") }
+    let element = find(args[3], args[4], n)
+    func frame(_ element: AXUIElement) -> String {
+        var origin = CGPoint.zero, size = CGSize.zero
+        guard let position = attribute(element, kAXPositionAttribute), let extent = attribute(element, kAXSizeAttribute),
+              AXValueGetValue(position as! AXValue, .cgPoint, &origin), AXValueGetValue(extent as! AXValue, .cgSize, &size)
+        else { return "none" }
+        return "\(origin.x) \(origin.y) \(size.width) \(size.height)"
+    }
+    print(frame(element))
+    print(attribute(element, kAXParentAttribute).map { frame($0 as! AXUIElement) } ?? "none")
 default:
     fail("unknown command \(command)")
 }

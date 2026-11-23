@@ -99,3 +99,72 @@ def png_size(path):
     with open(path, 'rb') as f:
         header = f.read(24)
     return int.from_bytes(header[16:20], 'big'), int.from_bytes(header[20:24], 'big')
+
+
+# For interactive tests ("// interactive"): the real pointer and keys, only on the test instance's (or a test window's)
+# windows, through tools/mouse.swift and tools/keys.swift.
+
+def app_log():
+    try:
+        with open(f'{RUN}/app.log', errors='replace') as f:
+            return f.read()
+    except OSError:
+        return ''
+
+
+def logged(text, timeout=30):
+    """Waits until the page logs "TEST <text>…" (app.log): the line (without "TEST "), or None after timeout seconds."""
+    def find():
+        for line in app_log().splitlines():
+            at = line.find(f'TEST {text}')
+            if at >= 0:
+                return line[at + 5:]
+        return None
+    return until(find, timeout=timeout, interval=0.1)
+
+
+def mouse(*args):
+    """Runs tools/mouse.swift: (succeeded, output)."""
+    result = subprocess.run([tool('mouse'), *map(str, args)], capture_output=True, text=True)
+    return result.returncode == 0, result.stdout.strip()
+
+
+def keep_pointer():
+    """Puts the real pointer back where it is now when the driver exits (also when launch.sh's watchdog stops it)."""
+    import atexit, signal
+    _, at = mouse('pos')
+    x, y = at.split()
+    put_back = lambda: (mouse('put', x, y), log(f'the pointer put back at {x},{y}'))
+    atexit.register(put_back)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+
+
+def keys(pids, step):
+    """One key press with tools/keys.swift, only while one of `pids` is the frontmost app: whether it was sent."""
+    result = subprocess.run([tool('keys'), ','.join(map(str, pids)), step], capture_output=True, text=True)
+    log(f'key {step}: {result.stdout.strip()}')
+    return result.returncode == 0
+
+
+def frontmost():
+    """The frontmost app's pid (lsappinfo), or 0."""
+    out = subprocess.run(['lsappinfo', 'info', '-only', 'pid', subprocess.run(['lsappinfo', 'front'], capture_output=True, text=True).stdout.strip()],
+                         capture_output=True, text=True).stdout
+    digits = ''.join(c for c in out.split('=')[-1] if c.isdigit())
+    return int(digits) if digits else 0
+
+
+def activate(pid):
+    """Brings a test window's process to the front, as clicking it would (System Events, as a process can't take the front
+    from another app itself): whether it's in front after."""
+    subprocess.run(['osascript', '-e', f'tell application "System Events" to set frontmost of (first process whose unix id is {int(pid)}) to true'],
+                   capture_output=True)
+    return bool(until(lambda: frontmost() == int(pid), timeout=3))
+
+
+def beside_log():
+    try:
+        with open(f'{RUN}/beside.log', errors='replace') as f:
+            return f.read()
+    except OSError:
+        return ''
