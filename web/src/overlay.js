@@ -663,8 +663,13 @@ function defaultBoxRect() {
 	return { x: Math.round((window.innerWidth - width) / 2), y: window.innerHeight - height - 80, width, height };
 }
 
+/** The box's narrowest: its buttons above it fit (4 px in from its right edge, see placeBoxButtons, and 4 from its left). */
+function minBoxWidth() {
+	return Math.max(120, boxButtons.offsetWidth + 8);
+}
+
 function clampBoxRect(rect) {
-	const width = Math.min(Math.max(rect.width, 120), window.innerWidth);
+	const width = Math.min(Math.max(rect.width, minBoxWidth()), window.innerWidth);
 	const height = Math.min(Math.max(rect.height, 60), window.innerHeight);
 	const x = Math.min(Math.max(rect.x, 0), window.innerWidth - width);
 	const y = Math.min(Math.max(rect.y, 0), window.innerHeight - height);
@@ -2699,6 +2704,10 @@ async function main() {
 	// Scrolling by hand moves the looked-up word; scrolling to show new lines keeps the popup open.
 	linesElement.addEventListener('wheel', () => popupManager.closeAll(), { passive: true });
 	window.addEventListener('resize', () => applyBoxRect(getSettings().boxRect ?? defaultBoxRect()));
+	// Buttons coming and going (settings, WebSocket connections) change the box's narrowest (a drag applies it itself).
+	new ResizeObserver(() => {
+		if (!box.classList.contains('dragging')) applyBoxRect(getSettings().boxRect ?? defaultBoxRect());
+	}).observe(boxButtons);
 
 	applySettings(settings);
 	nativeCall('ocr', { action: 'ready' }).catch(() => {});

@@ -208,7 +208,6 @@ body {
 	bottom: 8px;
 	transform: translateX(-50%);
 	padding: 4px 10px;
-	white-space: nowrap;
 }
 
 /* The scanned word and the controller's place (see lib/highlight-boxes.js), under the text: in the text box in its
@@ -268,7 +267,16 @@ body {
 	transform: translateX(-50%);
 	padding: 4px 10px;
 	z-index: 20;
-	white-space: nowrap;
+}
+
+/* On one line while it fits, else wrapped to the text box's (or the captured window's) width: the box clips what
+   goes past its edges, so a wider toast was cut off on both sides. */
+#toast,
+#ocr-toast {
+	width: max-content;
+	max-width: calc(100% - 16px);
+	text-align: center;
+	overflow-wrap: anywhere;
 }
 
 .line-enter {
