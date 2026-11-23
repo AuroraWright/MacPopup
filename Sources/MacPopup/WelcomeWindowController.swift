@@ -68,9 +68,10 @@ private struct WelcomeView: View {
     let openScanningSettings: () -> Void
     let close: () -> Void
 
-    /// Settings → Permissions.
+    /// Settings → Permissions: the section of permissions only (others have one among their settings, such as Scanning's
+    /// pause helper).
     private let permissions = SettingsSchema.sections.first { section in
-        section.fields.contains { if case .permission = $0.kind { true } else { false } }
+        !section.fields.isEmpty && section.fields.allSatisfy { if case .permission = $0.kind { true } else { false } }
     }
 
     var body: some View {
