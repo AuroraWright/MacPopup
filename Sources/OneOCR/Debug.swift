@@ -1,6 +1,6 @@
 import Foundation
 
-/// Entry points for checking the port's pieces against the Python reimplementation (oneocr-cli).
+/// Entry points for checking the port's pieces against the Python reimplementation (ocr-cli oneocr).
 public enum OneOCRDebug {
     /// Runs one CRT math routine over (a, b) pairs; float routines get their arguments rounded to float.
     public static func crt(_ name: String, _ a: [Double], _ b: [Double]) -> [Double]? {

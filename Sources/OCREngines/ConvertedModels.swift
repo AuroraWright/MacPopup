@@ -2,6 +2,15 @@ import CoreGraphics
 import CoreML
 import Foundation
 
+/// The models that come with the app (meikiocr's, PP-OCRv6_manga's, mida + VOCR6's): in its Resources/Models, or in
+/// MACPOPUP_BUNDLED_MODELS_DIRECTORY (for ocr-cli, which has no app around it).
+enum BundledModels {
+    static var directory: URL? {
+        DevelopmentEnvironment["MACPOPUP_BUNDLED_MODELS_DIRECTORY"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? Bundle.main.resourceURL?.appendingPathComponent("Models")
+    }
+}
+
 /// The OCR engines, speech recognition models and SaT (sentence ends in transcriptions), whose models can't come with MacPopup: a script converts or packs them
 /// on the user's Mac into a zip, which Settings → OCR or Transcription loads into Application Support.
 public enum ConvertedModelsKind: String, CaseIterable, Sendable {

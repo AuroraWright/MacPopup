@@ -82,7 +82,7 @@ public final class MeikiOCR: @unchecked Sendable {
 
     private func loadedModels() throws -> Models {
         if let models { return models }
-        guard let directory = Bundle.main.resourceURL?.appendingPathComponent("Models") else {
+        guard let directory = BundledModels.directory else {
             throw Failure(errorDescription: "The meikiocr models are missing")
         }
         func load(_ name: String, on computeUnits: MLComputeUnits) throws -> MLModel {

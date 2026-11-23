@@ -76,7 +76,7 @@ public final class PPOCRManga: @unchecked Sendable {
 
     private func loadedModels() throws -> Models {
         if let models { return models }
-        guard let directory = Bundle.main.resourceURL?.appendingPathComponent("Models") else {
+        guard let directory = BundledModels.directory else {
             throw Failure(errorDescription: "The PP-OCRv6_manga models are missing")
         }
         // Not the Neural Engine: with inputs of any size, it's several times slower than the GPU. The recognizer runs

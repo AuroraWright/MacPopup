@@ -95,7 +95,7 @@ public final class MidaVOCR6: @unchecked Sendable {
 
     private func loadedModels() throws -> Models {
         if let models { return models }
-        guard let directory = Bundle.main.resourceURL?.appendingPathComponent("Models") else {
+        guard let directory = BundledModels.directory else {
             throw Failure(errorDescription: "The mida + VOCR6 models are missing")
         }
         func load(_ name: String, on computeUnits: MLComputeUnits) throws -> MLModel {

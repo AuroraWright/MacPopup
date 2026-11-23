@@ -30,12 +30,6 @@ let package = Package(
             dependencies: ["OCRLineCache"],
             path: "Sources/ScreenAI"
         ),
-        // Runs Screen AI on image files (for checking the port against the C++ one).
-        .executableTarget(
-            name: "screenai-cli",
-            dependencies: ["ScreenAI"],
-            path: "Sources/ScreenAICLI"
-        ),
         // oneocr (the Windows Snipping Tool's OCR), ported to Swift; models converted by scripts/convert-oneocr.py.
         .target(
             name: "OneOCRKernels",
@@ -45,12 +39,6 @@ let package = Package(
             name: "OneOCR",
             dependencies: ["OneOCRKernels", "OCRLineCache"],
             path: "Sources/OneOCR"
-        ),
-        // Runs oneocr on image files (for checking the port against the Python reimplementation).
-        .executableTarget(
-            name: "oneocr-cli",
-            dependencies: ["OneOCR"],
-            path: "Sources/OneOCRCLI"
         ),
         // Browser-like HTTP requests for the cloud OCR engines, with libcurl-impersonate (loaded at runtime; scripts/build.sh
         // puts it in the Mac app, the iOS project's build in the iOS app).
@@ -101,6 +89,13 @@ let package = Package(
             name: "soda-cli",
             dependencies: ["SODA"],
             path: "Sources/SODACLI"
+        ),
+        // Reads picture files with the OCR engines (for the test corpus), and runs Screen AI's and oneocr's pieces (for
+        // checking the ports against the C++ and Python ones when Google's or Microsoft's engines change).
+        .executableTarget(
+            name: "ocr-cli",
+            dependencies: ["LiveText", "OCREngines", "ScreenAI", "OneOCR"],
+            path: "Sources/OCRCLI"
         ),
         // Transcribes audio files (for checking the recognizers against the Python ones).
         .executableTarget(
