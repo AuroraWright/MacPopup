@@ -1248,33 +1248,39 @@ private struct LinesEditor: View {
     @State private var typed: String?
 
     var body: some View {
+        let edited = EditedLines(limit: limit)
         // Also splits stored items with line breaks in them (from a backup edited by hand), which would be lines more.
-        let text = items(lines.joined(separator: "\n")).joined(separator: "\n")
+        let text = edited.items(lines.joined(separator: "\n")).joined(separator: "\n")
         // URLs don't wrap, so the lines are the rows.
-        CodeEditor(text: text, height: CodeEditor.height(lines: rows(typed ?? text), wraps: false), edited: { typed = $0 }, revise: revise, wraps: false) { text in
+        CodeEditor(text: text, height: CodeEditor.height(lines: edited.rows(typed ?? text), wraps: false), edited: { typed = $0 }, revise: edited.revise, wraps: false) { text in
             typed = nil
-            commit(items(text))
+            commit(edited.items(text))
         }
         .onChange(of: lines) { typed = nil }
     }
+}
+
+/// LinesEditor's text: the items in it, its rows and what an edit puts in.
+struct EditedLines {
+    let limit: Int
 
     /// Text's lines, whichever line breaks it has (pasted text can have Windows' \r\n or \r).
-    private static func split(_ text: some StringProtocol) -> [Substring] {
+    static func split(_ text: some StringProtocol) -> [Substring] {
         Substring(text).split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
     }
 
     /// What's kept of the text: its first `limit` lines with something on them, trimmed.
-    private func items(_ text: String) -> [String] {
+    func items(_ text: String) -> [String] {
         Array(Self.split(text).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.prefix(limit))
     }
 
     /// The text's rows and an empty one below them (where Return goes on to), up to `limit`.
-    private func rows(_ text: String) -> Int {
+    func rows(_ text: String) -> Int {
         min((text.isEmpty ? 0 : Self.split(text).count) + 1, limit)
     }
 
     /// What's typed or pasted with \n line breaks, and only the lines that fit in `limit` (none: Return on the last).
-    private func revise(_ text: String, _ range: NSRange, _ replacement: String) -> String {
+    func revise(_ text: String, _ range: NSRange, _ replacement: String) -> String {
         let lines = Self.split(replacement)
         guard lines.count > 1 else { return replacement }
         var rest = text

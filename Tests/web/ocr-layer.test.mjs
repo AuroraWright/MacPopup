@@ -1,0 +1,38 @@
+// OCR lines corrected with a WebSocket line's text (lib/ocr-layer.js correctWithText): spaces in the text take a
+// cell only where the screen has a gap for them.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { correctWithText } from '../../web/src/lib/ocr-layer.js';
+
+/** One recognized horizontal line in 40 px cells, with a cell-wide gap before character `gapAt`. */
+function line(text, gapAt = -1) {
+	return {
+		vertical: false,
+		chars: [...text].map((t, i) => ({ text: t, x: i * 40 + (gapAt >= 0 && i >= gapAt ? 40 : 0), y: 0, width: 40, height: 40 })),
+	};
+}
+
+/** The corrected line's characters as "text@x". */
+function cells(ocr, text) {
+	const result = correctWithText([ocr], text);
+	assert.equal(result.quality, 1);
+	assert.equal(result.missingEnd, 0);
+	return result.lines[0].chars.map((c) => `${c.text}@${Math.round(c.x)}`);
+}
+
+const plain = ['こ@0', 'ん@40', 'に@80', 'ち@120', 'は@160', '世@200', '界@240'];
+
+test('the same text keeps the cells', () => {
+	assert.deepEqual(cells(line('こんにちは世界'), 'こんにちは世界'), plain);
+});
+
+test('spaces with no gap on screen are left out', () => {
+	for (const text of ['こんにちは 世界', 'こんにちは  世界', 'こんにちは　世界', '  こんにちは世界  ']) {
+		assert.deepEqual(cells(line('こんにちは世界'), text), plain, JSON.stringify(text));
+	}
+});
+
+test('a space takes the gap on screen', () => {
+	assert.deepEqual(cells(line('こんにちは世界', 5), 'こんにちは 世界'),
+		['こ@0', 'ん@40', 'に@80', 'ち@120', 'は@160', ' @200', '世@240', '界@280']);
+});

@@ -115,5 +115,11 @@ let package = Package(
             dependencies: ["LiveText", "OCREngines", "PauseHelperInterface", "Transcription"],
             path: "Sources/MacPopup"
         ),
+        // Unit tests (Swift Testing): scripts/test.sh unit, or swift test. See Tests/README.md.
+        .testTarget(
+            name: "UnitTests",
+            dependencies: ["MacPopup", "OCREngines", "Transcription"],
+            path: "Tests/Unit"
+        ),
     ]
 )

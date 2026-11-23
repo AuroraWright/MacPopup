@@ -81,6 +81,11 @@ cp "$BIN_DIR/pause-helper" "$APP/Contents/Helpers/pause-helper"
 mkdir -p "$APP/Contents/Library/LaunchDaemons"
 cp Resources/com.aury.macpopup.pause-helper.plist "$APP/Contents/Library/LaunchDaemons/"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# Marks a development build, for the test harness (Tests/App), which refuses to run the app as shipped: it would ignore
+# the test settings suite and use the user's settings.
+if [[ "$CONFIGURATION" == debug || ${#SWIFT_FLAGS[@]} -gt 0 ]]; then
+    /usr/libexec/PlistBuddy -c "Add :MacPopupDevelopment bool true" "$APP/Contents/Info.plist"
+fi
 # Made by scripts/make-icon.swift.
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # The web assets, built into the app itself: a folder shared by builds running at the same time (e.g. one to notarize
