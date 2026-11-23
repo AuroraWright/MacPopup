@@ -2,7 +2,8 @@
 # 59878 (150 entries for any lookup, matching MOCK_MATCH_LENGTH characters, 2 by default) and an audio server on 59879
 # (logs each request's time, answers with 0.1 s of silence). Each request goes to <log>, which GET /__log on 59879
 # answers with. A test's "// mock:" line sets the MOCK_* switches below (images, notes, an Anki editor, a Yomitan
-# profile, tokenizing, an added note's id, the run folder's files, WebSocket lines, WebSocket servers that stay connected).
+# profile, tokenizing, an added note's id, the run folder's files, WebSocket lines, WebSocket servers that stay connected,
+# a screenshot field).
 import base64, io, json, os, struct, sys, threading, time, wave, zlib
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 log_path = sys.argv[1]
@@ -70,6 +71,10 @@ if os.environ.get('MOCK_EDITOR') in ('browser', 'closed'):
                 raise ValueError('Close the affected editor before this API write, even if its content is saved.')
             return None
         return {'version': 6}.get(action)
+# MOCK_SHOT=1 (with MOCK_EDITOR): the card format also has a Picture field with {screenshot} (Anki Screenshot); the
+# screenshot comes in a storeMediaFile request, logged with its data.
+if os.environ.get('MOCK_SHOT') == '1' and card_formats:
+    card_formats[0]['fields']['Picture'] = {'value': '{screenshot}'}
 if os.environ.get('MOCK_IMAGES') == '1':
     images = [('mock/red.png', (255, 0, 0, 255), 'auto'), ('mock/mono.png', (0, 0, 0, 255), 'monochrome')]
     entries[0]['definitions'][0]['entries'].insert(0, {'type': 'structured-content', 'content': [

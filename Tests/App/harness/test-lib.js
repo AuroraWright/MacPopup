@@ -2,7 +2,7 @@
 // A test calls test(page, body): body runs in that page only, and checks with expect/equal/near. Each check is logged
 // ("TEST ok …" or "TEST FAIL …"); launch.sh passes a test that logged "TEST done", at least one check and no failure.
 /* exported test, native, log, wait, until, expect, equal, near, lineWith, rangeOf, center, mockLog, popupDocument,
-   runFile, debugRecords, boxText, popupVisible, gamepadPress */
+   runFile, debugRecords, boxText, popupVisible, gamepadPress, windowSteps, windowStep, watch, ocrText */
 'use strict';
 
 function native(cmd, args = {}) {
@@ -129,6 +129,45 @@ async function gamepadPress(controls, { hold = 50, after = 1000 } = {}) {
 	await wait(hold);
 	window.__macpopupGamepad([]);
 	await wait(after);
+}
+
+/**
+ * The steps a test window has logged so far (`// beside:`, whose output is beside.log): its lines "<ms since 1970> <step>"
+ * as { time, step }, times as Date.now()'s. Needs MOCK_RUN_FILES=1.
+ */
+async function windowSteps() {
+	return (await runFile('beside.log')).split('\n').map((line) => line.match(/^(\d{12,}) (.*)$/))
+		.filter(Boolean).map(([, time, step]) => ({ time: Number(time), step }));
+}
+
+/** The time of the test window's first step starting with `name`, once it's logged (see windowSteps). */
+async function windowStep(name, timeout = 60000) {
+	return (await until(`the window's step "${name}"`,
+		async () => (await windowSteps()).find((s) => s.step.startsWith(name)), timeout)).time;
+}
+
+/**
+ * What `read()` returns each time it changes, checked every `every` ms, as { time, value } (the first one too), until
+ * `.stop()` (which checks once more, so a value an `until` just saw is in).
+ */
+function watch(read, every = 50) {
+	const changes = [];
+	const check = () => {
+		const value = read();
+		if (!changes.length || JSON.stringify(changes.at(-1).value) !== JSON.stringify(value)) changes.push({ time: Date.now(), value });
+	};
+	check();
+	const timer = setInterval(check, every);
+	changes.stop = () => {
+		check();
+		clearInterval(timer);
+	};
+	return changes;
+}
+
+/** The text OCR Mode shows over the window ('' when none). */
+function ocrText() {
+	return document.querySelector('#ocr-text')?.textContent ?? '';
 }
 
 function test(page, body) {

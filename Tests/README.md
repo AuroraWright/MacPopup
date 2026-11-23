@@ -49,7 +49,8 @@ test('overlay', async () => {
 `test(page, body)` runs `body` in that page (`overlay`, `settings`, …). `harness/test-lib.js` has the checks (`expect`,
 `equal`, `near`, each logged as `TEST ok …` or `TEST FAIL …`) and helpers: `until`, `wait`, `lineWith`, `rangeOf`,
 `center`, `popupDocument`, `popupVisible`, `boxText` (the highlight boxes' text), `gamepadPress`, `mockLog`, `runFile`
-and `debugRecords` (the run folder's files, with `MOCK_RUN_FILES=1`), and `native` for the app's bridge, e.g.
+and `debugRecords` (the run folder's files, with `MOCK_RUN_FILES=1`), `windowSteps` and `windowStep` (a test window's
+steps, from beside.log), `watch` (a value's changes over time), `ocrText`, and `native` for the app's bridge, e.g.
 `native('debugMouse', {x, y})` to point at something without moving the real pointer. A test passes when it finished,
 checked something and nothing failed.
 
@@ -57,7 +58,8 @@ More header lines, for what a page script can't do (see `harness/launch.sh`):
 
 - `// setup: <command>` runs before the launch, e.g. `say -v Kyoko -o "$RUN/voice.aiff" …` for a sound file;
 - `// env: NAME=value` passes test variables to the app (`$RUN` is the run folder);
-- `// beside: <command>` runs from just before the launch until the test ends, e.g. a test window for OCR mode to read;
+- `// beside: <command>` runs from just before the launch until the test ends, e.g. a test window for OCR mode to read
+  (`ocr-windows/windows/*.swift`, compiled by `"$HARNESS/tools/build.sh" <path>.swift`, which prints its path);
 - `// driver: <command>` runs beside the instance, with `RUN`, `HARNESS`, `REPO`, `SUITE` and `PID` set, and prints
   `TEST ok …`/`TEST FAIL …` lines too. Drivers in Python import `harness/tools/driver.py` (checks, settings, Settings'
   sections and controls over Accessibility with `tools/ax.swift`, window-only screenshots); Swift tools are compiled
@@ -67,13 +69,14 @@ More header lines, for what a page script can't do (see `harness/launch.sh`):
 `MOCK_EDITOR=browser|closed` (Anki's card browser), `MOCK_ADD_NOTE=<id>`, `MOCK_PROFILE` and `MOCK_PROFILE_FAIL=<n>`
 (Yomitan's display options), `MOCK_TOKENIZE` (furigana), `MOCK_MATCH_LENGTH=<n>`, `MOCK_WEBSOCKET` (a WebSocket server
 on 59880 sending what's POSTed to 59881), `MOCK_WEBSOCKET_PORTS=<port>,…` (servers that stay connected),
-`MOCK_RUN_FILES`.
+`MOCK_RUN_FILES`, `MOCK_SHOT` (with `MOCK_EDITOR`: a {screenshot} field).
 
 | Folder | What |
 |---|---|
 | `popup/` | the dictionary popup: images, audio and its menu, notes, Anki's editor, tooltips, Yomitan's display settings, collapsible definitions, scanning inside it |
 | `overlay/` | the text box: highlight boxes after a resize, fonts and effects, the debug log, sentence audio shortcut, switching the overlay |
 | `ocr/` | OCR mode's text while a popup is open, the crash guard, the language filter |
+| `ocr-windows/` | OCR mode (Live Text) on test windows (`windows/`, shown without taking focus, at or past the main screen's right edge): typed, sparse, fading, animated, covered and untitled windows, blinking icons, moving text, a visual novel's page in the text box, kept screenshots; and the debug log, stale debug glyphs and noted lines |
 | `gamepad/` | the controller in the text box and on OCR text |
 | `settings/` | Settings over Accessibility: scanning inputs, Yomitan's display settings, the WebSocket limit |
 | `welcome/` | the first launch's window |
