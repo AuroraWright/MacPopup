@@ -1,8 +1,8 @@
 // The controller in the text box (scan buttons: Button A). A with B isn't the scan key; A held for a while, sent again
 // and again by the host (as when a reopened controller reports it), toggles focus once, at the release. With focus, the
-// popup opens on the word at the cursor (明日 first), and the direction pad and the left stick move it a character at a
-// time (not past the start); held, the direction repeats (the popup waits for it to stop); the right stick moves too
-// (a Joy-Con on its own has only one stick; see moveDirection in overlay.js). A again ends the focus, and directions
+// popup opens on the word at the cursor (明日 first), and the direction pad and either stick move it a character at a
+// time (not past the start; the right stick as the left one, as a Joy-Con on its own has only one: see moveDirection
+// in overlay.js); held, the direction repeats (the popup waits for it to stop). A again ends the focus, and directions
 // then do nothing.
 // clipboard: 明日も晴れるといいね
 // settings: {"clipboardMonitor": true, "gamepadScanButtons": ["Button A"], "gamepadPopupDelay": 1000, "scanResolution": "character", "gamePause": false}
@@ -37,6 +37,8 @@ test('overlay', async () => {
 	for (const [controls, word, when] of [
 		[['Direction Pad Right'], '日も', 'right'],
 		[['Left Thumbstick Right'], 'も晴', 'left stick right'],
+		[['Right Thumbstick Right'], '晴れ', 'right stick right'],
+		[['Right Thumbstick Left'], 'も晴', 'right stick left'],
 		[['Direction Pad Left'], '日も', 'left'],
 		[['Direction Pad Left'], '明日', 'left'],
 		[['Direction Pad Left'], '明日', 'left at the start'],
