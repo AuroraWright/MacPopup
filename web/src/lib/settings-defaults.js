@@ -49,6 +49,10 @@ function defaultHotkeys() {
 	];
 }
 
+/** How many WebSocket URLs are connected to: as many as Settings → WebSockets keeps (SettingsSchema.swift's
+ * `.lines(max: 5)`). */
+export const maxWebsocketUrls = 5;
+
 export const defaultSettings = {
 	// Connection
 	websocketUrls: ['ws://localhost:6677'],

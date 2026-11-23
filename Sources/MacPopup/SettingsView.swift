@@ -1129,16 +1129,21 @@ private struct CodeEditor: NSViewRepresentable {
     var isInvalid = false
     /// Called with the text as it's typed, before it's saved.
     var edited: ((String) -> Void)?
-    /// At most this many lines: Return beeps on the last, and pasted text keeps the lines that fit.
-    var maxLines: Int?
+    /// What's put in place of what's typed or pasted, given the text and the range it replaces: the same text lets it
+    /// through, other text goes in instead, and none beeps.
+    var revise: ((_ text: String, _ range: NSRange, _ replacement: String) -> String)?
+    /// Whether long lines wrap; otherwise the box scrolls sideways to them.
+    var wraps = true
     let commit: (String) -> Void
 
     private static let font = NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
     private static let inset = NSSize(width: 2, height: 4)
 
-    /// The height that shows this many lines without scrolling: theirs, the insets and the border.
-    static func height(lines: Int) -> CGFloat {
-        (NSLayoutManager().defaultLineHeight(for: font) * CGFloat(lines) + 2 * inset.height + 2).rounded(.up)
+    /// The height that shows this many lines without scrolling: theirs, the insets and the border, and the room a
+    /// horizontal scroller takes when scroll bars are always shown (when long lines don't wrap).
+    static func height(lines: Int, wraps: Bool = true) -> CGFloat {
+        let scroller = !wraps && NSScroller.preferredScrollerStyle == .legacy ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        return (NSLayoutManager().defaultLineHeight(for: font) * CGFloat(lines) + 2 * inset.height + 2 + scroller).rounded(.up)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -1157,6 +1162,14 @@ private struct CodeEditor: NSViewRepresentable {
         textView.isContinuousSpellCheckingEnabled = false
         textView.isGrammarCheckingEnabled = false
         textView.textContainerInset = Self.inset
+        if !wraps {
+            scrollView.hasHorizontalScroller = true
+            scrollView.autohidesScrollers = true
+            textView.isHorizontallyResizable = true
+            textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            textView.textContainer?.widthTracksTextView = false
+            textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        }
         textView.string = text
         textView.delegate = context.coordinator
         context.coordinator.committed = text
@@ -1166,7 +1179,7 @@ private struct CodeEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.commit = commit
         context.coordinator.edited = edited
-        context.coordinator.maxLines = maxLines
+        context.coordinator.revise = revise
         let textView = scrollView.documentView as! NSTextView
         textView.textColor = isInvalid ? .systemRed : .textColor
         // Not while it's being edited.
@@ -1188,22 +1201,21 @@ private struct CodeEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var commit: (String) -> Void = { _ in }
         var edited: ((String) -> Void)?
-        var maxLines: Int?
+        var revise: ((String, NSRange, String) -> String)?
         var committed = ""
+        /// Putting in revised text, which asks again.
+        private var revising = false
 
         func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool {
-            guard let maxLines, let text, let replaced = Range(range, in: textView.string) else { return true }
-            var rest = textView.string
-            rest.removeSubrange(replaced)
-            // The line breaks the text can still take.
-            let free = maxLines - rest.split(separator: "\n", omittingEmptySubsequences: false).count
-            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            guard lines.count - 1 > free else { return true }
-            let fitting = lines.prefix(max(free, 0) + 1).joined(separator: "\n")
-            if fitting.isEmpty {
+            guard let revise, let text, !revising else { return true }
+            let revised = revise(textView.string, range, text)
+            guard revised != text else { return true }
+            if revised.isEmpty {
                 NSSound.beep()
             } else {
-                textView.insertText(fitting, replacementRange: range)
+                revising = true
+                textView.insertText(revised, replacementRange: range)
+                revising = false
             }
             return false
         }
@@ -1232,20 +1244,44 @@ private struct LinesEditor: View {
     let lines: [String]
     let limit: Int
     let commit: ([String]) -> Void
-    /// The text as it's typed, until it's saved.
+    /// The text as it's typed, until it's saved or the list is changed elsewhere (such as by an import).
     @State private var typed: String?
 
     var body: some View {
-        let text = lines.prefix(limit).joined(separator: "\n")
-        CodeEditor(text: text, height: CodeEditor.height(lines: rows(typed ?? text)), edited: { typed = $0 }, maxLines: limit) { text in
+        // Also splits stored items with line breaks in them (from a backup edited by hand), which would be lines more.
+        let text = items(lines.joined(separator: "\n")).joined(separator: "\n")
+        // URLs don't wrap, so the lines are the rows.
+        CodeEditor(text: text, height: CodeEditor.height(lines: rows(typed ?? text), wraps: false), edited: { typed = $0 }, revise: revise, wraps: false) { text in
             typed = nil
-            commit(Array(text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.prefix(limit)))
+            commit(items(text))
         }
+        .onChange(of: lines) { typed = nil }
     }
 
-    /// The text's rows and an empty one below them (where Return goes on to).
+    /// Text's lines, whichever line breaks it has (pasted text can have Windows' \r\n or \r).
+    private static func split(_ text: some StringProtocol) -> [Substring] {
+        Substring(text).split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+    }
+
+    /// What's kept of the text: its first `limit` lines with something on them, trimmed.
+    private func items(_ text: String) -> [String] {
+        Array(Self.split(text).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.prefix(limit))
+    }
+
+    /// The text's rows and an empty one below them (where Return goes on to), up to `limit`.
     private func rows(_ text: String) -> Int {
-        min((text.isEmpty ? 0 : text.split(separator: "\n", omittingEmptySubsequences: false).count) + 1, limit)
+        min((text.isEmpty ? 0 : Self.split(text).count) + 1, limit)
+    }
+
+    /// What's typed or pasted with \n line breaks, and only the lines that fit in `limit` (none: Return on the last).
+    private func revise(_ text: String, _ range: NSRange, _ replacement: String) -> String {
+        let lines = Self.split(replacement)
+        guard lines.count > 1 else { return replacement }
+        var rest = text
+        if let replaced = Range(range, in: text) { rest.removeSubrange(replaced) }
+        // The line breaks the text can still take (none when it already has more lines, as an edit can't remove them).
+        let free = max(limit - Self.split(rest).count, 0)
+        return lines.prefix(free + 1).joined(separator: "\n")
     }
 }
 

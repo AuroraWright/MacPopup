@@ -11,7 +11,7 @@ import { HighlightBoxes, showHighlight } from './lib/highlight-boxes.js';
 import { correctWithText, decodeLines, joinLines, letterCount, lineText, ocrCharOf, paragraphBreaks, renderLines, wrappedReach } from './lib/ocr-layer.js';
 import { applyReplacements } from './lib/replacements.js';
 import { isInLanguage } from './lib/languages.js';
-import { popupHotkeyActions } from './lib/settings-defaults.js';
+import { maxWebsocketUrls, popupHotkeyActions } from './lib/settings-defaults.js';
 import { cursorAt } from './lib/cursor.js';
 import { clearChildren } from './lib/dom.js';
 import { Tooltip } from './lib/tooltip.js';
@@ -628,8 +628,8 @@ function reportConnectedSockets() {
 }
 
 function syncSockets() {
-	// The first 5, as Settings → WebSockets keeps (SettingsSchema.swift), whatever an import or older version saved.
-	const urls = getSettings().websocketUrls.filter((url) => url.trim().length > 0).slice(0, 5);
+	// The first ones, as Settings → WebSockets keeps, whatever an import or older version saved.
+	const urls = getSettings().websocketUrls.filter((url) => url.trim().length > 0).slice(0, maxWebsocketUrls);
 	for (const [url, socket] of sockets) {
 		if (!urls.includes(url)) {
 			socket.destroy();

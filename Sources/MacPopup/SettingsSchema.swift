@@ -27,7 +27,8 @@ struct SettingsField: Identifiable {
         case text(test: ConnectionTest? = nil)
         /// Free text, e.g. CSS.
         case textarea
-        /// A list of strings, one per line, at most `max` (the rest are dropped).
+        /// A list of strings, one per line, at most `max` (the rest are dropped). The web pages' limits match (such as
+        /// settings-defaults.js's maxWebsocketUrls).
         case lines(max: Int)
         /// Replacements applied to lines (see web/src/lib/replacements.js).
         case replacements
