@@ -40,9 +40,14 @@ func usage() -> Never {
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())
-switch arguments.first {
-case "read": try await read(Array(arguments.dropFirst()))
-case "screenai-stages": try screenAIStages(Array(arguments.dropFirst()))
-case "oneocr": try oneOCRChecks(Array(arguments.dropFirst()))
-default: usage()
+do {
+    switch arguments.first {
+    case "read": try await read(Array(arguments.dropFirst()))
+    case "screenai-stages": try screenAIStages(Array(arguments.dropFirst()))
+    case "oneocr": try oneOCRChecks(Array(arguments.dropFirst()))
+    default: usage()
+    }
+} catch {
+    FileHandle.standardError.write(Data("error: \(error.localizedDescription)\n".utf8))
+    exit(1)
 }
