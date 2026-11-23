@@ -628,7 +628,8 @@ function reportConnectedSockets() {
 }
 
 function syncSockets() {
-	const urls = getSettings().websocketUrls.filter((url) => url.trim().length > 0);
+	// The first 5, as Settings → WebSockets keeps (SettingsSchema.swift), whatever an import or older version saved.
+	const urls = getSettings().websocketUrls.filter((url) => url.trim().length > 0).slice(0, 5);
 	for (const [url, socket] of sockets) {
 		if (!urls.includes(url)) {
 			socket.destroy();

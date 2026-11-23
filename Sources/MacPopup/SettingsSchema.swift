@@ -27,8 +27,8 @@ struct SettingsField: Identifiable {
         case text(test: ConnectionTest? = nil)
         /// Free text, e.g. CSS.
         case textarea
-        /// A list of strings, one per line.
-        case lines
+        /// A list of strings, one per line, at most `max` (the rest are dropped).
+        case lines(max: Int)
         /// Replacements applied to lines (see web/src/lib/replacements.js).
         case replacements
         /// Yomitan's audio sources, [{type, url, voice}] (see web/src/lib/audio-sources.js).
@@ -282,8 +282,8 @@ enum SettingsSchema {
             ]),
             SettingsSection(title: "WebSockets", symbol: "network", fields: [
                 SettingsField(
-                    "websocketUrls", "WebSocket URLs (one per line)", .lines,
-                    hint: "Addresses of tools that send text to MacPopup (such as Textractor, Agent, LunaTranslator or owocr). Accepts plain text or texthooker JSON."
+                    "websocketUrls", "WebSocket URLs (one per line)", .lines(max: 5),
+                    hint: "Addresses of tools that send text to MacPopup (such as Textractor, Agent, LunaTranslator or owocr), up to 5. Accepts plain text or texthooker JSON."
                 ),
                 SettingsField(
                     "continuousReconnect", "Automatically reconnect", .checkbox,

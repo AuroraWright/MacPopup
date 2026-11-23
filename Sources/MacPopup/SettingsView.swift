@@ -390,10 +390,8 @@ private struct FieldRow: View {
         switch field.kind {
         case .textarea:
             CodeEditor(text: value as? String ?? "", height: 120) { model.set(field.key, $0) }
-        case .lines:
-            CodeEditor(text: (value as? [String] ?? []).joined(separator: "\n"), height: 60) { text in
-                model.set(field.key, text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
-            }
+        case .lines(let max):
+            LinesEditor(lines: value as? [String] ?? [], limit: max) { model.set(field.key, $0) }
         case .replacements:
             ReplacementsControl(key: field.key, model: model)
         case .audioSources:
@@ -1129,7 +1127,19 @@ private struct CodeEditor: NSViewRepresentable {
     let text: String
     var height: CGFloat = 120
     var isInvalid = false
+    /// Called with the text as it's typed, before it's saved.
+    var edited: ((String) -> Void)?
+    /// At most this many lines: Return beeps on the last, and pasted text keeps the lines that fit.
+    var maxLines: Int?
     let commit: (String) -> Void
+
+    private static let font = NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+    private static let inset = NSSize(width: 2, height: 4)
+
+    /// The height that shows this many lines without scrolling: theirs, the insets and the border.
+    static func height(lines: Int) -> CGFloat {
+        (NSLayoutManager().defaultLineHeight(for: font) * CGFloat(lines) + 2 * inset.height + 2).rounded(.up)
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -1137,7 +1147,7 @@ private struct CodeEditor: NSViewRepresentable {
         let scrollView = NSTextView.scrollableTextView()
         scrollView.borderType = .lineBorder
         let textView = scrollView.documentView as! NSTextView
-        textView.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        textView.font = Self.font
         textView.isRichText = false
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -1146,7 +1156,7 @@ private struct CodeEditor: NSViewRepresentable {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
         textView.isGrammarCheckingEnabled = false
-        textView.textContainerInset = NSSize(width: 2, height: 4)
+        textView.textContainerInset = Self.inset
         textView.string = text
         textView.delegate = context.coordinator
         context.coordinator.committed = text
@@ -1155,6 +1165,8 @@ private struct CodeEditor: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.commit = commit
+        context.coordinator.edited = edited
+        context.coordinator.maxLines = maxLines
         let textView = scrollView.documentView as! NSTextView
         textView.textColor = isInvalid ? .systemRed : .textColor
         // Not while it's being edited.
@@ -1175,7 +1187,31 @@ private struct CodeEditor: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var commit: (String) -> Void = { _ in }
+        var edited: ((String) -> Void)?
+        var maxLines: Int?
         var committed = ""
+
+        func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool {
+            guard let maxLines, let text, let replaced = Range(range, in: textView.string) else { return true }
+            var rest = textView.string
+            rest.removeSubrange(replaced)
+            // The line breaks the text can still take.
+            let free = maxLines - rest.split(separator: "\n", omittingEmptySubsequences: false).count
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            guard lines.count - 1 > free else { return true }
+            let fitting = lines.prefix(max(free, 0) + 1).joined(separator: "\n")
+            if fitting.isEmpty {
+                NSSound.beep()
+            } else {
+                textView.insertText(fitting, replacementRange: range)
+            }
+            return false
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            edited?(textView.string)
+        }
 
         func textDidEndEditing(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
@@ -1187,6 +1223,29 @@ private struct CodeEditor: NSViewRepresentable {
             committed = textView.string
             commit(textView.string)
         }
+    }
+}
+
+/// A list edited one item per line (SettingsField.Kind.lines), keeping the first `limit`: as tall as its lines and an
+/// empty one where the next is typed, up to `limit` lines, following the text as it's typed.
+private struct LinesEditor: View {
+    let lines: [String]
+    let limit: Int
+    let commit: ([String]) -> Void
+    /// The text as it's typed, until it's saved.
+    @State private var typed: String?
+
+    var body: some View {
+        let text = lines.prefix(limit).joined(separator: "\n")
+        CodeEditor(text: text, height: CodeEditor.height(lines: rows(typed ?? text)), edited: { typed = $0 }, maxLines: limit) { text in
+            typed = nil
+            commit(Array(text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.prefix(limit)))
+        }
+    }
+
+    /// The text's rows and an empty one below them (where Return goes on to).
+    private func rows(_ text: String) -> Int {
+        min((text.isEmpty ? 0 : text.split(separator: "\n", omittingEmptySubsequences: false).count) + 1, limit)
     }
 }
 
