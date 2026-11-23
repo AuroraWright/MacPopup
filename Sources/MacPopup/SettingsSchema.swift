@@ -175,9 +175,9 @@ enum SettingsSchema {
             .map { (collapseModeNames[$0] ?? $0, byMode[$0]!) }
     }
 
-    /// Yomitan's popup themes; "Auto" follows the text box.
+    /// Yomitan's popup themes; "Auto" follows the Theme setting (the text box's colors).
     private static let themeOptions = [
-        SettingsOption("site", "Auto (match text box)"),
+        SettingsOption("site", "Auto (match theme)"),
         SettingsOption("light", "Light"),
         SettingsOption("dark", "Dark"),
         SettingsOption("browser", "Browser (match macOS)"),

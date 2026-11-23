@@ -220,11 +220,7 @@ private struct FieldRow: View {
                 // Each label right before its control, so it moves left as the control widens.
                 VStack(alignment: .trailing, spacing: 6) {
                     ForEach(fields) { field in
-                        // (A menu has its own padding before its text.)
-                        HStack(spacing: field.isMenu ? 2.5 : 8) {
-                            Text(field.label).foregroundStyle(.secondary)
-                            GroupedControl(field: field, model: model)
-                        }
+                        GroupedControl(field: field, model: model)
                     }
                 }
             } label: {
@@ -984,13 +980,7 @@ private struct RoundedBorder: ViewModifier {
     }
 }
 
-private extension SettingsField {
-    var isMenu: Bool {
-        if case .select = kind { true } else { false }
-    }
-}
-
-/// A menu or number of a group of settings (see SettingsField.Kind.group), without its label.
+/// A menu or number of a group of settings (see SettingsField.Kind.group), with its label right before it.
 private struct GroupedControl: View {
     let field: SettingsField
     @ObservedObject var model: SettingsModel
@@ -999,14 +989,17 @@ private struct GroupedControl: View {
         let value = model[field.key]
         switch field.kind {
         case let .number(min, max, step):
-            FittingNumberField(value: (value as? NSNumber)?.doubleValue ?? 0, min: min, max: max, decimals: step.map { $0 < 1 } ?? false) {
-                model.set(field.key, $0)
+            HStack(spacing: 8) {
+                Text(field.label).foregroundStyle(.secondary)
+                FittingNumberField(value: (value as? NSNumber)?.doubleValue ?? 0, min: min, max: max, decimals: step.map { $0 < 1 } ?? false) {
+                    model.set(field.key, $0)
+                }
             }
         case let .select(options):
             let current = value as? String ?? ""
             // A value the menu doesn't offer (e.g. imported) is shown rather than dropped.
             let shown = options.contains { $0.value == current } ? options : options + [SettingsOption(current)]
-            SteadyMenu(labels: shown.map(\.label)) {
+            SteadyMenu(labels: shown.map(\.label), label: field.label) {
                 Picker(field.label, selection: Binding(get: { current }, set: { model.set(field.key, $0) })) {
                     ForEach(shown, id: \.value) { Text($0.label).tag($0.value) }
                 }
@@ -1019,19 +1012,28 @@ private struct GroupedControl: View {
 }
 
 /// A menu (its label hidden) as wide as the widest of `labels`. A menu is as wide as its chosen item, so choosing
-/// another would change the width left for the label beside it, and rewrap the label's hint.
+/// another would change the width left for the label beside it, and rewrap the label's hint. `label`, if given, is
+/// shown right before the menu (as a group's number fields have theirs), not before the widest item's width.
 private struct SteadyMenu<Menu: View>: View {
     let labels: [String]
+    var label: String? = nil
     @ViewBuilder let menu: Menu
 
     var body: some View {
         ZStack(alignment: .trailing) {
             // A menu with only the widest item sets the width.
-            Picker("", selection: .constant(0)) { Text(widest).tag(0) }
-                .labelsHidden()
+            labeled(Picker("", selection: .constant(0)) { Text(widest).tag(0) }.labelsHidden())
                 .hidden()
                 .accessibilityHidden(true)
-            menu.labelsHidden()
+            labeled(menu.labelsHidden())
+        }
+    }
+
+    /// (A menu has its own padding before its text.)
+    private func labeled(_ control: some View) -> some View {
+        HStack(spacing: 2.5) {
+            if let label { Text(label).foregroundStyle(.secondary) }
+            control
         }
     }
 
