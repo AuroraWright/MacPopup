@@ -21,7 +21,7 @@
 // was heard ("times").
 //
 // transcribe-cli sat <talk.jsonl> <out.jsonl>: SaT's sentence end probabilities for each row's "bare" text
-// (scratch-tools/punct/make-talk.py), as {"p": [per character]}, for checking against wtpsplit.
+// (research/punct/make-talk.py, local), as {"p": [per character]}, for checking against wtpsplit.
 //
 // transcribe-cli soda features|search|recognize|stages|tflite|load|… (sodaCheckCommands): SODA's stages, for checking the port against
 // opensoda (SODAChecks.swift).
