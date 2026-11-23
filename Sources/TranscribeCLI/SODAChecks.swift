@@ -108,8 +108,12 @@ private func writeTensor(_ t: Tensor, _ path: String) throws {
     try out.write(to: URL(fileURLWithPath: path))
 }
 
-/// transcribe-cli soda features|search|recognize|tflite|load|sentence|… (see each case): `arguments` from "soda" on,
-/// so a subcommand's arguments start at index 2, as soda-cli's did before it was merged here.
+/// sodaChecks' subcommands (`transcribe-cli soda <unpacked zip> …` is the recognizer run in main.swift instead).
+let sodaCheckCommands: Set = ["sentence", "load", "tflite", "stages", "capitalize", "encoder-inputs", "features",
+                              "search", "recognize"]
+
+/// transcribe-cli soda <one of sodaCheckCommands> … (see each case): `arguments` from "soda" on, so a subcommand's
+/// arguments start at index 2, as soda-cli's did before it was merged here.
 func sodaChecks(_ arguments: [String]) {
     var args = arguments
     if args[1] == "sentence" {
