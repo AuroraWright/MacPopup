@@ -440,14 +440,14 @@ final class OCRController {
         regions = Self.decodeRegions(settings["ocrRegions"])
     }
 
-    /// The saved window: its app's window with its title (or any of its app's), preferably on screen, and the largest.
-    /// An app can have hidden windows too, with the same title (e.g. a Windows app in Parallels' Coherence mode has
-    /// several untitled ones off screen besides its window). Also windows that aren't on screen now, e.g. a game in its
-    /// own full screen space.
+    /// The saved window: its app's window with its title (or any of its app's normal windows), preferably on screen,
+    /// and the largest. An app can have hidden windows too, with the same title (e.g. a Windows app in Parallels'
+    /// Coherence mode has several untitled ones off screen besides its window). Also windows that aren't on screen now,
+    /// e.g. a game in its own full screen space.
     static func savedWindow(ownerName: String, title: String) -> WindowInfo? {
         let windows = windows(onScreenOnly: false).filter { $0.ownerName == ownerName }
         let titled = windows.filter { $0.title == title }
-        return (titled.isEmpty ? windows : titled).max { a, b in
+        return (titled.isEmpty ? windows.filter { $0.layer == 0 } : titled).max { a, b in
             (a.isOnScreen ? 1 : 0, a.bounds.width * a.bounds.height) < (b.isOnScreen ? 1 : 0, b.bounds.width * b.bounds.height)
         }
     }
@@ -680,7 +680,7 @@ final class OCRController {
         AXUIElementPerformAction(match, kAXRaiseAction as CFString)
     }
 
-    /// Normal windows of other apps, front to back.
+    /// Other apps' normal and floating windows (see pickableLayers), front to back.
     static func onScreenWindows() -> [WindowInfo] {
         windows(onScreenOnly: true)
     }
@@ -689,11 +689,19 @@ final class OCRController {
         windows(onScreenOnly ? [.optionOnScreenOnly, .excludeDesktopElements] : [.optionAll, .excludeDesktopElements])
     }
 
-    private static func windows(_ options: CGWindowListOption, relativeTo window: CGWindowID = kCGNullWindowID) -> [WindowInfo] {
+    /// The window levels a captured window can be at: normal windows and floating ones (floating panels, players
+    /// kept on top), below the Dock, the menu bar and menus. A floating window that's entirely transparent isn't one.
+    private static let pickableLayers = 0..<Int(CGWindowLevelForKey(.dockWindow))
+
+    /// Other apps' windows of at least 40×40 points: normal and floating ones, or with `normalOnly` normal ones.
+    private static func windows(
+        _ options: CGWindowListOption, relativeTo window: CGWindowID = kCGNullWindowID, normalOnly: Bool = false
+    ) -> [WindowInfo] {
         let list = CGWindowListCopyWindowInfo(options, window) as? [[String: Any]] ?? []
         let ownPID = ProcessInfo.processInfo.processIdentifier
         return list.compactMap(windowInfo).filter {
-            $0.layer == 0 && $0.ownerPID != ownPID && $0.bounds.width >= 40 && $0.bounds.height >= 40
+            (normalOnly ? $0.layer == 0 : pickableLayers.contains($0.layer) && ($0.layer == 0 || $0.alpha > 0))
+                && $0.ownerPID != ownPID && $0.bounds.width >= 40 && $0.bounds.height >= 40
         }
     }
 
@@ -853,11 +861,14 @@ final class OCRController {
         setCursorCovered(windows(inFrontOf: target.windowID).contains { $0.bounds.contains(point) })
     }
 
-    /// Other apps' windows in front of the window, except ones that are entirely transparent. The list is kept for a
-    /// tenth of a second, as the coverage check and the cursor's ask for it in the same tick.
+    /// Other apps' normal windows in front of the window, except ones that are entirely transparent. (Not floating
+    /// ones: an app's overlay kept on top of everything, like the screen dimmers', would count as covering every
+    /// game.) The list is kept for a tenth of a second, as the coverage check and the cursor's ask for it in the same
+    /// tick.
     private func windows(inFrontOf window: CGWindowID) -> [WindowInfo] {
         if let known = windowsInFront, known.window == window, OCRClock.now.timeIntervalSince(known.time) < 0.1 { return known.list }
-        let list = Self.windows([.optionOnScreenAboveWindow, .excludeDesktopElements], relativeTo: window).filter { $0.alpha > 0 }
+        let list = Self.windows([.optionOnScreenAboveWindow, .excludeDesktopElements], relativeTo: window, normalOnly: true)
+            .filter { $0.alpha > 0 }
         windowsInFront = (window, OCRClock.now, list)
         return list
     }
@@ -2006,7 +2017,7 @@ final class OCRController {
         guard let saved = settings["ocrWindow"] as? [String: Any], let ownerName = saved["ownerName"] as? String else { return nil }
         let title = saved["title"] as? String ?? ""
         let windows = Self.windows(onScreenOnly: true).filter { $0.ownerName == ownerName }
-        let match = windows.first { $0.id == target?.windowID } ?? windows.first { $0.title == title } ?? windows.first
+        let match = windows.first { $0.id == target?.windowID } ?? windows.first { $0.title == title } ?? windows.first { $0.layer == 0 }
         guard let match else { return nil }
         let content = try await ScreenCapture.shareableContent(onScreenWindowsOnly: true)
         guard let window = content.windows.first(where: { $0.windowID == match.id }) else { return nil }
