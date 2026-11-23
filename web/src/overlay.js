@@ -2465,12 +2465,14 @@ async function moveWord(direction) {
 			await moveTo(index, 1);
 		}
 	} finally {
-		// Focus was lost meanwhile (see setControllerFocus): the moves from now on aren't this one's.
-		if (focus !== gamepad.focusChanges) return;
-		gamepad.moving = false;
-		const queued = gamepad.queued;
-		gamepad.queued = null;
-		if (queued && gamepad.focus) void moveController(queued);
+		// Unless focus was lost meanwhile (see setControllerFocus): the moves from now on aren't this one's. (Not a
+		// return, which would drop an error thrown above.)
+		if (focus === gamepad.focusChanges) {
+			gamepad.moving = false;
+			const queued = gamepad.queued;
+			gamepad.queued = null;
+			if (queued && gamepad.focus) void moveController(queued);
+		}
 	}
 }
 
