@@ -8,12 +8,12 @@
 /* Text matched by a nested lookup (Yomitan uses the selection; the overlay is never focused, so
    the selection would render in the inactive colour), drawn by lib/highlight-boxes.js. The boxes are
    over the text, since dictionaries' backgrounds would hide them under it: blended so that the text
-   keeps its color, as under it. Override in custom popup CSS if needed. */
+   keeps its color, as under it. In the scrolled content, so they scroll with it. Override in custom popup CSS if
+   needed. */
 #scan-highlights {
     position: absolute;
     left: 0;
     top: 0;
-    overflow: hidden;
     pointer-events: none;
 }
 #scan-highlights > div {

@@ -83,6 +83,8 @@ body {
 }
 
 #lines {
+	/* The highlight boxes' containing block, so they scroll with the lines. */
+	position: relative;
 	overflow: auto;
 	min-height: 0;
 	scrollbar-width: none;
@@ -209,8 +211,8 @@ body {
 	white-space: nowrap;
 }
 
-/* The scanned word and the controller's place (see lib/highlight-boxes.js), under the text: in the text box over its
-   lines (clipped as they are), in the OCR overlay over its text. */
+/* The scanned word and the controller's place (see lib/highlight-boxes.js), under the text: in the text box in its
+   lines (scrolling and clipped with them), in the OCR overlay over its text. */
 .highlight-boxes {
 	position: absolute;
 	left: 0;
@@ -221,7 +223,6 @@ body {
 	position: absolute;
 }
 #box-highlights {
-	overflow: hidden;
 	z-index: -1;
 }
 .highlight-boxes > .scan {
@@ -231,6 +232,10 @@ body {
 .highlight-boxes > .gamepad {
 	background-color: hsl(var(--p) / 0.35);
 	box-shadow: inset 0 -2px hsl(var(--p));
+}
+/* On the right in vertical text, where Japanese puts the line beside the characters. */
+.highlight-boxes > .gamepad.vertical {
+	box-shadow: inset -2px 0 hsl(var(--p));
 }
 
 /* The overlay is never the active window, so WebKit would draw selections in the inactive (grey)

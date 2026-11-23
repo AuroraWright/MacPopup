@@ -113,24 +113,6 @@ export function useHighlightBoxes(...boxes) {
 
 export function setHighlight(textSource) {
 	// Yomitan's "Select matched text".
-	const ranges = textSource?.range && getSettings().selectMatchedText ? textRanges(textSource.range) : [];
+	const ranges = textSource?.range && getSettings().selectMatchedText ? [textSource.range.cloneRange()] : [];
 	showHighlight(highlightBoxes, 'scan', ranges);
-}
-
-/** The text of `range` as one range per text node, without the furigana, which wasn't matched. */
-function textRanges(range) {
-	const root = range.commonAncestorContainer;
-	if (root.nodeType === Node.TEXT_NODE) return [range.cloneRange()];
-	const ranges = [];
-	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-		acceptNode: (node) => (node.parentElement?.closest('rt, rp') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
-	});
-	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-		if (!range.intersectsNode(node)) continue;
-		const part = document.createRange();
-		part.setStart(node, node === range.startContainer ? range.startOffset : 0);
-		part.setEnd(node, node === range.endContainer ? range.endOffset : node.length);
-		if (!part.collapsed) ranges.push(part);
-	}
-	return ranges;
 }
