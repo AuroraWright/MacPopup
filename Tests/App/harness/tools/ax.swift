@@ -10,6 +10,8 @@
 //   focus <role> <text> <n>          focuses it (which ends the editing of another field)
 //   frame <role> <text> <n>          its frame (x y w h, global points from the top left), then its parent's (e.g. a
 //                                    text area's scroll view) on a second line
+//   frames [window title]            the windows and texts (AXStaticText), one a line, tab-separated: role, title or
+//                                    value, frame (x y w h)
 // <text> "*" matches any control of that role.
 // Prints "ok" or what went wrong, and exits with 1 on a failure. Needs the Accessibility permission of the app it's run
 // from (e.g. the terminal).
@@ -78,6 +80,15 @@ func oneLine(_ text: String) -> String {
     text.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: " ")
 }
 
+/// An element's frame: "x y w h" in global points from the top left, or "none".
+func frame(_ element: AXUIElement) -> String {
+    var origin = CGPoint.zero, size = CGSize.zero
+    guard let position = attribute(element, kAXPositionAttribute), let extent = attribute(element, kAXSizeAttribute),
+          AXValueGetValue(position as! AXValue, .cgPoint, &origin), AXValueGetValue(extent as! AXValue, .cgSize, &size)
+    else { return "none" }
+    return "\(origin.x) \(origin.y) \(size.width) \(size.height)"
+}
+
 switch command {
 case "windows":
     for window in windows { print(string(window, kAXTitleAttribute)) }
@@ -93,6 +104,13 @@ case "list":
         fields.append(attribute(element, kAXValueAttribute).map { oneLine("\($0)") } ?? "")
         let enabled = (attribute(element, kAXEnabledAttribute) as? Bool) ?? true
         print(([role] + fields + [enabled ? "1" : "0", window]).joined(separator: "\t"))
+    }
+case "frames":
+    for (element, window) in all where args.count < 4 || window == args[3] {
+        let role = string(element, kAXRoleAttribute)
+        guard role == "AXStaticText" || role == "AXWindow" else { continue }
+        print([role, oneLine(role == "AXWindow" ? string(element, kAXTitleAttribute) : string(element, kAXValueAttribute)), frame(element)]
+            .joined(separator: "\t"))
     }
 case "press":
     guard args.count >= 6, let n = Int(args[5]) else { fail("usage: press <role> <text> <n>") }
@@ -116,13 +134,6 @@ case "focus":
 case "frame":
     guard args.count >= 6, let n = Int(args[5]) else { fail("usage: frame <role> <text> <n>") }
     let element = find(args[3], args[4], n)
-    func frame(_ element: AXUIElement) -> String {
-        var origin = CGPoint.zero, size = CGSize.zero
-        guard let position = attribute(element, kAXPositionAttribute), let extent = attribute(element, kAXSizeAttribute),
-              AXValueGetValue(position as! AXValue, .cgPoint, &origin), AXValueGetValue(extent as! AXValue, .cgSize, &size)
-        else { return "none" }
-        return "\(origin.x) \(origin.y) \(size.width) \(size.height)"
-    }
     print(frame(element))
     print(attribute(element, kAXParentAttribute).map { frame($0 as! AXUIElement) } ?? "none")
 default:
