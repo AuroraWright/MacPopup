@@ -49,10 +49,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             window.title = "MacPopup Settings"
             window.isReleasedWhenClosed = false
             window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-            window.contentMinSize = NSSize(width: 640, height: 400)
             window.delegate = self
+            // Resizable in height only, as the sections' layout is made for this width: the hosting controller makes
+            // the view's size limits the window's (replacing contentMinSize and contentMaxSize).
             window.contentViewController = NSHostingController(rootView: SettingsView(model: model, recorder: recorder, actions: actions)
-                .defaultAppStorage(SettingsStore.shared.defaults))
+                .defaultAppStorage(SettingsStore.shared.defaults)
+                .frame(width: 820)
+                .frame(minHeight: 400, maxHeight: .infinity))
             window.setContentSize(NSSize(width: 820, height: 640))
             window.center()
             self.window = window
