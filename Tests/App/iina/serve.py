@@ -1,5 +1,5 @@
 # serve.py: the IINA tests' web server (iina.py beside starts it): <dir> on 127.0.0.1:59885 with Range requests (mpv
-# seeks with them), and an HTTP proxy on 59886, each request logged to <log>. From scratch-tools/iina/streams serve.py
+# seeks with them), and an HTTP proxy on 59886, each request logged to <log>. From research/iina/streams serve.py
 # and proxy.py.
 # - /live/<folder>.m3u8 plays <folder>/index.m3u8 as a live stream: the segments that have aired since its first
 #   request (two to begin with), without an end, so players go back only as far as their cache.

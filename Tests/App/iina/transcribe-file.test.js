@@ -5,7 +5,7 @@
 // characters) starting near when it's said, no cue twice, and IINA shows the cues as they play. Live Caption's models
 // are cloned from the user's (Application Support/MacPopup/SODA; setup fails without them). The transcripts are kept in
 // /Users/Shared/Library/Caches/com.aury.macpopup/Transcripts (a path the plugin takes them from), not the user's. From
-// scratch-tools/iina/subreload/run-e2e.sh and net-run.sh.
+// research/iina/subreload/run-e2e.sh and net-run.sh.
 // Opens the user's IINA (muted; not while it runs) and quits it; its settings and plugins are checked unchanged.
 // interactive
 // setup: python3 -I "$REPO/Tests/App/iina/iina.py" setup speech

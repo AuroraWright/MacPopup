@@ -3,7 +3,7 @@
 # asks the plugin, as MacPopup does, to dump line 2 with 0.5 s around it (5.5–9 s) into a macpopup-dump-<id>.mkv in the
 # temporary folder (the only name it accepts), and checks the reply and the file: video and audio, at least the range
 # long (the dump starts at the keyframe before it), with the 880 Hz tone in it. Also that a request for a file elsewhere
-# gets no reply. From scratch-tools/iina/streams/probe.sh and probe.mjs (2026-11-10).
+# gets no reply. From research/iina/streams/probe.sh and probe.mjs (2026-11-10).
 import json, os, re, sys, tempfile, uuid
 sys.dont_write_bytecode = True  # (no __pycache__ in the repo)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

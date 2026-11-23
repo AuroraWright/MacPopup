@@ -6,7 +6,7 @@
 # 100 ms) and the transcript file (the test instance's, in iina.TRANSCRIPTS), and checks:
 # the transcript is loaded as a selected subtitle track "MacPopup transcription" soon after playback starts; each
 # sentence is in it (Live Caption; most of its characters), starting near when it's said; no cue twice; IINA shows the
-# cues as they're played. From scratch-tools/iina/subreload/run-e2e.sh, observe.py and net-run.sh (2026-11-21, Live
+# cues as they're played. From research/iina/subreload/run-e2e.sh, observe.py and net-run.sh (2026-11-21, Live
 # Caption on a recording of speech: local file "track loaded 2.9 s after playback started, 10 lines at the times the
 # app's replay gives"; seek "first line 2.5 s after the start, then 0–38 s filled in, no line twice"; HTTP 10 lines,
 # HLS 11, DASH 11).

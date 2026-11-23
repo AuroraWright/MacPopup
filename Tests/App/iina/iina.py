@@ -188,7 +188,7 @@ def streams(video, web):
 
 
 def dash_edl(folder, base, stream, escape):
-    """The edl:// URL of one DASH track (scratch-tools/iina/streams/dash-edl.sh with ONE=1): its init segment and each
+    """The edl:// URL of one DASH track (research/iina/streams/dash-edl.sh with ONE=1): its init segment and each
     fragment with its length; URLs written %<length>%<url> when escaped."""
     esc = (lambda u: f'%{len(u)}%{u}') if escape else (lambda u: u)
     init = os.path.join(folder, f'init-stream{stream}.m4s')
@@ -351,7 +351,7 @@ class IINA:
         return MPV(self.socket, timeout)
 
     def add(self, mpv, audio=None, subtitles=None):
-        """Adds tracks as IINA's yt-dlp plugin does (scratch-tools/iina/streams/add.py), once mpv plays."""
+        """Adds tracks as IINA's yt-dlp plugin does (research/iina/streams/add.py), once mpv plays."""
         end = time.monotonic() + 20
         while mpv.send('get_property', 'time-pos').get('error') != 'success' and time.monotonic() < end:
             time.sleep(0.1)
