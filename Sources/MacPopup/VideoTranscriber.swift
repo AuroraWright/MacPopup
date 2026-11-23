@@ -228,7 +228,7 @@ final class VideoTranscriber {
     /// Whether a subtitle track's language is `language` (Yomitan's code). One without a language known (none, "und",
     /// or a code that isn't ISO 639's) counts as English if it's in the video (most are), or as `language` if `unknown`
     /// (a file of subtitles added to the video, e.g. "Episode 1.srt": most likely those of the language read).
-    private static func isLanguage(_ track: String, _ language: String, unknown: Bool = false) -> Bool {
+    static func isLanguage(_ track: String, _ language: String, unknown: Bool = false) -> Bool {
         func code(_ text: String) -> String? {
             guard let code = Locale(identifier: text).language.languageCode, code.isISOLanguage, code.identifier != "und"
             else { return nil }

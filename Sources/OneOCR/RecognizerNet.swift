@@ -157,7 +157,7 @@ private struct LSTMLayer {
 }
 
 /// MLAS's exp for SumExp (MlasComputeSumExpVector), one lane.
-@inline(__always) private func mlasSumExp(_ x: Float, _ negMax: Float) -> Float {
+@inline(__always) func mlasSumExp(_ x: Float, _ negMax: Float) -> Float {
     var v = max(-88.3762626647949, x + negMax)
     let bias: Float = 12_582_912
     let biased = bias.addingProduct(v, 1.44269504088896341)
@@ -176,7 +176,7 @@ private struct LSTMLayer {
 }
 
 /// The same for four lanes (the same operations in each).
-@inline(__always) private func mlasSumExp(_ x: SIMD4<Float>, _ negMax: Float) -> SIMD4<Float> {
+@inline(__always) func mlasSumExp(_ x: SIMD4<Float>, _ negMax: Float) -> SIMD4<Float> {
     typealias V4 = SIMD4<Float>
     var v = simd_max(V4(repeating: -88.3762626647949), x + negMax)
     let bias = V4(repeating: 12_582_912)
@@ -196,7 +196,7 @@ private struct LSTMLayer {
 }
 
 /// MlasComputeSumExpF32Kernel: (sum, exps).
-private func mlasSumExp(_ x: UnsafeBufferPointer<Float>, _ negMax: Float, _ out: UnsafeMutablePointer<Float>?) -> Float {
+func mlasSumExp(_ x: UnsafeBufferPointer<Float>, _ negMax: Float, _ out: UnsafeMutablePointer<Float>?) -> Float {
     var n = x.count, i = 0
     var acc: Float = 0
     if n >= 4 {
