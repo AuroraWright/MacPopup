@@ -84,9 +84,10 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 # Made by scripts/make-icon.swift.
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # The web assets, built into the app itself: a folder shared by builds running at the same time (e.g. one to notarize
-# and another of build/MacPopup.app) is emptied by one while the other copies it.
+# and another of build/MacPopup.app) is emptied by one while the other copies it. Linted first (see
+# web/eslint.config.mjs): a mistake stops the build.
 WEB="${APP:A}/Contents/Resources/web"
-(cd web && { [[ -d node_modules ]] || npm install --no-fund --no-audit; } && node build.mjs "$WEB")
+(cd web && { [[ -x node_modules/.bin/eslint ]] || npm install --no-fund --no-audit; } && npm run --silent lint && node build.mjs "$WEB")
 if [[ -f "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" ]]; then
     mkdir -p "$APP/Contents/Frameworks" "$APP/Contents/Resources/Licenses/curl-impersonate"
     cp -L "$CURL_IMPERSONATE/libcurl-impersonate.4.dylib" "$APP/Contents/Frameworks/"

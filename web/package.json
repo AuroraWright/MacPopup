@@ -4,12 +4,16 @@
 	"type": "module",
 	"license": "GPL-3.0-or-later",
 	"scripts": {
-		"build": "node build.mjs"
+		"build": "node build.mjs",
+		"lint": "cd .. && eslint -c web/eslint.config.mjs web/src web/*.mjs web/*.cjs iina-plugin"
 	},
 	"devDependencies": {
+		"@eslint/js": "9.15.0",
 		"@mdi/js": "7.1.96",
 		"daisyui": "2.45.0",
 		"esbuild": "0.25.1",
+		"eslint": "9.15.0",
+		"globals": "15.12.0",
 		"handlebars": "4.7.8",
 		"tailwindcss": "3.2.4"
 	}
