@@ -11,3 +11,6 @@ docs/
 ios/Signing.local.xcconfig
 .notary-profile
 .build-dev/
+.build-prof/
+evals/
+research/
