@@ -109,8 +109,9 @@ pointer back when the driver ends), `keys` (`tools/keys.swift`: one key press, o
 the frontmost app and none of its menus is open), `activate` (System Events brings a test window's app to the front),
 `frontmost`, `logged` (a page's `TEST` line) and `beside_log`; `tools/wins.swift` lists the on-screen windows,
 `ax … frame` a control's frame and `ax … frames` a window's texts with theirs. Test windows that come to the front: `picker/plainwin.swift`. Left manual: the
-controller's cursor box while someone scrolls the text box with a trackpad (`Manual/scroll-boxes.test.js`, which
-records the test window: a page can't see the text lag behind the boxes in WebKit's scrolling).
+controller's cursor box and the popup's highlight while someone scrolls with a trackpad (`Manual/scroll-boxes.test.js`,
+`Manual/popup-scroll.test.js`, which record the test window: a page can't see the text lag behind the boxes in
+WebKit's scrolling).
 
 ## Manual (`Manual/`)
 

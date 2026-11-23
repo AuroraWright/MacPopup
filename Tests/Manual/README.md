@@ -25,6 +25,16 @@ folder. Look through it frame by frame (QuickTime: the arrow keys): the controll
 in every frame, fast scrolls too. A page can't check this: WebKit scrolls the text on its own thread, so the boxes'
 place in the page is right even when the screen shows them a frame or more off.
 
+## The popup's highlight while scrolling: `popup-scroll.test.js`
+
+When: after changing the popup's scrolling or how its highlight boxes are placed.
+
+The page opens the popup on a word (a Shift hover: Shift is the scan key in this run, so the real pointer looks nothing
+up on its way to the popup) and looks up a word in the middle of its 150 entries. Put the pointer over the popup and
+scroll its entries up and down with two fingers when asked, for about 15 s. The same driver as scroll-boxes records the
+overlay window into `scroll.mov`: the popup's highlight box stays on its word in every frame. The page checks it's
+still on the word after the scrolling.
+
 ## A real controller: `controller.test.js`
 
 When: after changing Settings → Controllers, the controller's learning (GamepadLearning) or how controllers are opened.
