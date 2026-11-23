@@ -12,6 +12,11 @@
 //                                    text area's scroll view) on a second line
 //   frames [window title]            the windows and texts (AXStaticText), one a line, tab-separated: role, title or
 //                                    value, frame (x y w h)
+//   focused                          the title of the app's focused window (its key window)
+//   selected <description>           the texts of the selected rows of the table with that description (e.g. the Fonts
+//                                    panel's "typeface list"), one a line
+//   scroll <text> <0-1>              scrolls the scroll area holding the first control showing <text> (0 top, 1 bottom)
+//   close <window title>             presses that window's close button
 // <text> "*" matches any control of that role.
 // Prints "ok" or what went wrong, and exits with 1 on a failure. Needs the Accessibility permission of the app it's run
 // from (e.g. the terminal).
@@ -136,6 +141,35 @@ case "frame":
     let element = find(args[3], args[4], n)
     print(frame(element))
     print(attribute(element, kAXParentAttribute).map { frame($0 as! AXUIElement) } ?? "none")
+case "focused":
+    guard let window = attribute(app, kAXFocusedWindowAttribute) else { fail("no focused window") }
+    print(string(window as! AXUIElement, kAXTitleAttribute))
+case "selected":
+    guard args.count >= 4 else { fail("usage: selected <description>") }
+    guard let table = all.first(where: { string($0.element, kAXDescriptionAttribute) == args[3] })?.element else {
+        fail("no table \"\(args[3])\"")
+    }
+    for row in attribute(table, kAXSelectedRowsAttribute) as? [AXUIElement] ?? [] {
+        let cells = attribute(row, kAXChildrenAttribute) as? [AXUIElement] ?? []
+        print(cells.map { oneLine(string($0, kAXValueAttribute)) }.joined(separator: "\t"))
+    }
+case "scroll":
+    guard args.count >= 5, let position = Double(args[4]) else { fail("usage: scroll <text> <0-1>") }
+    guard var element = all.first(where: { texts($0.element).contains(args[3]) })?.element else { fail("no \"\(args[3])\"") }
+    while string(element, kAXRoleAttribute) != "AXScrollArea", let parent = attribute(element, kAXParentAttribute) {
+        element = parent as! AXUIElement
+    }
+    guard let bar = attribute(element, kAXVerticalScrollBarAttribute) else { fail("no scroll bar") }
+    let result = AXUIElementSetAttributeValue(bar as! AXUIElement, kAXValueAttribute as CFString, NSNumber(value: position))
+    guard result == .success else { fail("scrolling failed (\(result.rawValue))") }
+    print("ok")
+case "close":
+    guard args.count >= 4 else { fail("usage: close <window title>") }
+    guard let window = windows.first(where: { string($0, kAXTitleAttribute) == args[3] }),
+          let button = attribute(window, kAXCloseButtonAttribute) else { fail("no window \"\(args[3])\"") }
+    let result = AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
+    guard result == .success else { fail("close failed (\(result.rawValue))") }
+    print("ok")
 default:
     fail("unknown command \(command)")
 }
