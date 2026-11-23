@@ -57,6 +57,7 @@ More header lines, for what a page script can't do (see `harness/launch.sh`):
 
 - `// setup: <command>` runs before the launch, e.g. `say -v Kyoko -o "$RUN/voice.aiff" …` for a sound file;
 - `// env: NAME=value` passes test variables to the app (`$RUN` is the run folder);
+- `// beside: <command>` runs from just before the launch until the test ends, e.g. a test window for OCR mode to read;
 - `// driver: <command>` runs beside the instance, with `RUN`, `HARNESS`, `REPO`, `SUITE` and `PID` set, and prints
   `TEST ok …`/`TEST FAIL …` lines too. Drivers in Python import `harness/tools/driver.py` (checks, settings, Settings'
   sections and controls over Accessibility with `tools/ax.swift`, window-only screenshots); Swift tools are compiled

@@ -13,6 +13,8 @@
 # - "// clipboard: <text>": put on the instance's pasteboard once the test is ready;
 # - "// setup: <command>": run (zsh) before the launch, e.g. to make a sound file in "$RUN";
 # - "// env: NAME=value …": more environment for the app ($RUN, $HARNESS and $REPO expanded);
+# - "// beside: <command>": run (zsh) from just before the launch until the test ends, e.g. a test window for OCR mode
+#   to read (output in beside.log; stopped with its children);
 # - "// driver: <command>": run (zsh) beside the instance once it's started, for what a page script can't do (Settings
 #   is SwiftUI, Accessibility, a fake Yomitan): with RUN, HARNESS, REPO, SUITE and PID (the app's) set, it prints
 #   "TEST ok …"/"TEST FAIL …" lines like a page's checks and must exit 0. The test then lasts until it exits (and the
@@ -37,7 +39,7 @@ fi
 
 header() { sed -n "s|^// $1: ||p" "$TEST" | head -1; }
 SETTINGS=$(header settings) MOCK=$(header mock) CLIPBOARD=$(header clipboard) TIMEOUT=$(header timeout)
-SETUP=$(header setup) ENV=$(header env) DRIVER=$(header driver)
+SETUP=$(header setup) ENV=$(header env) DRIVER=$(header driver) BESIDE=$(header beside)
 export RUN HARNESS REPO SUITE
 
 mkdir -p "$RUN/models" "$RUN/browser" "$RUN/Library/Caches/com.aury.macpopup/Transcripts"
@@ -60,6 +62,10 @@ defaults delete $SUITE 2>/dev/null
 defaults write $SUITE settings -string "$settings"
 
 env ${=MOCK} python3 -I "$HARNESS/mock.py" "$RUN/mock.log" & mock=$!
+beside=
+if [[ -n "$BESIDE" ]]; then
+    zsh -c "$BESIDE" > "$RUN/beside.log" 2>&1 & beside=$!
+fi
 env MACPOPUP_SETTINGS_SUITE=$SUITE MACPOPUP_PASTEBOARD=$SUITE MACPOPUP_TEST_SCRIPT="$RUN/script.js" \
     MACPOPUP_DEBUG_OCR_DIR="$RUN" MACPOPUP_MODELS_DIRECTORY="$RUN/models" MACPOPUP_BROWSER_SUPPORT_DIR="$RUN/browser" \
     MACPOPUP_TRANSCRIPTS_DIRECTORY="$RUN/Library/Caches/com.aury.macpopup/Transcripts" "${APP_ENV[@]}" \
@@ -89,6 +95,9 @@ if [[ -n "$DRIVER" ]]; then
     kill $watchdog 2>/dev/null; wait $watchdog 2>/dev/null
 fi
 kill $app $mock 2>/dev/null; wait $app $mock 2>/dev/null
+if [[ -n "$beside" ]]; then
+    pkill -P $beside 2>/dev/null; kill $beside 2>/dev/null; wait $beside 2>/dev/null
+fi
 defaults delete $SUITE 2>/dev/null
 
 { grep -o 'TEST .*' "$RUN/app.log"; [[ -n "$DRIVER" ]] && grep -o 'TEST .*' "$RUN/driver.log"; } > "$RUN/test.log"
