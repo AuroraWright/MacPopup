@@ -8,7 +8,7 @@ with what failed, and exits with 1 on a failure.
 | unit | `Unit/` | `swift test` (Swift Testing) | nothing | ~45 s with the first debug build, then seconds |
 | web | `web/` | `node --test Tests/web/` | Node | under a second |
 | app | `App/` | `scripts/test.sh app [--no-build] [--interactive] [test or folder...]` | a Mac session; the user's MacPopup and IINA closed | about 10 s a test, plus the build |
-| manual | `Manual/` | `Tests/App/run.sh --interactive Tests/Manual/<name>.test.js`, or by hand | a person (and for some, a controller, Parallels or the network) | minutes each |
+| manual | `Manual/` | `Tests/App/run.sh --interactive Tests/Manual/<name>.test.js` | a person (and for some, a controller or Parallels), or the network | minutes each |
 
 ## Unit (`Unit/`)
 

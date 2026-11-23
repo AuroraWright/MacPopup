@@ -4,7 +4,9 @@
 import AppKit
 
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
+// Prohibited, not accessory: an accessory app is still made the active app when it starts, and the app being tested
+// takes that as a switch to another app (the controller is let go, see Gamepads.swift).
+app.setActivationPolicy(.prohibited)
 
 let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
 let size = NSSize(width: 640, height: 110)

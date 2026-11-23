@@ -5,7 +5,7 @@
 // alone (tools/rec-window.swift) into scroll.mov in the run folder, from the first scroll. Look through it frame by
 // frame (QuickTime: the arrow keys): the box stays on the same glyph in every frame, also in fast scrolls (before the
 // boxes moved into the scrolled element, 2026-11-23, they were off by up to a line). From
-// scratch-tools/popup-timing/scroll-rec.sh.
+// evals/popup-timing/scroll-rec.sh.
 // Needs a person at the Mac, with a trackpad or a mouse that scrolls; records only the test instance's window.
 // interactive
 // settings: {"clipboardMonitor": true, "gamepadScanButtons": ["Button A"], "scanResolution": "character", "gamepadPopupDelay": 600000, "boxOpacity": 1, "boxRect": {"x": 559, "y": 700, "width": 1030, "height": 362}}
@@ -42,5 +42,8 @@ test('overlay', async () => {
 	const scrolling = () => performance.now() - last < 6000 || performance.now() - first < 20000;
 	while (first ? scrolling() : performance.now() - start < 240000) await wait(200);
 	expect(first > 0, `scrolled for ${first ? Math.round((last - first) / 1000) : 0} s`);
+	// The box's character is read from the screen's point under it, so it has to be in view, wherever the scrolling ended.
+	document.querySelector('.highlight-boxes > .gamepad')?.scrollIntoView({ block: 'center' });
+	await wait(500);
 	equal(boxText('gamepad'), cursor, "the controller's cursor box after the scrolling: on the same character");
 });
