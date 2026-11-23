@@ -131,7 +131,8 @@ final class GamepadController: ObservableObject {
     private var savesRecording = false
 
     /// Test instances (MACPOPUP_TEST_SCRIPT) leave the user's controllers alone: their scripts send presses themselves.
-    private let isTest = DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"] != nil
+    /// MACPOPUP_TEST_CONTROLLERS lets one use them (a manual test, with a person pressing).
+    private let isTest = DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"] != nil && DevelopmentEnvironment["MACPOPUP_TEST_CONTROLLERS"] == nil
 
     private var active: Bool { (wanted || clients > 0) && !isTest }
 
