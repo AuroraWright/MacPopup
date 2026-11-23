@@ -1,0 +1,90 @@
+— NVL page, Japanese
+「おはよう。」 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [「おはよう。」]
+「おはよう。」「今日は早いね、 -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 7)])   [「おはよう。」 | 「今日は早いね、]
+「おはよう。」「今日は早いね、どうしたの？」 -> Noted(index: 1, isNew: false, grew: true, starts: [(id: 0, start: 0), (id: 1, start: 7)])   [「おはよう。」 | 「今日は早いね、どうしたの？」]
+「おはよう。」「今日は早いね、どうしたの？」 -> Noted(index: 1, isNew: false, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 7)])   [「おはよう。」 | 「今日は早いね、どうしたの？」]
+「おはよう。」「今日は早いね、とうしたの？」 -> Noted(index: 1, isNew: false, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 7)])   [「おはよう。」 | 「今日は早いね、どうしたの？」]
+「おはよう。」「今日は早いね、どうしたの？」……」 -> Noted(index: 2, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 7), (id: 2, start: 22)])   [「おはよう。」 | 「今日は早いね、どうしたの？」 | ……」]
+— paragraph break without punctuation (from the rows)
+……誰もいない -> Noted(index: 3, isNew: true, grew: false, starts: [(id: 3, start: 0)])   [「おはよう。」 | 「今日は早いね、どうしたの？」 | ……」 | ……誰もいない]
+……誰もいない扉の向こう -> Noted(index: 4, isNew: true, grew: false, starts: [(id: 3, start: 0), (id: 4, start: 7)])   [「おはよう。」 | 「今日は早いね、どうしたの？」 | ……」 | ……誰もいない | 扉の向こう]
+— at once: one line
+こんにちは。元気？今日もいい天気だね。 -> Noted(index: 5, isNew: true, grew: false, starts: [(id: 5, start: 0)])   [「おはよう。」 | 「今日は早いね、どうしたの？」 | ……」 | ……誰もいない | 扉の向こう | こんにちは。元気？今日もいい天気だね。]
+— English
+Hello there. -> Noted(index: 6, isNew: true, grew: false, starts: [(id: 6, start: 0)])   [「おはよう。」 | 「今日は早いね、どうしたの？」 | ……」 | ……誰もいない | 扉の向こう | こんにちは。元気？今日もいい天気だね。 | Hello there.]
+Hello there. How are you -> Noted(index: 7, isNew: true, grew: false, starts: [(id: 6, start: 0), (id: 7, start: 11)])   [「おはよう。」 | 「今日は早いね、どうしたの？」 | ……」 | ……誰もいない | 扉の向こう | こんにちは。元気？今日もいい天気だね。 | Hello there. | How are you]
+Hello there. How are you doing today? -> Noted(index: 7, isNew: false, grew: true, starts: [(id: 6, start: 0), (id: 7, start: 11)])   [「おはよう。」 | 「今日は早いね、どうしたの？」 | ……」 | ……誰もいない | 扉の向こう | こんにちは。元気？今日もいい天気だね。 | Hello there. | How are you doing today?]
+Mr. Smith went -> Noted(index: 8, isNew: true, grew: false, starts: [(id: 8, start: 0)])   [「おはよう。」 | 「今日は早いね、どうしたの？」 | ……」 | ……誰もいない | 扉の向こう | こんにちは。元気？今日もいい天気だね。 | Hello there. | How are you doing today? | Mr. Smith went]
+Mr. Smith went home. -> Noted(index: 8, isNew: false, grew: true, starts: [(id: 8, start: 0)])   [「おはよう。」 | 「今日は早いね、どうしたの？」 | ……」 | ……誰もいない | 扉の向こう | こんにちは。元気？今日もいい天気だね。 | Hello there. | How are you doing today? | Mr. Smith went home.]
+— hooked lines don't split
+こんにちは。 -> Noted(index: 9, isNew: true, grew: false, starts: [])   [「おはよう。」 | 「今日は早いね、どうしたの？」 | ……」 | ……誰もいない | 扉の向こう | こんにちは。元気？今日もいい天気だね。 | Hello there. | How are you doing today? | Mr. Smith went home. | こんにちは。]
+こんにちは。元気？ -> Noted(index: 10, isNew: true, grew: false, starts: [])   [「おはよう。」 | 「今日は早いね、どうしたの？」 | ……」 | ……誰もいない | 扉の向こう | こんにちは。元気？今日もいい天気だね。 | Hello there. | How are you doing today? | Mr. Smith went home. | こんにちは。 | こんにちは。元気？]
+— misreads earlier on the page (novel1)
+「うん、ちょっと用事があって……………」 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [「うん、ちょっと用事があって……………」]
+「うん、ちょっと用事があって…………」そう言って彼女は -> Noted(index: 0, isNew: false, grew: true, starts: [(id: 0, start: 0)])   [「うん、ちょっと用事があって…………」そう言って彼女は]
+「うん、ちょっと用事があって……………」そう言って彼女は笑った。 -> Noted(index: 0, isNew: false, grew: true, starts: [(id: 0, start: 0)])   [「うん、ちょっと用事があって……………」そう言って彼女は笑った。]
+「うん、ちょっと用事があって…………」そう言って彼女は笑った。それから、 -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 31)])   [「うん、ちょっと用事があって……………」そう言って彼女は笑った。 | それから、]
+「うん、ちょっと用事があって……………」そう言って彼女は笑った。それから、駅へ向かった。 -> Noted(index: 1, isNew: false, grew: true, starts: [(id: 0, start: 0), (id: 1, start: 32)])   [「うん、ちょっと用事があって……………」そう言って彼女は笑った。 | それから、駅へ向かった。]
+— a late hooked line in the middle of a page
+一行目です。 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [一行目です。]
+一行目です。二行目です。 -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 6)])   [一行目です。 | 二行目です。]
+二行目です。 -> Noted(index: 1, isNew: false, grew: false, starts: [])   [一行目です。 | 二行目です。]
+一行目です。二行目です。三行目です。 -> Noted(index: 2, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 6), (id: 2, start: 12)])   [一行目です。 | 二行目です。 | 三行目です。]
+別の行。 -> Noted(index: 3, isNew: true, grew: false, starts: [])   [一行目です。 | 二行目です。 | 三行目です。 | 別の行。]
+一行目です。二行目です。三行目です。四行目です。 -> Noted(index: 4, isNew: true, grew: false, starts: [(id: 4, start: 0)])   [一行目です。 | 二行目です。 | 三行目です。 | 別の行。 | 一行目です。二行目です。三行目です。四行目です。]
+— a row break after a comma (intro)
+それなのにいったい誰が、 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [それなのにいったい誰が、]
+それなのにいったい誰が、この身体の中に -> Noted(index: 0, isNew: false, grew: true, starts: [(id: 0, start: 0)])   [それなのにいったい誰が、この身体の中に]
+それなのにいったい誰が、この身体の中に僕の心があるって言い切れるんだ? -> Noted(index: 0, isNew: false, grew: true, starts: [(id: 0, start: 0)])   [それなのにいったい誰が、この身体の中に僕の心があるって言い切れるんだ?]
+それなのにいったい誰が、この身体の中に僕の心があるって言い切れるんだ?でも -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 35)])   [それなのにいったい誰が、この身体の中に僕の心があるって言い切れるんだ? | でも]
+— a dash appears before the line (intro)
+僕を、 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [僕を、]
+―僕を、 -> Noted(index: 0, isNew: false, grew: true, starts: [(id: 0, start: 0)])   [―僕を、]
+―僕を、見るな。 -> Noted(index: 0, isNew: false, grew: true, starts: [(id: 0, start: 0)])   [―僕を、見るな。]
+―僕を、見るな。誰も -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 8)])   [―僕を、見るな。 | 誰も]
+— dots that come and go (Umineko)
+「忠告の気持ちだけはありがたくいただいておく。我が友よ。 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [「忠告の気持ちだけはありがたくいただいておく。我が友よ。]
+「忠告の気持ちだけはありがたくいただいておく。我が友よ。源次。 -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 28)])   [「忠告の気持ちだけはありがたくいただいておく。我が友よ。 | 源次。]
+「忠告の気持ちだけはありがたくいただいておく。我が友よ。…･…源次。 -> Noted(index: 1, isNew: false, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 28)])   [「忠告の気持ちだけはありがたくいただいておく。我が友よ。 | 源次。]
+「忠告の気持ちだけはありがたくいただいておく。我が友よ。……源次。もう一杯頼む。 -> Noted(index: 2, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 28), (id: 2, start: 33)])   [「忠告の気持ちだけはありがたくいただいておく。我が友よ。 | 源次。 | もう一杯頼む。]
+「忠告の気持ちだけはありがたくいただいておく。我が友よ。源次。もう一杯頼む。 -> Noted(index: 2, isNew: false, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 28), (id: 2, start: 31)])   [「忠告の気持ちだけはありがたくいただいておく。我が友よ。 | 源次。 | もう一杯頼む。]
+「忠告の気持ちだけはありがたくいただいておく。我が友よ。………源次。もう一杯頼む。心持ち薄めでな。 -> Noted(index: 3, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 28), (id: 2, start: 34), (id: 3, start: 41)])   [「忠告の気持ちだけはありがたくいただいておく。我が友よ。 | 源次。 | もう一杯頼む。 | 心持ち薄めでな。]
+— a text box that scrolls: its first row goes out at the top (Umineko PS3)
+「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。]
+「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。だが万一の時、残された者がそれを引き継いでくれる。 -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 44)])   [「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。 | だが万一の時、残された者がそれを引き継いでくれる。]
+「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。だが万一の時、残された者がそれを引き継いでくれる。自分に万一があっても、必ずその心残りが解決できるように残していく。▶ -> Noted(index: 2, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 44), (id: 2, start: 69)])   [「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。 | だが万一の時、残された者がそれを引き継いでくれる。 | 自分に万一があっても、必ずその心残りが解決できるように残していく。▶]
+にこなせればそれでいい。だが万一の時、残された者がそれを引き継いでくれる。自分に万一があっても、必ずその心残りが解決できるように残していく。………………それが遺言というものです」▼ -> Noted(index: 3, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 12), (id: 2, start: 37), (id: 3, start: 70)])   [「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。 | だが万一の時、残された者がそれを引き継いでくれる。 | 自分に万一があっても、必ずその心残りが解決できるように残していく。▶ | ………………それが遺言というものです」▼]
+にこなせればそれでいい。だが万一の時、残された者がそれを引き継いでくれる。自分に万一があっても、必ずその心残りが解決できるように残していく。………………それが遺言というものです」▼ -> Noted(index: 3, isNew: false, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 12), (id: 2, start: 37), (id: 3, start: 70)])   [「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。 | だが万一の時、残された者がそれを引き継いでくれる。 | 自分に万一があっても、必ずその心残りが解決できるように残していく。▶ | ………………それが遺言というものです」▼]
+— within a sentence, and two rows at once
+「私が生きている内でなくてはならぬ、私は死ねば魂はすぐに契約の悪魔に食らわれて消え去ってしまう!▶ -> Noted(index: 4, isNew: true, grew: false, starts: [(id: 4, start: 0)])   [「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。 | だが万一の時、残された者がそれを引き継いでくれる。 | 自分に万一があっても、必ずその心残りが解決できるように残していく。▶ | ………………それが遺言というものです」▼ | 「私が生きている内でなくてはならぬ、私は死ねば魂はすぐに契約の悪魔に食らわれて消え去ってしまう!▶]
+「私が生きている内でなくてはならぬ、私は死ねば魂はすぐに契約の悪魔に食らわれて消え去ってしまう! 死後の世界も安らぎも私にはないのだ!▶ -> Noted(index: 5, isNew: true, grew: false, starts: [(id: 4, start: 0), (id: 5, start: 48)])   [「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。 | だが万一の時、残された者がそれを引き継いでくれる。 | 自分に万一があっても、必ずその心残りが解決できるように残していく。▶ | ………………それが遺言というものです」▼ | 「私が生きている内でなくてはならぬ、私は死ねば魂はすぐに契約の悪魔に食らわれて消え去ってしまう!▶ | 死後の世界も安らぎも私にはないのだ!▶]
+「私が生きている内でなくてはならぬ、私は死ねば魂はすぐに契約の悪魔に食らわれて消え去ってしまう! 死後の世界も安らぎも私にはないのだ! だから全ては私が生きている内でなければならぬ!!▶ -> Noted(index: 6, isNew: true, grew: false, starts: [(id: 4, start: 0), (id: 5, start: 48), (id: 6, start: 66)])   [「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。 | だが万一の時、残された者がそれを引き継いでくれる。 | 自分に万一があっても、必ずその心残りが解決できるように残していく。▶ | ………………それが遺言というものです」▼ | 「私が生きている内でなくてはならぬ、私は死ねば魂はすぐに契約の悪魔に食らわれて消え去ってしまう!▶ | 死後の世界も安らぎも私にはないのだ!▶ | だから全ては私が生きている内でなければならぬ!!▶]
+世界も安らぎも私にはないのだ! だから全ては私が生きている内でなければならぬ!! だから遺言状など私には必要ないッ!!」▼ -> Noted(index: 7, isNew: true, grew: false, starts: [(id: 5, start: 0), (id: 6, start: 15), (id: 7, start: 39)])   [「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。 | だが万一の時、残された者がそれを引き継いでくれる。 | 自分に万一があっても、必ずその心残りが解決できるように残していく。▶ | ………………それが遺言というものです」▼ | 「私が生きている内でなくてはならぬ、私は死ねば魂はすぐに契約の悪魔に食らわれて消え去ってしまう!▶ | 死後の世界も安らぎも私にはないのだ!▶ | だから全ては私が生きている内でなければならぬ!!▶ | だから遺言状など私には必要ないッ!!」▼]
+— a new page that starts like a row of the old one isn't taken for it scrolled
+そこにあるのは、崩壊した街そこにあるのは、絶望 -> Noted(index: 8, isNew: true, grew: false, starts: [(id: 8, start: 0)])   [「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。 | だが万一の時、残された者がそれを引き継いでくれる。 | 自分に万一があっても、必ずその心残りが解決できるように残していく。▶ | ………………それが遺言というものです」▼ | 「私が生きている内でなくてはならぬ、私は死ねば魂はすぐに契約の悪魔に食らわれて消え去ってしまう!▶ | 死後の世界も安らぎも私にはないのだ!▶ | だから全ては私が生きている内でなければならぬ!!▶ | だから遺言状など私には必要ないッ!!」▼ | そこにあるのは、崩壊した街そこにあるのは、絶望]
+そこにあるのは、絶望の色。 -> Noted(index: 9, isNew: true, grew: false, starts: [(id: 9, start: 0)])   [「………………………それを書き記せばいい。もちろん、生きている内にこなせればそれでいい。 | だが万一の時、残された者がそれを引き継いでくれる。 | 自分に万一があっても、必ずその心残りが解決できるように残していく。▶ | ………………それが遺言というものです」▼ | 「私が生きている内でなくてはならぬ、私は死ねば魂はすぐに契約の悪魔に食らわれて消え去ってしまう!▶ | 死後の世界も安らぎも私にはないのだ!▶ | だから全ては私が生きている内でなければならぬ!!▶ | だから遺言状など私には必要ないッ!!」▼ | そこにあるのは、崩壊した街そこにあるのは、絶望 | そこにあるのは、絶望の色。]
+— an opening bracket read late, with fewer dots (Umineko PS3)
+……………………心残りや、遣り残し。 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [……………………心残りや、遣り残し。]
+「…………心残りや、遣り残し。 -> Noted(index: 0, isNew: false, grew: false, starts: [(id: 0, start: 0)])   [……………………心残りや、遣り残し。]
+「…………･心残りや、遣り残し。受け継いで欲しいことや、 -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 16)])   [……………………心残りや、遣り残し。 | 受け継いで欲しいことや、]
+「…………………心残りや、遣り残し。受け継いで欲しいことや、………………伝えたいこと。▶ -> Noted(index: 1, isNew: false, grew: true, starts: [(id: 0, start: 0), (id: 1, start: 18)])   [……………………心残りや、遣り残し。 | 受け継いで欲しいことや、………………伝えたいこと。▶]
+— a scroll that adds little (would pass for the page read again)
+「一行目の文です。二行目に続く文です。 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [「一行目の文です。二行目に続く文です。]
+「一行目の文です。二行目に続く文です。三行目の文です。四行目の文です。 -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 19)])   [「一行目の文です。二行目に続く文です。 | 三行目の文です。四行目の文です。]
+く文です。三行目の文です。四行目の文です。はい。 -> Noted(index: 2, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 5), (id: 2, start: 21)])   [「一行目の文です。二行目に続く文です。 | 三行目の文です。四行目の文です。 | はい。]
+— a name tag row as the old page's last line, then a new page starting with it
+「くっくっく。そうかい。」 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [「くっくっく。そうかい。」]
+「くっくっく。そうかい。」【ベアトリーチェ】「……」 -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 13)])   [「くっくっく。そうかい。」 | 【ベアトリーチェ】「……」]
+【ベアトリーチェ】「……くっくっく。」 -> Noted(index: 1, isNew: false, grew: true, starts: [(id: 1, start: 0)])   [「くっくっく。そうかい。」 | 【ベアトリーチェ】「……くっくっく。」]
+— the next line's dots read as periods after a sentence end (Live Text, PS3 Umineko)
+だが、そんな強い酒を飲み続けては薬の意味もなくなってしまう。 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [だが、そんな強い酒を飲み続けては薬の意味もなくなってしまう。]
+だが、そんな強い酒を飲み続けては薬の意味もなくなってしまう。..・悪いことは言わん。 -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 30)])   [だが、そんな強い酒を飲み続けては薬の意味もなくなってしまう。 | ..・悪いことは言わん。]
+我が友よ。 -> Noted(index: 2, isNew: true, grew: false, starts: [(id: 2, start: 0)])   [だが、そんな強い酒を飲み続けては薬の意味もなくなってしまう。 | ..・悪いことは言わん。 | 我が友よ。]
+我が友よ。.......・・源次。 -> Noted(index: 3, isNew: true, grew: false, starts: [(id: 2, start: 0), (id: 3, start: 5)])   [だが、そんな強い酒を飲み続けては薬の意味もなくなってしまう。 | ..・悪いことは言わん。 | 我が友よ。 | .......・・源次。]
+そのようなものを書く暇があったなら、あったならッ！！...私は見たい。 -> Noted(index: 4, isNew: true, grew: false, starts: [(id: 4, start: 0)])   [だが、そんな強い酒を飲み続けては薬の意味もなくなってしまう。 | ..・悪いことは言わん。 | 我が友よ。 | .......・・源次。 | そのようなものを書く暇があったなら、あったならッ！！...私は見たい。]
+— periods then a letter: Unicode ends a sentence there anyway (before the fix too)
+そうだな... -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [そうだな...]
+そうだな...それでいい。 -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 7)])   [そうだな... | それでいい。]
+— a short line that ends the last one, after the box was empty (Somnium): dots don't make it long
+そしておまえは… -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [そしておまえは…]
+おまえは… -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 1, start: 0)])   [そしておまえは… | おまえは…]

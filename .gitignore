@@ -2,6 +2,7 @@
 build/
 web/node_modules/
 .DS_Store
+__pycache__/
 .claude/
 .swiftpm/
 test-corpus/

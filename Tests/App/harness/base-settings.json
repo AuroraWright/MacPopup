@@ -1,0 +1,11 @@
+{
+  "ankiConnectUrl": "http://127.0.0.1:59877",
+  "yomitanApiUrl": "http://127.0.0.1:59878",
+  "websocketUrls": [],
+  "audioEnabled": false,
+  "gamePause": false,
+  "floatingWindowAudio": false,
+  "floatingWindowOCR": false,
+  "iinaTranscribe": false,
+  "ocrWindow": { "ownerName": "MacPopupTestNoSuchApp", "title": "none" }
+}
