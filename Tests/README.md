@@ -86,11 +86,12 @@ found, which would otherwise be the terminal running the tests (test instances d
 the guard is there in case that changes).
 
 `harness/mock.py`'s switches (`// mock:`): `MOCK_IMAGES` (dictionary images), `MOCK_NOTES` (notes 111 and 222 exist),
-`MOCK_EDITOR=browser|closed` (Anki's card browser), `MOCK_ADD_NOTE=<id>`, `MOCK_PROFILE`, `MOCK_PROFILE_FAIL=<n>` and `MOCK_PROFILE_FAIL_FOR=<seconds>`
+`MOCK_EDITOR=browser|closed` (Anki's card browser), `MOCK_ADD_NOTE=<id>`, `MOCK_GONE_FORMAT` (a card format for a
+note type Anki doesn't have), `MOCK_PROFILE`, `MOCK_PROFILE_FAIL=<n>` and `MOCK_PROFILE_FAIL_FOR=<seconds>`
 (Yomitan's display options), `MOCK_TOKENIZE` (furigana), `MOCK_MATCH_LENGTH=<n>`, `MOCK_WEBSOCKET` (a WebSocket server
 on 59880 sending what's POSTed to 59881), `MOCK_WEBSOCKET_PORTS=<port>,…` (servers that stay connected),
 `MOCK_RUN_FILES`, `MOCK_SHOT` (with `MOCK_EDITOR`: a {screenshot} field), `MOCK_OVER` (with `MOCK_EDITOR`: note 333
-already has sentence audio).
+already has sentence audio). Card formats come with their fields' keys sorted, as Chrome's native messaging sends them.
 
 | Folder | What |
 |---|---|

@@ -94,6 +94,23 @@ if os.environ.get('MOCK_ADD_NOTE'):
     added_note, other_result = int(os.environ['MOCK_ADD_NOTE']), anki_result
     def anki_result(action, params):
         return added_note if action == 'addNote' else other_result(action, params)
+# MOCK_GONE_FORMAT=1: a second card format, for a note type Anki doesn't have (renamed or deleted): modelFieldNames
+# fails for it.
+gone_models = set()
+if os.environ.get('MOCK_GONE_FORMAT') == '1' and card_formats:
+    card_formats.append({**card_formats[0], 'model': 'Gone', 'name': 'Gone'})
+    gone_models.add('Gone')
+# modelFieldNames: a note type's fields in Anki's order, the order written above (Word first). The card formats are
+# sent with their fields' keys sorted, as Chromium's native messaging sends them (see ankiCardFormats below).
+fields_other_result = anki_result
+def anki_result(action, params):
+    if action != 'modelFieldNames':
+        return fields_other_result(action, params)
+    model = params.get('modelName')
+    names = next((list(f['fields']) for f in card_formats if f.get('model') == model and model not in gone_models), None)
+    if names is None:
+        raise ValueError(f'model was not found: {model}')
+    return names
 # MOCK_PROFILE=1: the API paths of a Yomitan with yomitan-api-endpoints.patch (displayOptions, dictionaryInfo,
 # dictionaryMedia); without it, they're answered 400 as by an older Yomitan (as is any path Yomitan doesn't have).
 profile = os.environ.get('MOCK_PROFILE') == '1'
@@ -155,7 +172,7 @@ class H(BaseHTTPRequestHandler):
         if self.server.server_address[1] == 59878:
             path = self.path.strip('/')
             log(f'yomitan {time.time() * 1000:.0f} {path}')
-            out = {'yomitanVersion': {'version': 'mock'}, 'ankiCardFormats': card_formats, 'termEntries': {'dictionaryEntries': entries, 'originalTextLength': int(os.environ.get('MOCK_MATCH_LENGTH', 2))},
+            out = {'yomitanVersion': {'version': 'mock'}, 'ankiCardFormats': [{**f, 'fields': dict(sorted(f['fields'].items()))} for f in card_formats], 'termEntries': {'dictionaryEntries': entries, 'originalTextLength': int(os.environ.get('MOCK_MATCH_LENGTH', 2))},
                    'kanjiEntries': [], 'tokenize': [], 'ankiFields': {'fields': [], 'dictionaryMedia': [{**m, 'ankiFilename': m['path'].replace('/', '_')} for m in anki_media], 'audioMedia': []}}
             if profile:
                 targets = {(t.get('dictionary'), t.get('path')) for t in body.get('targets', [])}
@@ -189,15 +206,7 @@ class H(BaseHTTPRequestHandler):
             params = body.get('params', {})
             log(f'anki {time.time() * 1000:.0f} {action} {json.dumps(params)}')
             try:
-                # Anki's sort field is the first name. The mock's order is the order written above (Word first).
-                if action == 'modelFieldNames':
-                    model = params.get('modelName')
-                    names = next((list(fmt['fields']) for fmt in card_formats if fmt.get('model') == model), None)
-                    if names is None:
-                        raise ValueError(f'model was not found: {model}')
-                    out = {'result': names, 'error': None}
-                else:
-                    out = {'result': anki_result(action, params), 'error': None}
+                out = {'result': anki_result(action, params), 'error': None}
             except ValueError as e:
                 out = {'result': None, 'error': str(e)}
             log(f'anki-reply {action} {json.dumps(out)[:200]}')

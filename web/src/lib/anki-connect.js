@@ -1,15 +1,48 @@
-import { httpPost } from './native.js';
+import { httpPost, log } from './native.js';
 import { getSettings } from './settings.js';
 
-// Anki's sort field is modelFieldNames[0]. Chromium sorts native-messaging object keys, so Object.keys(fields)[0] is not this.
-export function ankiSortFieldName(fields, modelFieldNames) {
+/**
+ * The note type's first field (`modelFieldNames[0]`, the one Anki checks duplicates on) when the card format fills it,
+ * else ''. Not the card format's first key: Chromium's native messaging sorts object keys, so in Chrome and Brave
+ * the fields come alphabetically (e.g. DefinitionPicture before Expression).
+ */
+export function ankiFirstFieldName(fields, modelFieldNames) {
 	const name = Array.isArray(modelFieldNames) ? modelFieldNames[0] : '';
 	return typeof name === 'string' && name && fields && Object.prototype.hasOwnProperty.call(fields, name) ? name : '';
 }
 
-export async function cardFormatSortField(cardFormat) {
+/** Note types' field names by AnkiConnect URL and note type, as {names (a promise), time}: see modelFieldNames. */
+const fieldNames = new Map();
+
+/**
+ * The note type's field names, in Anki's order. Asked again after 10 s, like the card formats (see getCardFormats in
+ * overlay.js), so that the popups' duplicate checks don't wait for an extra request each time; a failed request isn't
+ * kept.
+ */
+function modelFieldNames(model) {
+	const key = `${getSettings().ankiConnectUrl}\u0000${model}`;
+	const cached = fieldNames.get(key);
+	if (cached && Date.now() - cached.time < 10000) return cached.names;
+	const names = ankiInvoke('modelFieldNames', { modelName: model });
+	fieldNames.set(key, { names, time: Date.now() });
+	names.catch(() => {
+		if (fieldNames.get(key)?.names === names) fieldNames.delete(key);
+	});
+	return names;
+}
+
+/**
+ * The card format's note type's first field (see ankiFirstFieldName), or '' when there's none, also when Anki doesn't
+ * know the note type (e.g. it was renamed or deleted): only that card format goes without notes, not the others.
+ */
+export async function cardFormatFirstField(cardFormat) {
 	if (!cardFormat.model) return '';
-	return ankiSortFieldName(cardFormat.fields, await ankiInvoke('modelFieldNames', { modelName: cardFormat.model }));
+	try {
+		return ankiFirstFieldName(cardFormat.fields, await modelFieldNames(cardFormat.model));
+	} catch (e) {
+		log(`Anki note type ${cardFormat.model}'s fields:`, e);
+		return '';
+	}
 }
 
 export async function ankiInvoke(action, params = {}) {

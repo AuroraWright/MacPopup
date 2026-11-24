@@ -4,7 +4,7 @@
 // are filled in here, following Yomitan's default templates.
 import { createFuriganaHtml, createFuriganaPlain } from '../../../vendor/yomitan/ext/js/data/anki-note-builder.js';
 import { distributeFuriganaInflected } from '../../../vendor/yomitan/ext/js/language/ja/japanese.js';
-import { ankiInvoke, cardFormatSortField, getRootDeckName } from './anki-connect.js';
+import { ankiInvoke, cardFormatFirstField, getRootDeckName } from './anki-connect.js';
 import { ankiReadingMode, renderFields, shouldRenderLocally } from './anki-templates.js';
 import { logEvent } from './debug-log.js';
 import { log, nativeCall } from './native.js';
@@ -269,7 +269,7 @@ function getTags() {
 export async function buildFirstFieldNotes(content, cardFormats, cardFormatIndices, isCanceled = () => false) {
 	const firstFields = await Promise.all(cardFormatIndices.map(async (cardFormatIndex) => {
 		const cardFormat = cardFormats[cardFormatIndex];
-		const name = await cardFormatSortField(cardFormat);
+		const name = await cardFormatFirstField(cardFormat);
 		return { cardFormatIndex, cardFormat, name, value: name ? cardFormat.fields[name].value : '' };
 	}));
 	const markers = unique(firstFields.flatMap(({ value }) => getFieldMarkers(value)));
