@@ -62,7 +62,7 @@ struct GamepadsControl: View {
         let state = if let layout = row.layout {
             !row.isConnected ? "Ready · Not connected"
                 : row.reportIDs.isEmpty || row.reportIDs.contains(where: layout.reads) ? "Ready"
-                : "Not set up as it’s connected now (e.g. a Joy-Con on its own, not in a pair), so MacPopup won’t use it: set it up again"
+                : "Connected differently than when it was set up (e.g. by USB instead of Bluetooth, or a Joy-Con on its own). Set it up again to use it this way too."
         } else {
             "Not set up yet, so MacPopup won’t use it"
         }
