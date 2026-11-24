@@ -440,14 +440,15 @@ final class OCRController {
         regions = Self.decodeRegions(settings["ocrRegions"])
     }
 
-    /// The saved window: its app's window with its title (or any of its app's normal windows), preferably on screen,
-    /// and the largest. An app can have hidden windows too, with the same title (e.g. a Windows app in Parallels'
+    /// The saved window: its app's window with its title (or any of its app's normal windows, or floating ones when it
+    /// has none, e.g. a player kept on top playing another file), preferably on screen, and the largest. An app can have hidden windows too, with the same title (e.g. a Windows app in Parallels'
     /// Coherence mode has several untitled ones off screen besides its window). Also windows that aren't on screen now,
     /// e.g. a game in its own full screen space.
     static func savedWindow(ownerName: String, title: String) -> WindowInfo? {
         let windows = windows(onScreenOnly: false).filter { $0.ownerName == ownerName }
         let titled = windows.filter { $0.title == title }
-        return (titled.isEmpty ? windows.filter { $0.layer == 0 } : titled).max { a, b in
+        let normal = windows.filter { $0.layer == 0 }
+        return (!titled.isEmpty ? titled : !normal.isEmpty ? normal : windows).max { a, b in
             (a.isOnScreen ? 1 : 0, a.bounds.width * a.bounds.height) < (b.isOnScreen ? 1 : 0, b.bounds.width * b.bounds.height)
         }
     }
@@ -551,7 +552,8 @@ final class OCRController {
         DebugLog.note(message())
     }
 
-    /// The window read, in the debug log: as OCR starts, and after each session record (see DebugLog.onSession).
+    /// The window read, in the debug log: as OCR starts (or once the saved window is found, e.g. a game started later),
+    /// and after each session record (see DebugLog.onSession).
     func logWindow() {
         guard isEnabled, DebugLog.isOn, var window = windowForLog else { return }
         window["overlayShown"] = loggedVisible
@@ -690,8 +692,18 @@ final class OCRController {
     }
 
     /// The window levels a captured window can be at: normal windows and floating ones (floating panels, players
-    /// kept on top), below the Dock, the menu bar and menus. A floating window that's entirely transparent isn't one.
+    /// kept on top), below the Dock, the menu bar and menus. A floating window that's entirely transparent isn't one,
+    /// nor one over a whole display (an overlay such as a screen dimmer, see-through where it's drawn clear, would
+    /// otherwise be picked wherever the picker points).
     private static let pickableLayers = 0..<Int(CGWindowLevelForKey(.dockWindow))
+
+    private static func coversDisplay(_ bounds: CGRect) -> Bool {
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return false }
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &displays, &count) == .success else { return false }
+        return displays.prefix(Int(count)).contains { bounds.contains(CGDisplayBounds($0)) }
+    }
 
     /// Other apps' windows of at least 40×40 points: normal and floating ones, or with `normalOnly` normal ones.
     private static func windows(
@@ -700,7 +712,8 @@ final class OCRController {
         let list = CGWindowListCopyWindowInfo(options, window) as? [[String: Any]] ?? []
         let ownPID = ProcessInfo.processInfo.processIdentifier
         return list.compactMap(windowInfo).filter {
-            (normalOnly ? $0.layer == 0 : pickableLayers.contains($0.layer) && ($0.layer == 0 || $0.alpha > 0))
+            (normalOnly ? $0.layer == 0
+                : pickableLayers.contains($0.layer) && ($0.layer == 0 || $0.alpha > 0 && !coversDisplay($0.bounds)))
                 && $0.ownerPID != ownPID && $0.bounds.width >= 40 && $0.bounds.height >= 40
         }
     }
@@ -721,6 +734,9 @@ final class OCRController {
                 if self.target != nil {
                     log("found the saved window: \(windowForLog ?? [:])")
                     readAgain()
+                    // Its state (the overlay shown over it) for the window record, as when OCR starts.
+                    trackWindow()
+                    logWindow()
                 }
             }
             return
@@ -1064,6 +1080,7 @@ final class OCRController {
                 start = OCRClock.now
                 sawChange = false
                 previous = nil
+                framesKey = nil
                 acceptedReading = false
                 send(["type": "changing"])
             }
@@ -1086,6 +1103,7 @@ final class OCRController {
                 if let last = lastRecognizedFrame, differs(frame, last, only: [0]) {
                     sawChange = true
                     previous = nil
+                    framesKey = nil
                 } else if lastRecognizedFrame == nil || OCRClock.now.timeIntervalSince(start) > number("ocrNewLineWait", 1500) / 1000 {
                     sawChange = true
                 }
@@ -2057,6 +2075,7 @@ final class OCRController {
         let title = saved["title"] as? String ?? ""
         let windows = Self.windows(onScreenOnly: true).filter { $0.ownerName == ownerName }
         let match = windows.first { $0.id == target?.windowID } ?? windows.first { $0.title == title } ?? windows.first { $0.layer == 0 }
+            ?? windows.first
         guard let match else { return nil }
         let content = try await ScreenCapture.shareableContent(onScreenWindowsOnly: true)
         guard let window = content.windows.first(where: { $0.windowID == match.id }) else { return nil }
