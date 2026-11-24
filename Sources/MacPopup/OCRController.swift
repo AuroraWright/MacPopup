@@ -58,6 +58,12 @@ final class OCRController {
     private var watchUntil = Date.distantPast
     /// The dialogue's text when watchUntil was last set by a reading (see noteReading).
     private var watchedTexts: [String]?
+    /// One or two characters at the end of a dialogue row that went away while the rest stayed the same, and how many
+    /// times (see noteTail): from twice (so they came back), something OCR reads as letters, like a blinking "next"
+    /// icon read as a kanji. Left out like the marks rows end with (see coreAndEnds), and of the lines the page gets.
+    private var flickeringTail: (rows: [String], row: Int, text: String, gone: Int)?
+    /// The dialogue's rows (see rowCores) in the last reading.
+    private var lastRowCores: [String]?
     private var lastCursorPoint: CGPoint?
     /// With "Only check for changes after input activity", the window is only read until a while after the
     /// mouse, keyboard or a controller was last used, not while they rest.
@@ -1020,11 +1026,12 @@ final class OCRController {
         // The window as it was read since the text last changed, to learn animated spots from (see
         // learnAnimatedBlocks). When the text is still what was read before the round (e.g. the round is for a
         // blinking icon), from before the change too.
-        // Kept while the text is the same but for the marks its rows end with (see OCRText.isEndMark), which may be an
-        // icon read as one.
+        // Kept while the text is the same but for the marks its rows end with (see OCRText.isEndMark, and
+        // flickeringTail), which may be an icon read as one.
         var frames: [Frame] = []
-        let textBefore = (key: watchedTexts.map { $0.map(Self.settleKey).joined() }, core: watchedTexts.map(Self.coreKey),
-                          ends: watchedTexts.map(Self.endMarks), frame: lastRecognizedFrame)
+        let watched = watchedTexts.map(coreAndEnds)
+        let textBefore = (key: watchedTexts.map { $0.map(Self.settleKey).joined() }, core: watched?.core,
+                          ends: watched?.ends, frame: lastRecognizedFrame)
         var framesKey: String?
         // Where the dialogue's text was read during the round (see textBlocks): not learned as animated, unless the
         // marks its rows end with came and went or changed meanwhile (see endsVary). Those are then something OCR reads
@@ -1139,7 +1146,7 @@ final class OCRController {
             roundTextBlocks.formUnion(covered)
             nearTextBlocks.formUnion(textBlocks(areaLines.first ?? [], goingOn: true))
             let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
-            let core = Self.coreKey(texts)
+            let (core, end) = coreAndEnds(texts)
             // Only for new text: the same text read again where an icon next to it was learned says nothing about it.
             if core != textBefore.core { unlearnAnimatedBlocks(covered) }
             let key = texts.map(Self.settleKey).joined(), length = texts.joined().count
@@ -1157,7 +1164,7 @@ final class OCRController {
             // As compared with later (see comparisonScale), rather than thumbnails of the image read.
             if let readFrame {
                 frames.append(readFrame)
-                ends.append(Self.endMarks(texts))
+                ends.append(end)
             }
             if sawChange, read == [0] {
                 // Still the same text (growing as it's drawn, fading, or read a little differently or in another order),
@@ -1195,7 +1202,10 @@ final class OCRController {
                 // What changed while the text stayed the same (e.g. a blinking "next" icon) doesn't count as
                 // the window changing later.
                 if Self.endsVary(ends) {
-                    learnAnimatedBlocks(from: frames, text: [], nearText: nearTextBlocks.union(roundTextBlocks))
+                    // With its edges when it's a flickering tail (letters drawn: a glyph's edges spill into the blocks
+                    // around it); marks are learned without them, as more often next to text being drawn.
+                    learnAnimatedBlocks(from: frames, text: [], nearText: nearTextBlocks.union(roundTextBlocks),
+                                        edges: ends.contains { $0.contains("\u{1}") })
                 } else {
                     learnAnimatedBlocks(from: frames, text: roundTextBlocks, nearText: nearTextBlocks)
                 }
@@ -1244,7 +1254,97 @@ final class OCRController {
 
     /// The settle key (see settleKey) of a reading's rows without the marks they end with (see OCRText.isEndMark).
     nonisolated static func coreKey(_ texts: [String]) -> String {
-        texts.map { settleKey(String($0.reversed().drop(while: OCRText.isEndMark).reversed())) }.joined()
+        rowCores(texts).joined()
+    }
+
+    /// Each row's settle key without the marks it ends with (see coreKey).
+    nonisolated static func rowCores(_ texts: [String]) -> [String] {
+        texts.map { settleKey(String($0.reversed().drop(while: OCRText.isEndMark).reversed())) }
+    }
+
+    /// When the rows `longer` are `shorter` but for one or two characters more at the end of one of them, a letter
+    /// among them (and otherwise marks, see OCRText.isEndMark, e.g. an icon read as い after a 」): which row, and those
+    /// characters. (Marks alone are end marks; sentence ends and dots that OCR misses at times stay.)
+    nonisolated static func tail(of longer: [String], over shorter: [String]) -> (row: Int, text: String)? {
+        guard longer.count == shorter.count else { return nil }
+        let differing = longer.indices.filter { longer[$0] != shorter[$0] }
+        guard differing.count == 1, let row = differing.first, !shorter[row].isEmpty, longer[row].hasPrefix(shorter[row]),
+              (1...2).contains(longer[row].count - shorter[row].count) else { return nil }
+        let text = String(longer[row].dropFirst(shorter[row].count))
+        return text.contains(where: OCRText.isLetter) && text.allSatisfy({ OCRText.isLetter($0) || OCRText.isEndMark($0) }) ? (row, text) : nil
+    }
+
+    /// The flickering tail (see flickeringTail) once it went twice.
+    private var knownTail: (rows: [String], row: Int, text: String)? {
+        flickeringTail.flatMap { $0.gone >= 2 ? ($0.rows, $0.row, $0.text) : nil }
+    }
+
+    /// Whether `rows` (see rowCores) are the known tail's rows with it.
+    private func hasKnownTail(_ rows: [String]) -> Bool {
+        guard let tail = knownTail, let found = Self.tail(of: rows, over: tail.rows) else { return false }
+        return found.row == tail.row && found.text == tail.text
+    }
+
+    /// The core key (see coreKey) and end marks (see endMarks) of a reading, the known flickering tail moved from the
+    /// one to the other.
+    private func coreAndEnds(_ texts: [String]) -> (core: String, ends: String) {
+        let rows = Self.rowCores(texts), ends = Self.endMarks(texts)
+        guard hasKnownTail(rows), let tail = knownTail else { return (rows.joined(), ends) }
+        return (tail.rows.joined(), ends + "\u{1}" + tail.text)
+    }
+
+    /// Follows the dialogue's rows from reading to reading for a flickering tail (see flickeringTail).
+    private func noteTail(_ lines: [[String: Any]]) {
+        let rows = Self.rowCores(lines.map { $0["text"] as? String ?? "" })
+        defer { lastRowCores = rows }
+        if let last = lastRowCores, let gone = Self.tail(of: last, over: rows) {
+            if let tail = flickeringTail, tail.rows == rows, tail.row == gone.row, tail.text == gone.text {
+                flickeringTail?.gone += 1
+            } else {
+                flickeringTail = (rows, gone.row, gone.text, 1)
+            }
+        } else if let tail = flickeringTail, rows != tail.rows,
+                  Self.tail(of: rows, over: tail.rows).map({ $0.row == tail.row && $0.text == tail.text }) != true {
+            flickeringTail = nil
+        }
+    }
+
+    /// The dialogue's lines without the known flickering tail where it was learned as animated, for the page.
+    private func withoutKnownTail(_ lines: [[String: Any]]) -> [[String: Any]] {
+        let texts = lines.map { $0["text"] as? String ?? "" }
+        guard hasKnownTail(Self.rowCores(texts)), let tail = knownTail, lines.indices.contains(tail.row) else { return lines }
+        var line = Self.decode(lines[tail.row])
+        let text = line.text.trimmingCharacters(in: .whitespaces)
+        guard text.hasSuffix(tail.text) else { return lines }
+        line.text = String(text.dropLast(tail.text.count))
+        var chars = line.chars
+        var left = Substring(tail.text)
+        while let last = chars.last, !left.isEmpty {
+            if last.text.allSatisfy(\.isWhitespace) {
+                chars.removeLast()
+            } else if left.hasSuffix(last.text), !last.text.isEmpty {
+                left = left.dropLast(last.text.count)
+                chars.removeLast()
+            } else {
+                break
+            }
+        }
+        guard left.isEmpty, let first = chars.first, !line.text.isEmpty else { return lines }
+        // Only where the picture changed as it came and went (learned as animated): OCR missing a character that's
+        // there now and then (e.g. the last of a row the line goes on from) isn't an icon.
+        let gone = line.chars[chars.count...].filter { !$0.text.allSatisfy(\.isWhitespace) }.map { char in
+            let center = CGPoint(x: char.box.midX, y: char.box.midY)
+            return Self.encode(OCRLayout.Line(text: char.text, box: CGRect(origin: center, size: CGSize(width: 0.1, height: 0.1)),
+                                              vertical: line.vertical, chars: []))
+        }
+        guard let animated = animatedBlocks.first, gone.allSatisfy({ !textBlocks([$0]).isDisjoint(with: animated.keys) }) else {
+            return lines
+        }
+        line.chars = chars
+        line.box = chars.dropFirst().reduce(first.box) { $0.union($1.box) }
+        var result = lines
+        result[tail.row] = Self.encode(line).merging(lines[tail.row].filter { !["text", "x", "y", "width", "height", "chars"].contains($0.key) }) { $1 }
+        return result
     }
 
     /// The marks a reading's rows end with (see OCRText.endMarks), a row's apart from the next's.
@@ -1553,6 +1653,7 @@ final class OCRController {
             (areaLines[index], areaRemoved[index]) = lines(
                 from: items, in: crop, area: index, bounds: bounds, ordered: engine == .screenAI, exactBoxes: engine.hasExactBoxes
             )
+            if index == 0 { noteTail(areaLines[0]) }
             log("layout: \(String(format: "%.2f", OCRClock.now.timeIntervalSince(layoutStarted)))s")
         }
         return true
@@ -1625,7 +1726,7 @@ final class OCRController {
     ///     "settled" for one of text that stopped changing.
     private func sendResult(frame: Frame?, areas indices: [Int], started: Date, extra: [String: Any] = [:]) {
         guard let bounds else { return }
-        let lines = areaLines.flatMap { $0 }
+        let lines = areaLines.enumerated().flatMap { $0.offset == 0 ? withoutKnownTail($0.element) : $0.element }
         var result: [String: Any] = [
             "type": "result",
             "lines": lines,
@@ -2153,7 +2254,9 @@ final class OCRController {
     /// faint changes, like the end of a character's fade-in (a game's text can take half a second to
     /// reach full brightness).
     /// - Parameter only: The areas to compare (the others count as unchanged), or all.
-    private func changedBlocks(_ a: Frame, _ b: Frame, only: [Int]? = nil) -> [Set<Int>]? {
+    /// - Parameter edges: Also the blocks next to them where fewer pixels changed (an icon's edges, which would add up
+    ///   to a change otherwise).
+    private func changedBlocks(_ a: Frame, _ b: Frame, only: [Int]? = nil, edges: Bool = false) -> [Set<Int>]? {
         guard a.thumbnails.count == b.thumbnails.count, a.widths == b.widths else { return nil }
         let block = Self.block
         var result: [Set<Int>] = []
@@ -2176,6 +2279,16 @@ final class OCRController {
                     if counts[cell] == 5 { changed.insert(cell) }
                 }
             }
+            if edges {
+                for cell in counts.indices where counts[cell] > 0 && !changed.contains(cell) {
+                    let row = cell / columns, column = cell % columns
+                    let near = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)].contains { dy, dx in
+                        let r = row + dy, c = column + dx
+                        return r >= 0 && c >= 0 && c < columns && changed.contains(r * columns + c)
+                    }
+                    if near { changed.insert(cell) }
+                }
+            }
             result.append(changed)
         }
         return result
@@ -2187,12 +2300,13 @@ final class OCRController {
     /// A spot with more looks than are kept is left out whatever it looks like (see AnimatedBlock), for a while, but
     /// not near the text (`nearText`: where the previous text was, or where the text would go on), nor when there
     /// are many (that's an animated background, not an icon).
-    private func learnAnimatedBlocks(from frames: [Frame], text: Set<Int>, nearText: Set<Int>) {
+    /// - Parameter edges: With the edges of what changed (see changedBlocks).
+    private func learnAnimatedBlocks(from frames: [Frame], text: Set<Int>, nearText: Set<Int>, edges: Bool = false) {
         guard frames.count > 1, let first = frames.first else { return }
         var found = first.thumbnails.map { _ in Set<Int>() }
         for (a, b) in zip(frames, frames.dropFirst()) {
             // Only the dialogue is read until settled; the other areas are read whenever they change.
-            guard let changed = changedBlocks(a, b, only: [0]) else { return }
+            guard let changed = changedBlocks(a, b, only: [0], edges: edges) else { return }
             for (area, blocks) in changed.enumerated() { found[area].formUnion(blocks) }
         }
         if !found.isEmpty { found[0].subtract(text) }

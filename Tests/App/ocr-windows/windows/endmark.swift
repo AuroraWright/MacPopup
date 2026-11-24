@@ -1,8 +1,9 @@
 // beside: "$("$HARNESS/tools/build.sh" "$REPO/Tests/App/ocr-windows/windows/endmark.swift")" EndMarkTest
-// endmark <title> [seconds]: a 1200x700 window with a short line ("………殺される………", 34 pt) from 3 s on, and right after it
+// endmark <title> [seconds] [letter]: a 1200x700 window with a short line ("………殺される………", 34 pt) from 3 s on, and right after it
 // a "next" icon (48 pt, bold) that OCR reads as a bracket, as a game's was (Screen AI read it as 』 or 」, or not at all): drawn as 』,
 // then 」, then nothing, each for 0.45 s, over and over. (Live Text reads only the 」, as a row of its own.) 21 s after the
-// line, it's another one ("………生きている………"), the icon going on. Quits after `seconds` (32 by default). Shown without taking focus, all but 8 points of it off the right edge
+// line, it's another one ("………生きている………"), the icon going on. With "letter", the icon is read as a letter
+// instead, as Screen AI read it on another day (上): drawn as 上, then nothing, each for 0.45 s. Quits after `seconds` (32 by default). Shown without taking focus, all but 8 points of it off the right edge
 // of the main screen (still captured, and other windows can't cover it). Prints each step as "<ms since 1970> <step>".
 import AppKit
 let arguments = CommandLine.arguments
@@ -25,8 +26,8 @@ func label(_ text: String, size: CGFloat = 34) -> NSTextField {
     return field
 }
 let line = label("………殺される………")
-let marks = ["』", "」", ""]
-let mark = label("』", size: 48)
+let marks = arguments.count > 3 && arguments[3] == "letter" ? ["上", ""] : ["』", "」", ""]
+let mark = label(marks[0], size: 48)
 line.isHidden = true
 mark.isHidden = true
 window.contentView!.addSubview(line)
