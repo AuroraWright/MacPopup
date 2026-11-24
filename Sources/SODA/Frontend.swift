@@ -266,9 +266,14 @@ struct PowerSpectrum {
         n = size
         var m = 32
         while m <= n {
-            twiddles[m] = (1..<m / 4).flatMap { k in
-                [Float(cos(2 * Double.pi * Double(k) / Double(m))), Float(sin(2 * Double.pi * Double(k) / Double(m)))]
+            var values: [Float] = []
+            values.reserveCapacity(max(0, m / 4 - 1) * 2)
+            for k in 1..<m / 4 {
+                let angle = 2 * Double.pi * Double(k) / Double(m)
+                values.append(Float(cos(angle)))
+                values.append(Float(sin(angle)))
             }
+            twiddles[m] = values
             m *= 2
         }
         // Where each frequency lands, from the transform of a unit impulse at sample 1, whose output at frequency f is
