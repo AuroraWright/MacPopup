@@ -14,3 +14,5 @@ ios/Signing.local.xcconfig
 .build-prof/
 evals/
 research/
+.venv
+.vscode
