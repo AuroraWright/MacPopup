@@ -8,7 +8,7 @@ import { DisplayNotification } from '../../vendor/yomitan/ext/js/display/display
 import { ElementOverflowController } from '../../vendor/yomitan/ext/js/display/element-overflow-controller.js';
 import { PopupMenu } from '../../vendor/yomitan/ext/js/dom/popup-menu.js';
 import { addScopeToCss } from '../../vendor/yomitan/ext/js/core/utilities.js';
-import { ankiInvoke, findNoteIds, getNoteInfos, suspendCardsForNote } from './lib/anki-connect.js';
+import { ankiInvoke, cardFormatSortField, findNoteIds, getNoteInfos, suspendCardsForNote } from './lib/anki-connect.js';
 import { buildFirstFieldNotes, buildNote, overwriteNote, storeMedia } from './lib/anki-notes.js';
 import { log, nativeCall } from './lib/native.js';
 import { logEvent } from './lib/debug-log.js';
@@ -974,11 +974,12 @@ class Popup {
 	async showDuplicateIndicators(token, content, cardFormats, cardFormatIndices) {
 		const notes = [];
 		const targets = [];
+		const sortFields = await Promise.all(cardFormatIndices.map((index) => cardFormatSortField(cardFormats[index])));
 		content.dictionaryEntries.forEach((dictionaryEntry, entryIndex) => {
 			const value = dictionaryEntry.type === 'kanji' ? dictionaryEntry.character : (dictionaryEntry.headwords?.[0]?.term ?? '');
-			for (const cardFormatIndex of cardFormatIndices) {
+			for (const [i, cardFormatIndex] of cardFormatIndices.entries()) {
 				const cardFormat = cardFormats[cardFormatIndex];
-				const [name] = Object.keys(cardFormat.fields);
+				const name = sortFields[i];
 				if (!name) continue;
 				notes.push({ deckName: cardFormat.deck, modelName: cardFormat.model, fields: { [name]: value }, options: { duplicateScope: getSettings().duplicateScope } });
 				targets.push({ entryIndex, cardFormat, cardFormatIndex });

@@ -1,6 +1,17 @@
 import { httpPost } from './native.js';
 import { getSettings } from './settings.js';
 
+// Anki's sort field is modelFieldNames[0]. Chromium sorts native-messaging object keys, so Object.keys(fields)[0] is not this.
+export function ankiSortFieldName(fields, modelFieldNames) {
+	const name = Array.isArray(modelFieldNames) ? modelFieldNames[0] : '';
+	return typeof name === 'string' && name && fields && Object.prototype.hasOwnProperty.call(fields, name) ? name : '';
+}
+
+export async function cardFormatSortField(cardFormat) {
+	if (!cardFormat.model) return '';
+	return ankiSortFieldName(cardFormat.fields, await ankiInvoke('modelFieldNames', { modelName: cardFormat.model }));
+}
+
 export async function ankiInvoke(action, params = {}) {
 	const { ankiConnectUrl, ankiConnectKey } = getSettings();
 	const body = { action, version: 6, params };
