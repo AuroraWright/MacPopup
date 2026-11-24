@@ -29,8 +29,12 @@ if check(before is not None, 'the pause helper is loaded (launchd knows it; else
         state = subprocess.run(['ps', '-o', 'stat=', '-p', str(target.pid)], capture_output=True, text=True).stdout.strip()
         check(not answer.startswith('stopped'), f"the helper didn't take the request: {answer!r}")
         check(state and not state.startswith('T'), f'the process kept running: state {state!r}')
-        time.sleep(2)
+        # Once launchd has the run and the helper has exited again (its last exit code is then this run's).
+        end = time.monotonic() + 15
         after = helper() or {}
+        while (int(after.get('runs', 0)) <= int(before.get('runs', 0)) or after.get('state') == 'running') and time.monotonic() < end:
+            time.sleep(0.3)
+            after = helper() or {}
         check(int(after.get('runs', 0)) > int(before.get('runs', 0)),
               f"the helper was reached (launchd started it): runs {before.get('runs')} → {after.get('runs')}")
         check(after.get('last exit code') == '0', f"the helper didn't crash: last exit code {after.get('last exit code')}")

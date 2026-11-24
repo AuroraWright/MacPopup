@@ -1,8 +1,8 @@
 // The Yomitan profile through the API (MOCK_PROFILE=1: a Yomitan with displayOptions, dictionaryInfo and
-// dictionaryMedia), with "Use Yomitan's display settings" on: the popup shows the profile's display options (theme, font,
-// scale, layout, custom popup and outer CSS), its result grouping, the Mock dictionary's styles, collapse mode and
-// details (its tag's notification), and the images from dictionaryMedia. Saving settings (the clipboard button, twice)
-// saves only MacPopup's own settings, none of the profile's.
+// dictionaryMedia), with "Use Yomitan's display settings" on: the popup shows the profile's display options (theme,
+// font, scale, layout, custom popup and outer CSS), its result grouping, the Mock dictionary's styles, collapse mode
+// and details (its tag's notification), and the images from dictionaryMedia (red: ankiFields' are green). Saving
+// settings (the clipboard button, twice) saves only MacPopup's own settings, none of the profile's.
 // mock: MOCK_IMAGES=1 MOCK_PROFILE=1
 // clipboard: 明日も晴れるといいね
 // settings: {"clipboardMonitor": true, "definitionsCollapsible": "not-collapsible"}

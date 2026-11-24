@@ -142,6 +142,9 @@ else:
 
 if not check(len(samples) >= 10 and running(), f'{len(samples)} samples, the app still running'):
     sys.exit(0)
+# Without its WebContent process (e.g. WebKit's services renamed), its footprint and CPU would count as nothing.
+if not check(any(k.startswith('WebContent:') for row in samples for k in row['procs']), "the instance's WebContent process found"):
+    sys.exit(0)
 log('processes: ' + ', '.join(sorted({k for row in samples for k in row['procs']})))
 first, last = samples[0], samples[-1]
 seconds = last['t'] - first['t']

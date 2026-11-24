@@ -13,6 +13,14 @@ sys.dont_write_bytecode = True  # (no __pycache__ in the repo)
 sys.path.insert(0, os.environ['HARNESS'] + '/tools')
 from driver import REPO, RUN, check, log, running
 
+
+def stopped(kind, value, trace):
+    """An error (e.g. a tool that didn't build) fails the test, as an unchecked clip would otherwise pass it."""
+    sys.__excepthook__(kind, value, trace)
+    print(f'TEST FAIL the clip check stopped: {value!r}', flush=True)
+
+
+sys.excepthook = stopped
 references = sys.argv[1:]
 
 
@@ -36,7 +44,10 @@ try:
         for line in f:
             parts = line.split(' ', 3)
             if len(parts) == 4 and parts[0] == 'anki' and parts[2] == 'storeMediaFile':
-                params = json.loads(parts[3])
+                try:
+                    params = json.loads(parts[3])
+                except ValueError:
+                    continue  # (a line still being written)
                 name = params.get('filename', '')
                 if name.startswith('macpopup-sentence-'):
                     clips.append(params.get('data', ''))

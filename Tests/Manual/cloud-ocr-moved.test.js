@@ -5,6 +5,7 @@
 // Needs the network, and sends the test window's picture (the line above, nothing else) to Google: ask before running.
 // No person needed.
 // interactive
+// network
 // mock: MOCK_RUN_FILES=1
 // env: MACPOPUP_DEBUG_OCR=1
 // settings: {"ocrMode": true, "ocrEngine": "liveText", "ocrCloudEngine": "googleLens", "ocrWindow": {"ownerName": "mover", "title": "MoverTest"}, "ocrRegions": [], "ocrMouseWatch": false, "ocrPollInterval": 100, "ocrShowBoxes": true, "screenshotHistory": 0, "ankiEnabled": false, "sentenceAudioEnabled": false, "gamePause": false}

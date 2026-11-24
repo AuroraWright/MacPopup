@@ -36,8 +36,11 @@ if ready:
     time.sleep(max(0, start + 7.5 - time.monotonic()))
     pid = game()
     if check(bool(pid), f'the captured app ({os.path.basename(target)}) running at 7.5 s'):
-        os.kill(pid, signal.SIGUSR1)
-        log(f'{int(time.time() * 1000)} the captured app speaks')
+        try:
+            os.kill(pid, signal.SIGUSR1)
+            log(f'{int(time.time() * 1000)} the captured app speaks')
+        except ProcessLookupError:
+            check(False, 'the captured app still running when told to speak')
 else:
     check(False, 'the page never got ready')
 while running() and 'TEST done' not in app_log():

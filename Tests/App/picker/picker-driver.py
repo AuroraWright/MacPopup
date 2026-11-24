@@ -2,8 +2,10 @@
 # (RaiseTestA, which RaiseTestB covers), checks that RaiseTestA was brought to the front (as clicking it would) and the
 # picker shows its areas (its Done button); with "switch", brings RaiseTestB to the front (System Events) and checks the
 # picker went back to choosing the window (no Done button). Then presses Escape (only while a test window or the
-# instance is the frontmost app): the picker closes and the window in front didn't get the key.
-import os, re, subprocess, sys, time
+# instance is the frontmost app): the picker closes and the window in front didn't get the key. A picker left open (the
+# key not pressed, or not closing it) is closed by quitting the instance, so that it's never left over the user's screen
+# for a click to pick one of their windows.
+import os, re, signal, subprocess, sys, time
 sys.dont_write_bytecode = True  # (no __pycache__ in the repo)
 sys.path.insert(0, os.environ['HARNESS'] + '/tools')
 from driver import PID, activate, app_log, beside_log, check, equal, frontmost, keys, log, logged, tool, until
@@ -40,7 +42,8 @@ def state():
     return result
 
 
-a, b = until(lambda: pid_of('RaiseTestA')), until(lambda: pid_of('RaiseTestB'))
+# (As long as the page waits: beside may be building plainwin first.)
+a, b = until(lambda: pid_of('RaiseTestA'), 30), until(lambda: pid_of('RaiseTestB'), 30)
 log(f'RaiseTestA {a}, RaiseTestB {b}, the instance {PID}')
 if check(bool(a and b), 'both test windows started') and check(bool(logged('select', timeout=40)), 'the page opened the picker'):
     time.sleep(1.5)
@@ -65,4 +68,7 @@ if check(bool(a and b), 'both test windows started') and check(bool(logged('sele
         equal(re.findall(rf'{front} got key 53', beside_log()), [], f'Escape kept from {front}')
     else:
         check(False, 'Escape not pressed: neither a test window nor the instance is in front')
+    if state()['picker']:
+        log('the picker still shows: quitting the instance')
+        os.kill(int(PID), signal.SIGTERM)
 log('finished')

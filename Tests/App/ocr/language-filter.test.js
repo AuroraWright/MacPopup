@@ -3,7 +3,7 @@
 // and Russian ones. The driver copies the lines after the first (明日も晴れるといいね), 1.5 s apart.
 // clipboard: 明日も晴れるといいね
 // settings: {"clipboardMonitor": true, "filterNonCJKLines": true, "language": "ja", "preventLastDuplicate": 0, "maxLines": 0, "ocrMode": false, "floatingWindowOCR": false}
-// driver: until grep -q 'TEST ok the first line' "$RUN/app.log" 2>/dev/null; do sleep 0.1; done; for t in 'Hello there' 'こんにちは' 'привет' '……' '『MentalLock』'; do "$REPO/build/test/tools/pb" "$SUITE" "$t"; sleep 1.5; done
+// driver: end=$((SECONDS + 40)); until grep -q 'TEST ok the first line' "$RUN/app.log" 2>/dev/null; do (( SECONDS > end )) && exit 0; sleep 0.1; done; for t in 'Hello there' 'こんにちは' 'привет' '……' '『MentalLock』'; do "$REPO/build/test/tools/pb" "$SUITE" "$t"; sleep 1.5; done
 // timeout: 60
 
 test('overlay', async () => {

@@ -10,7 +10,7 @@
 // settings: {"ocrMode": false, "ocrWindow": {"ownerName": "audiowin", "title": "AudioTest"}, "websocketUrls": [], "clipboardMonitor": false, "ankiEnabled": true, "sentenceAudioField": "SentenceAudio", "sentenceAudioEnabled": true, "sentenceAudioHistory": 0, "sentenceAudioShortcut": null, "sentenceAudioApp": "none", "sentenceAudioOpenKeys": [], "sentenceAudioCloseKeys": [], "sentenceAudioDetectVoice": true, "sentenceAudioPause": 1500, "sentenceAudioVoiceWait": 10, "sentenceAudioPadding": 300, "sentenceAudioPlay": false, "sentenceAudioBacklog": true, "screenshotHistory": 0}
 // setup: "$REPO/Tests/App/anki-audio/voices.sh" "$RUN"
 // beside: "$("$HARNESS/tools/build.sh" "$REPO/Tests/App/anki-audio/windows/audiowin.swift")" "$RUN/voice-app.aiff" 0.15 40
-// driver: python3 -I "$REPO/Tests/App/anki-audio/record-driver.py" app --other & python3 -I "$REPO/Tests/App/anki-audio/clip-driver.py" voice-app voice-other; wait
+// driver: python3 -I "$REPO/Tests/App/anki-audio/record-driver.py" app --other & a=$!; python3 -I "$REPO/Tests/App/anki-audio/clip-driver.py" voice-app voice-other; b=$?; wait $a; exit $(( $? | b ))
 // timeout: 90
 
 /** Presses the shortcut for card 333 (on no line Anki Audio knows) 1.5 s after the page is ready, as

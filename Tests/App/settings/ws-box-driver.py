@@ -7,20 +7,21 @@ sys.dont_write_bytecode = True  # (no __pycache__ in the repo)
 sys.path.insert(0, os.environ['HARNESS'] + '/tools')
 from driver import PID, ax, check, controls, equal, keep_pointer, keys, log, logged, mouse, open_settings, running, settings
 
+# URLs on a port nothing listens on, so that the instance's connections go nowhere (not even a DNS lookup).
+H = 'ws://127.0.0.1:1/'
 LONG = 'ws://127.0.0.1:59901/a-very-long-path-that-goes-past-the-right-edge-of-the-settings-box/and-further-still/end'
 # The steps typed (after a click in the box and ⌘↓ to its end), the URLs then saved and the box's lines.
 CASES = {
     # A stored URL with line breaks in it shows as lines (typing on the fifth once recursed until the stack
     # overflowed); Return on the fifth beeps and adds nothing.
-    'linebreaks': (['type:x', 'return', 'type:y'], ['ws://a', 'ws://b', 'ws://c', 'ws://d', 'ws://exy'], 5),
+    'linebreaks': (['type:x', 'return', 'type:y'], [H + 'a', H + 'b', H + 'c', H + 'd', H + 'exy'], 5),
     # Text with Windows line breaks typed as one key press (as a paste): split into lines, keeping those that fit.
-    'crlf': (['return', 'type:ws://b\\r\\nws://c\\r\\nws://d\\r\\nws://e\\r\\nws://f\\r\\nws://g'],
-             ['ws://a', 'ws://b', 'ws://c', 'ws://d', 'ws://e'], 5),
+    'crlf': (['return', 'type:' + '\\r\\n'.join(H + c for c in 'bcdefg')], [H + c for c in 'abcde'], 5),
     # Return on the fifth line beeps, and the next letter goes on it.
     'fifth': (['return', 'type:b', 'return', 'type:c', 'return', 'type:d', 'return', 'type:e', 'return', 'type:f'],
-              ['ws://a', 'b', 'c', 'd', 'ef'], 5),
+              [H + 'a', 'b', 'c', 'd', 'ef'], 5),
     # A long URL doesn't wrap: three URLs and the empty line under them.
-    'long': (['return', 'type:ws://x'], ['ws://127.0.0.1:59900', LONG, 'ws://x'], 4),
+    'long': (['return', 'type:' + H + 'x'], ['ws://127.0.0.1:59900', LONG, H + 'x'], 4),
     # The list changed while Settings is open (the page saves 5 URLs, as an import would) after an edit that left the
     # text as it was: the box grows to them.
     'import': (['return', 'backspace'], [f'ws://127.0.0.1:5991{n}' for n in range(1, 6)], 5),

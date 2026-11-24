@@ -119,7 +119,9 @@ let package = Package(
         .testTarget(
             name: "UnitTests",
             dependencies: ["MacPopup", "OCREngines", "Transcription"],
-            path: "Tests/Unit"
+            path: "Tests/Unit",
+            // Read from the source folder (#filePath), not as resources.
+            exclude: ["Fixtures"]
         ),
     ]
 )

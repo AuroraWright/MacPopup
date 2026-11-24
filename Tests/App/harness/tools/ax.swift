@@ -82,7 +82,7 @@ func setValue(_ element: AXUIElement, _ value: String) {
 }
 
 func oneLine(_ text: String) -> String {
-    text.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: " ")
+    text.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
 }
 
 /// An element's frame: "x y w h" in global points from the top left, or "none".

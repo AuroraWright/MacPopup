@@ -2,7 +2,8 @@
 // Live Text (pinned) reading windows/shotview.swift: the Anki screenshot is the window alone, at 1x its size in points
 // for "1x" and for no resolution, and at its backing scale for "full" (rounded to even pixels); a popup on the OCR text's
 // 手 closes once the window is reported hidden; then, with the Floating Window, a popup on a line's 手 closes on a
-// space change.
+// space change. (The hiding and the space change are the page's handlers called here, as the app calls them: the app
+// noticing them isn't tested.)
 // mock: MOCK_RUN_FILES=1
 // settings: {"ocrMode": true, "ocrEngine": "liveText", "ocrCloudEngine": "none", "ocrWindow": {"ownerName": "shotview", "title": "Shot Test"}, "ocrRegions": [], "ocrUseWebsocket": false, "ocrMouseWatch": false, "ocrPollInterval": 100, "ocrShowBoxes": true, "screenshotHistory": 0, "scanDelay": 20, "scanModifier": "none", "autoHideResults": false, "hidePopupOnCursorExit": false, "ankiEnabled": false}
 // beside: "$("$HARNESS/tools/build.sh" "$REPO/Tests/App/ocr-windows/windows/shotview.swift")" "Shot Test"

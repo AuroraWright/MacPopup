@@ -90,6 +90,7 @@ private func normalized(_ box: CGRect, _ size: CGSize) -> CGRect {
     }
     let line = RecognizedLine(text: text, box: normalized(CGRect(x: margin, y: margin, width: cell * 5, height: cell), picture.size), words: words)
     let chars = laidOut(line, in: picture, exactBoxes: true)
+    #expect(chars.count == words.count)
     for (char, word) in zip(chars, words) {
         let expected = CGRect(x: word.1.minX * picture.size.width, y: word.1.minY * picture.size.height,
                               width: word.1.width * picture.size.width, height: word.1.height * picture.size.height)

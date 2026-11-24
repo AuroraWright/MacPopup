@@ -12,7 +12,6 @@ test('overlay', async () => {
 	equal(getComputedStyle(lines).fontFamily, 'HiraMinProN-W3', 'the text box\'s font-family');
 	equal(getComputedStyle(line).fontFamily, 'HiraMinProN-W3', 'the line\'s font-family');
 	await document.fonts.ready;
-	expect(document.fonts.check('16px "Hiragino Mincho ProN"', '明日'), 'Hiragino Mincho ProN is available');
 	// Drawn in it: the same text is as wide in the line's font as in Hiragino Mincho ProN, and not as in the theme's.
 	const width = (font) => {
 		const context = document.createElement('canvas').getContext('2d');
@@ -21,6 +20,8 @@ test('overlay', async () => {
 	};
 	const size = getComputedStyle(line).fontSize;
 	const inLineFont = width(`${size} ${getComputedStyle(line).fontFamily}`);
+	// (The font is there: a missing one would measure as the fallback, monospace here.)
+	expect(width(`${size} "Hiragino Mincho ProN", monospace`) !== width(`${size} monospace`), 'Hiragino Mincho ProN is available');
 	equal(inLineFont, width(`${size} "Hiragino Mincho ProN"`), 'text width in the line\'s font, as in Hiragino Mincho ProN');
 	expect(inLineFont !== width(`${size} "Hiragino Sans"`), `text width in the line's font (${inLineFont}) isn't Hiragino Sans' (${width(`${size} "Hiragino Sans"`)})`);
 	const remote = performance.getEntriesByType('resource').map((e) => e.name).filter((url) => /^https?:/.test(url));

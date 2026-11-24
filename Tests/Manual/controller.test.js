@@ -78,9 +78,18 @@ test('overlay', async () => {
 
 	log(`ask: For the next 8 seconds, press some other buttons than ${combo} (e.g. the face buttons) a few times.`);
 	await wait(1000);
+	// The presses MacPopup got meanwhile, so that a game seeing nothing (the driver's check) means something.
+	const forward = window.__macpopupGamepad;
+	let presses = 0;
+	window.__macpopupGamepad = (controls, ...rest) => {
+		if (controls.length) presses++;
+		return forward(controls, ...rest);
+	};
 	log(`held from ${Date.now()}`);
 	await wait(8000);
 	log(`held to ${Date.now()}`);
+	window.__macpopupGamepad = forward;
+	expect(presses > 0, `buttons pressed while the text box had focus: ${presses} changes`);
 	expect(cursorIndex() !== null, 'the text box still has focus after the other buttons');
 
 	const ended = await ask(`Press ${combo} again: the cursor and the popup go.`, 'the focus ending',

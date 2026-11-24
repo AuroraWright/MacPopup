@@ -2,7 +2,7 @@
 // A test calls test(page, body): body runs in that page only, and checks with expect/equal/near. Each check is logged
 // ("TEST ok …" or "TEST FAIL …"); launch.sh passes a test that logged "TEST done", at least one check and no failure.
 /* exported test, native, log, wait, until, expect, equal, near, lineWith, rangeOf, center, mockLog, popupDocument,
-   runFile, debugRecords, boxText, popupVisible, gamepadPress, windowSteps, windowStep, watch, ocrText, pointerMove,
+   runFile, logLines, debugRecords, boxText, popupVisible, gamepadPress, windowSteps, windowStep, watch, ocrText, pointerMove,
    pointerClick, driverSaid, processStates, gamePauseNotes,
    sentenceAudioNotes */
 'use strict';
@@ -39,9 +39,11 @@ function expect(ok, message) {
 	return ok;
 }
 
+/** Compared as JSON, which can't tell undefined from undefined or NaN from null: those fail (a field name misspelt). */
 function equal(actual, expected, message) {
 	const a = JSON.stringify(actual), e = JSON.stringify(expected);
-	return expect(a === e, `${message}: ${a}${a === e ? '' : ` (expected ${e})`}`);
+	const odd = expected === undefined || Number.isNaN(actual) || Number.isNaN(expected);
+	return expect(a === e && !odd, `${message}: ${a}${a === e && !odd ? '' : ` (expected ${e})`}`);
 }
 
 function near(actual, expected, tolerance, message) {
@@ -77,7 +79,7 @@ function center(rect) {
 /** The lines mock.py has logged so far (its requests: "anki <ms> <action> <params>", "yomitan <ms> <path>", "audio <ms> <path>"). */
 async function mockLog() {
 	const response = await native('http', { url: 'http://127.0.0.1:59879/__log', method: 'GET' });
-	return response.body.split('\n').filter(Boolean);
+	return logLines(response.body);
 }
 
 /** The popup's document, when one is open. */
@@ -91,9 +93,14 @@ async function runFile(name) {
 	return response.body;
 }
 
+/** A log's whole lines: a line still being written (with no line break yet) is left out. */
+function logLines(text) {
+	return text.split('\n').slice(0, -1).filter(Boolean);
+}
+
 /** The debug log's records so far (debug.jsonl, with "ocrShowBoxes": true); needs MOCK_RUN_FILES=1. */
 async function debugRecords() {
-	return (await runFile('debug.jsonl')).split('\n').filter(Boolean).map((line) => JSON.parse(line));
+	return logLines(await runFile('debug.jsonl')).map((line) => JSON.parse(line));
 }
 
 /**
@@ -138,7 +145,7 @@ async function gamepadPress(controls, { hold = 50, after = 1000 } = {}) {
  * as { time, step }, times as Date.now()'s. Needs MOCK_RUN_FILES=1.
  */
 async function windowSteps() {
-	return (await runFile('beside.log')).split('\n').map((line) => line.match(/^(\d{12,}) (.*)$/))
+	return logLines(await runFile('beside.log')).map((line) => line.match(/^(\d{12,}) (.*)$/))
 		.filter(Boolean).map(([, time, step]) => ({ time: Number(time), step }));
 }
 
@@ -178,7 +185,7 @@ function ocrText() {
  */
 async function driverSaid(prefix, timeout = 30000) {
 	return until(`the driver's "${prefix}"`,
-		async () => (await runFile('driver.log')).split('\n').find((line) => line.startsWith(prefix)), timeout);
+		async () => logLines(await runFile('driver.log')).find((line) => line.startsWith(prefix)), timeout);
 }
 
 let pointerRequests = 0;
@@ -210,7 +217,7 @@ function pointerClick(at) {
  * state } with ps's state ('T…' stopped, 'gone' once it quit), times as Date.now()'s. Needs MOCK_RUN_FILES=1.
  */
 async function processStates() {
-	return (await runFile('state.log')).split('\n').map((line) => line.match(/^(\d{12,}) (\S+)/))
+	return logLines(await runFile('state.log')).map((line) => line.match(/^(\d{12,}) (\S+)/))
 		.filter(Boolean).map(([, time, state]) => ({ time: Number(time), state }));
 }
 
@@ -220,7 +227,7 @@ async function processStates() {
  * processes", "switched to … while the game was paused". Needs MOCK_RUN_FILES=1.
  */
 async function gamePauseNotes() {
-	return (await runFile('app.log')).split('\n').map((line) => line.match(/^\[ocr [\d.]+\] (.*)$/)?.[1])
+	return logLines(await runFile('app.log')).map((line) => line.match(/^\[ocr [\d.]+\] (.*)$/)?.[1])
 		.filter((note) => note && /^(game paused|game not paused|the pause helper|switched to )/.test(note));
 }
 
@@ -229,7 +236,7 @@ async function gamePauseNotes() {
  * "<s>s, macpopup-sentence-….m4a", "message: <toast>", …). Needs MOCK_RUN_FILES=1.
  */
 async function sentenceAudioNotes() {
-	return (await runFile('app.log')).split('\n').map((line) => line.match(/^\[sentence audio\] (.*)$/)?.[1]).filter(Boolean);
+	return logLines(await runFile('app.log')).map((line) => line.match(/^\[sentence audio\] (.*)$/)?.[1]).filter(Boolean);
 }
 
 function test(page, body) {

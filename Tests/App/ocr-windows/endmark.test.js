@@ -4,7 +4,7 @@
 // start a reading round every half second for as long as the line was there (and in the game, each other bracket made
 // the line a new one, too short to pass for the same line read differently: see Tests/Unit/ShownLinesTests.swift).
 // Now marks at the end of a row that come and go are learned as animated, so the readings stop within a few seconds,
-// and the line stays one line.
+// and the line stays one line; the next line (21 s after it, the icon going on) is still read.
 // mock: MOCK_RUN_FILES=1
 // settings: {"ocrMode": true, "ocrEngine": "liveText", "ocrCloudEngine": "none", "ocrWindow": {"ownerName": "endmark", "title": "EndMarkTest"}, "ocrRegions": [], "ocrMouseWatch": false, "ocrChangeThreshold": 0.3, "ocrPollInterval": 150, "ocrSettleTime": 250, "ocrShowBoxes": true, "screenshotHistory": 0, "ankiEnabled": false, "sentenceAudioEnabled": false}
 // beside: "$("$HARNESS/tools/build.sh" "$REPO/Tests/App/ocr-windows/windows/endmark.swift")" EndMarkTest
@@ -26,4 +26,8 @@ test('overlay', async () => {
 	const added = lines.filter((m) => / new, /.test(m));
 	expect(added.length === 1, `one line: ${added.length} new (${added.map((m) => m.replace(/, read with OCR/, '')).join(' / ')}; ${lines.length} noted)`);
 	expect(ocrText().includes('殺される'), `the line is shown: "${ocrText()}"`);
+	// (So that fewer readings aren't from the capture having stopped.)
+	await windowStep('line changed', 15000);
+	const next = await until('the next line shown', () => ocrText().includes('生きている'), 8000).catch(() => false);
+	expect(!!next, `the next line shown: "${ocrText()}"`);
 });

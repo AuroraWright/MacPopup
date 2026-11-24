@@ -20,8 +20,8 @@ test('overlay', async () => {
 	const p = await at('#settings-button');
 	await wait(1000);
 	equal(shown(), null, 'Settings\' tooltip after 1 s');
-	await wait(700);
-	equal(shown(), 'Settings', 'Settings\' tooltip after 1.7 s');
+	await until('Settings\' tooltip', () => shown() === 'Settings', 1500).catch(() => {});
+	equal(shown(), 'Settings', 'Settings\' tooltip after 1-2.5 s');
 	const r = tip().getBoundingClientRect();
 	const { clientWidth, clientHeight } = document.documentElement;
 	const left = Math.round(Math.max(4, Math.min(p.x, clientWidth - r.width - 4)));
@@ -29,11 +29,11 @@ test('overlay', async () => {
 	expect(Math.abs(r.left - left) <= 1 && Math.abs(r.top - top) <= 1,
 		`the tooltip at ${Math.round(r.left - p.x)}, ${Math.round(r.top - p.y)} from the pointer (expected ${Math.round(left - p.x)}, ${Math.round(top - p.y)})`);
 	await at('#hide-button');
-	await wait(300);
-	equal(shown(), 'Hide', 'Hide\'s tooltip after 0.3 s');
+	await until('Hide\'s tooltip', () => shown() === 'Hide', 1000).catch(() => {});
+	equal(shown(), 'Hide', 'Hide\'s tooltip within 1 s');
 	await at('#pause-button');
-	await wait(300);
-	equal(shown(), 'Pause', 'Pause\'s tooltip after 0.3 s');
+	await until('Pause\'s tooltip', () => shown() === 'Pause', 1000).catch(() => {});
+	equal(shown(), 'Pause', 'Pause\'s tooltip within 1 s');
 	await native('debugMouse', { x: 2, y: 2 });
 	await wait(200);
 	equal(shown(), null, 'the tooltip with the pointer away');

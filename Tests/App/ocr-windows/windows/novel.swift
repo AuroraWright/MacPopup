@@ -2,7 +2,8 @@
 // novel: a visual novel's page for "Read text from OCR" ("NovelTest", borderless, 1000x560, all but 8 points of it off
 // the right edge of the main screen, still captured; shown without taking focus). Text is typed a character every
 // 80 ms; lines marked "ws" are also sent to mock.py's WebSocket server (MOCK_WEBSOCKET, as a text hook), "ws late"
-// 2.5 s after they're shown. Prints each step as "<ms since 1970> <step>".
+// 2.5 s after they're shown. Prints each step as "<ms since 1970> <step>". The times are from "start", 5 s after the
+// window shows (OCR finds it, and the instance gets ready, by then even after a cold launch):
 //   1 s  a page at once, wrapped       この街に来てから…  (a wrapped row: how far rows reach); cleared at 3.5 s
 //   4 s  paragraph 1, typed            「おはよう。今日は早いね。」
 //   8 s  paragraph 2, typed            「うん、ちょっと用事があって……」          (ends without a sentence end)
@@ -56,8 +57,8 @@ func send(_ line: String) {
     return at + Double(s.count) * 0.08
 }
 func at(_ time: Double, _ action: @escaping () -> Void) { DispatchQueue.main.asyncAfter(deadline: start + time, execute: action) }
-let start = DispatchTime.now()
-log("start")
+let start = DispatchTime.now() + 5
+DispatchQueue.main.asyncAfter(deadline: start) { log("start") }
 at(1) { show("この街に来てから、もう三年が経った。毎朝同じ道を歩き、同じ店でパンを買い、同じ時間に家を出る。"); log("page この街に来てから…") }
 at(3.5) { show(""); log("cleared") }
 type("「おはよう。今日は早いね。」", at: 4, newParagraph: true)

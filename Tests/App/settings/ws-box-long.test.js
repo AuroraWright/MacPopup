@@ -1,5 +1,5 @@
 // Settings → WebSockets' URL box with real keys (ws-box-driver.py long): A long URL doesn't wrap: with it second,
-// Return and ws://x save three URLs, the box 4 lines tall (theirs and the empty one under them) and its text wider than
+// Return and …/x save three URLs, the box 4 lines tall (theirs and the empty one under them) and its text wider than
 // the box.
 // Types into the test instance's Settings window and clicks into its URL box (only while it's in front; the pointer is
 // put back afterwards).

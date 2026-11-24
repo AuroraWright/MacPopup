@@ -94,6 +94,9 @@ if os.environ.get('MOCK_ADD_NOTE'):
 # MOCK_PROFILE=1: the API paths of a Yomitan with yomitan-api-endpoints.patch (displayOptions, dictionaryInfo,
 # dictionaryMedia); without it, they're answered 400 as by an older Yomitan (as is any path Yomitan doesn't have).
 profile = os.environ.get('MOCK_PROFILE') == '1'
+# ankiFields' copies of the images: with MOCK_PROFILE, green ones, so that a popup's red image shows it came from
+# dictionaryMedia.
+anki_media = [{**m, 'content': base64.b64encode(png(32, 32, (0, 160, 0, 255))).decode()} for m in media] if profile else media
 # MOCK_PROFILE_FAIL=n: the first n displayOptions requests are answered 503, as a request that fails once.
 profile_fails = [int(os.environ.get('MOCK_PROFILE_FAIL') or 0)]
 display_options = {'general': {
@@ -116,17 +119,20 @@ buf = io.BytesIO()
 with wave.open(buf, 'wb') as w:
     w.setnchannels(1); w.setsampwidth(2); w.setframerate(22050); w.writeframes(b'\0\0' * 2205)
 silence = buf.getvalue()
+# (Requests are handled on threads of their own: a line is written whole before the log is read.)
+log_lock = threading.Lock()
 def log(line):
-    with open(log_path, 'a') as f: f.write(line + '\n')
+    with log_lock, open(log_path, 'a') as f: f.write(line + '\n')
 class H(BaseHTTPRequestHandler):
     def reply(self, data, kind='application/json'):
         self.send_response(200); self.send_header('Content-Type', kind); self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data)
     def do_GET(self):
         # The log so far, for the test to check (test-lib.js mockLog).
         if self.path == '/__log':
-            with open(log_path, 'a+') as f:
+            with log_lock, open(log_path, 'a+') as f:
                 f.seek(0)
-                return self.reply(f.read().encode(), 'text/plain')
+                data = f.read().encode()
+            return self.reply(data, 'text/plain')
         # MOCK_RUN_FILES=1: GET /__run/<name> answers with that file of the run folder (the log's), e.g. debug.jsonl or
         # app.log, empty when there's none yet (test-lib.js runFile).
         if os.environ.get('MOCK_RUN_FILES') == '1' and self.path.startswith('/__run/'):
@@ -144,7 +150,7 @@ class H(BaseHTTPRequestHandler):
             path = self.path.strip('/')
             log(f'yomitan {time.time() * 1000:.0f} {path}')
             out = {'yomitanVersion': {'version': 'mock'}, 'ankiCardFormats': card_formats, 'termEntries': {'dictionaryEntries': entries, 'originalTextLength': int(os.environ.get('MOCK_MATCH_LENGTH', 2))},
-                   'kanjiEntries': [], 'tokenize': [], 'ankiFields': {'fields': [], 'dictionaryMedia': [{**m, 'ankiFilename': m['path'].replace('/', '_')} for m in media], 'audioMedia': []}}
+                   'kanjiEntries': [], 'tokenize': [], 'ankiFields': {'fields': [], 'dictionaryMedia': [{**m, 'ankiFilename': m['path'].replace('/', '_')} for m in anki_media], 'audioMedia': []}}
             if profile:
                 targets = {(t.get('dictionary'), t.get('path')) for t in body.get('targets', [])}
                 out.update({'displayOptions': display_options, 'dictionaryInfo': dictionary_info,
@@ -219,7 +225,7 @@ if os.environ.get('MOCK_WEBSOCKET') == '1':
     threading.Thread(target=ws_serve, daemon=True).start()
     threading.Thread(target=ThreadingHTTPServer(('127.0.0.1', 59881), WS).serve_forever, daemon=True).start()
 # MOCK_WEBSOCKET_PORTS=<port>,…: WebSocket servers on those ports that accept connections and keep them open, sending
-# nothing; each connection is logged ("websocket-port <port> <ms>").
+# nothing; each connection is logged ("websocket-port <port> <ms>"), and its end ("websocket-port-closed <port> <ms>").
 def ws_hold(port):
     import hashlib, socket
     server = socket.socket(); server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -228,6 +234,7 @@ def ws_hold(port):
         try:
             while conn.recv(4096): pass
         except OSError: pass
+        log(f'websocket-port-closed {port} {time.time() * 1000:.0f}')
     while True:
         conn, _ = server.accept()
         request = conn.recv(4096).decode(errors='replace')

@@ -13,7 +13,7 @@
 // settings: {"ocrMode": false, "ocrWindow": {"ownerName": "voicegame", "title": "AudioTest"}, "websocketUrls": ["ws://127.0.0.1:59880"], "clipboardMonitor": false, "gamePause": true, "gamePauseShortcut": null, "ankiEnabled": true, "sentenceAudioField": "SentenceAudio", "sentenceAudioEnabled": true, "sentenceAudioHistory": 5, "sentenceAudioShortcut": null, "sentenceAudioApp": "none", "sentenceAudioOpenKeys": [], "sentenceAudioCloseKeys": [], "sentenceAudioDetectVoice": true, "sentenceAudioPause": 3000, "sentenceAudioVoiceWait": 10, "sentenceAudioPadding": 300, "sentenceAudioPlay": false, "sentenceAudioBacklog": false, "screenshotHistory": 0, "ankiRenderTemplatesLocally": true}
 // setup: "$REPO/Tests/App/anki-audio/voices.sh" "$RUN"
 // beside: "$("$HARNESS/tools/build.sh" "$REPO/Tests/App/anki-audio/windows/voicegame.swift")" "$RUN" 0.15 8 40
-// driver: python3 -I "$HARNESS/tools/gamestate.py" "$REPO/build/test/tools/voicegame" & python3 -I "$REPO/Tests/App/anki-audio/clip-driver.py" voice0 voice1 voice2 voice3; wait
+// driver: python3 -I "$HARNESS/tools/gamestate.py" "$REPO/build/test/tools/voicegame" & a=$!; python3 -I "$REPO/Tests/App/anki-audio/clip-driver.py" voice0 voice1 voice2 voice3; b=$?; wait $a; exit $(( $? | b ))
 // timeout: 120
 
 /** The popup's add buttons (the first card format's), one an entry. */

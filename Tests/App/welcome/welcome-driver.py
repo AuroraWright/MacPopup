@@ -77,6 +77,8 @@ def not_shown():
     loaded = until(lambda: 'TEST overlay loaded' in open(f'{RUN}/app.log', errors='replace').read(), timeout=30, interval=0.5)
     check(bool(loaded), 'the overlay loaded')
     time.sleep(3)
+    check(bool(until(lambda: 'MacPopup Settings' in windows(), timeout=15, interval=0.5)),
+          "Settings (opened by the page) listed: Accessibility sees the instance's windows")
     equal(windows().count(WELCOME), 0, 'welcome windows with settings saved and no MACPOPUP_SHOW_WELCOME')
     equal(default('welcomeShown'), None, 'welcomeShown')
 

@@ -11,6 +11,7 @@
 
 test('overlay', async () => {
 	const texts = watch(ocrText);
+	const outlined = watch(() => document.querySelector('.ocr-line.ocr-provisional') !== null);
 	const typedStart = await windowStep('typed start', 90000);
 	const typedCleared = await windowStep('typed cleared', 10000);
 	const tickerStart = await windowStep('ticker start', 10000);
@@ -42,6 +43,7 @@ test('overlay', async () => {
 	}
 	const later = { word: boxText('scan'), text: ocrText(), popup: popupVisible() };
 	texts.stop();
+	outlined.stop();
 	log(`texts: ${JSON.stringify(texts.map((t) => [t.time - typedStart, t.value]))}`);
 	const typed = texts.filter((t) => t.time >= typedStart && t.time <= typedCleared + 300 && /[扉向界]/u.test(t.value));
 	expect(typed.length > 0 && typed[0].time - typedStart < 2500,
@@ -53,6 +55,6 @@ test('overlay', async () => {
 	const waited = (await debugRecords()).filter((r) => r.type === 'reading' && r.outcome === 'shown once the popups close'
 		&& hovered && Date.parse(r.time) > hovered.time);
 	expect(waited.length > 0, `readings waiting for the popup meanwhile: ${waited.length}`);
-	const provisional = document.querySelector('#ocr-text .ocr-line');
-	log(`line classes at the end: ${provisional?.className}`);
+	expect(outlined.some((t) => t.value && t.time >= typedStart && t.time <= typedCleared + 300),
+		'the typed line\'s readings outlined as provisional while it\'s on screen');
 });

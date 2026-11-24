@@ -14,7 +14,13 @@ test('overlay', async () => {
 	equal(await ocrMode(), true, 'after X + Y: ocrMode');
 	await gamepadPress(['Button X']);
 	equal(await ocrMode(), true, 'after X alone: ocrMode');
-	await gamepadPress(['Button Y', 'Button X']);
+	// Y held first, then X with it.
+	window.__macpopupGamepad(['Button Y']);
+	await wait(150);
+	window.__macpopupGamepad(['Button Y', 'Button X']);
+	await wait(150);
+	window.__macpopupGamepad([]);
+	await wait(1000);
 	equal(await ocrMode(), false, 'after Y + X: ocrMode');
 	const switches = (await debugRecords()).filter((r) => r.event === 'overlay switch').map(({ from, ocrMode }) => ({ from, ocrMode }));
 	equal(switches, [{ from: 'controller', ocrMode: true }, { from: 'controller', ocrMode: false }], 'the debug log\'s switches');

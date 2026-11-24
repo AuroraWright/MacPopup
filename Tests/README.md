@@ -7,7 +7,7 @@ with what failed, and exits with 1 on a failure.
 |---|---|---|---|---|
 | unit | `Unit/` | `swift test` (Swift Testing) | nothing | ~45 s with the first debug build, then seconds |
 | web | `web/` | `node --test Tests/web/` | Node | under a second |
-| app | `App/` | `scripts/test.sh app [--no-build] [--interactive] [test or folder...]` | a Mac session; the user's MacPopup and IINA closed | about 10 s a test, plus the build |
+| app | `App/` | `scripts/test.sh app [--no-build] [--interactive] [--network] [test or folder...]` | a Mac session; the user's MacPopup and IINA closed | about 10 s a test, plus the build |
 | manual | `Manual/` | `Tests/App/run.sh --interactive Tests/Manual/<name>.test.js` | a person (and for some, a controller or Parallels), or the network | minutes each |
 
 ## Unit (`Unit/`)
@@ -33,9 +33,15 @@ Each test is a page script run in a test instance of the app: a development buil
 (`scripts/test.sh app` builds it with `MACPOPUP_APP`; the app as shipped ignores the test settings and isn't run).
 `harness/launch.sh` starts the instance with its own settings (the defaults, then `harness/base-settings.json`, then the
 test's), pasteboard and folders, against `harness/mock.py` (AnkiConnect, the Yomitan API with 150 entries for any lookup,
-and an audio server), and only when the user's MacPopup and IINA aren't running. The user's settings are exported before
-each test and compared after: a change fails it. Tests run one at a time; their logs are in `build/test/runs/<time>/`
-(`app.log`, `test.log`, `mock.log`, `debug.jsonl`), which can be deleted any time.
+and an audio server), and only when the user's MacPopup and IINA aren't running (checked again just before the launch,
+and while the test runs: the user's MacPopup starting, or IINA in a test that doesn't start IINA itself, stops the test
+and fails it). The user's settings are exported before each test and compared after: a change fails it. Its `// beside:`
+and `// driver:` commands run in process groups of their own, stopped with everything they started; a driver stopped
+after the timeout fails the test. Ctrl-C (or a kill) stops the test instance and all of that too, still comparing the
+settings, and no tests are run after it. Tests run one at a time; each one's logs are in
+`build/test/runs/<time>/<test>/` (`app.log`, `test.log`, `mock.log`, `debug.jsonl`), which can be deleted any time.
+launch.sh exits with 0 (PASS), 1 (FAIL, also when the `// setup:` failed), 2 when no test can run now (the user's app
+running, not a development build: run.sh stops) or 3 when only this one couldn't (run.sh goes on, and counts it).
 
 A test file (`<area>/<name>.test.js`) starts with a comment saying what it checks, then header lines:
 
@@ -46,6 +52,7 @@ A test file (`<area>/<name>.test.js`) starts with a comment saying what it check
 // settings: {"clipboardMonitor": true}       settings over the defaults
 // timeout: 60                                seconds until the test counts as stuck
 // interactive                                moves the real pointer, types or makes sound: only with --interactive
+// network                                    sends something to a service on the internet: only with --network too
 
 test('overlay', async () => {
 	const line = await lineWith('明日も晴れる');
@@ -74,7 +81,8 @@ More header lines, for what a page script can't do (see `harness/launch.sh`):
 
 With `"gamePause": true` in a test's settings, launch.sh first makes a window of its own (`tools/frontguard.swift`) the
 frontmost app, and doesn't run the test if it can't: Game Pause freezes the frontmost app when the OCR window isn't
-found, which would otherwise be the terminal running the tests.
+found, which would otherwise be the terminal running the tests (test instances don't fall back to the frontmost app;
+the guard is there in case that changes).
 
 `harness/mock.py`'s switches (`// mock:`): `MOCK_IMAGES` (dictionary images), `MOCK_NOTES` (notes 111 and 222 exist),
 `MOCK_EDITOR=browser|closed` (Anki's card browser), `MOCK_ADD_NOTE=<id>`, `MOCK_PROFILE` and `MOCK_PROFILE_FAIL=<n>`
@@ -88,17 +96,17 @@ already has sentence audio).
 | `popup/` | the dictionary popup: images, audio and its menu, notes, Anki's editor, tooltips, Yomitan's display settings, collapsible definitions, scanning inside it |
 | `overlay/` | the text box: highlight boxes after a resize and with the real pointer (a wrapped row, a scrolling box, furigana), fonts and effects, the debug log, sentence audio shortcut, switching the overlay, the box never narrower than its buttons and long messages wrapping inside it |
 | `ocr/` | OCR mode's text while a popup is open, the crash guard, the language filter |
-| `ocr-windows/` | OCR mode (Live Text) on test windows (`windows/`, shown without taking focus, at or past the main screen's right edge): typed, sparse, fading, animated, covered, untitled and floating (kept on top) windows, blinking icons (also one read as a bracket right after the text), moving text, a visual novel's page in the text box, kept screenshots, the captured window's screenshot sizes and popups closing when it hides or the space changes (Live Text pinned); and the debug log, stale debug glyphs and noted lines |
+| `ocr-windows/` | OCR mode (Live Text) on test windows (`windows/`, shown without taking focus, at or past the main screen's right edge): typed, sparse, fading, animated, covered, untitled and floating (kept on top) windows, blinking icons (also one read as a bracket right after the text), moving text, a visual novel's page in the text box, kept screenshots, the captured window's screenshot sizes and popups closing when the page is told it hides or the space changed (the page's handlers, called by the test; Live Text pinned); and the debug log, stale debug glyphs and noted lines |
 | `gamepad/` | the controller in the text box and on OCR text, and switching to another app while it has focus |
 | `settings/` | Settings over Accessibility: each section rendering (window-only screenshots, the same a second later), labels and hints staying put when a control changes width, scanning inputs, Yomitan's display settings, the WebSocket limit and connections following the saved URLs, clearing IINA's saved transcriptions (made-up ones in the run folder), the Font row and the macOS Fonts panel (`font-panel*`: the panel's level, focus, size field, effects switch and menus, the row's text and colors, Clear, the panel staying open while the row scrolls away and closing with the section or Settings; the panel's typeface and style lists and color wells aren't driven, and the frame the panel saves in the user's com.aury.macpopup is put back); typing into the WebSocket URL box and resizing the window with real keys and pointer (`sections-driver.py` and `font-panel-driver.py` need Python's PIL) |
 | `picker/` | the window picker: bringing the OCR window to the front, Escape, another app coming to the front |
-| `game-pause/` | Game Pause's pause and scan shortcut on a typed line, its end when another app comes to the front, and the pause helper refusing another program (`pause-client.swift`, signed ad hoc; not interactive) (they stop the test window's process with the pause helper: `harness/tools/gamestate.py` logs its state) |
+| `game-pause/` | Game Pause's pause and scan shortcut on a typed line, its end when another app comes to the front, and the pause helper refusing another program (`pause-client.swift`, signed ad hoc; not interactive) (they stop the test window's process with the pause helper: `harness/tools/gamestate.py` logs its state). The test build has no helper of its own and asks the one the installed MacPopup registered: a copy that has it, launched from elsewhere, takes over the helper's registration and launchd can't start it anymore (exit 78) until it's reset |
 | `anki-audio/` | Anki Audio with a game that speaks (`windows/`, voices made with `say -o` by `voices.sh` at test time): voices cut from the kept audio (WebSocket and OCR lines), Option-click, shortcut and overwrite adds, two cards in one pause, recording the captured app (warm, cold, a web view) and no voice, and the kept audio's tap not freezing the app; `clip-driver.py` checks the clips (`corr.swift`) and screenshots (`readtext.swift`) |
 | `profile/` | the app's memory (footprint) and CPU while idle and over 48 lookups, against ceilings about 1.5x what was measured (`profile-driver.py`, samples in the run folder's `samples.jsonl`) |
-| `transcribe/` | "Read text from audio" (Live Caption) on a sound file the app reads in place of an app's audio (`MACPOPUP_TEST_TRANSCRIPTION_FILE`, nothing played): Kyoko's sentences made with `say -o` at test time by `speech.py` (music by `make-music.py`), which also clones Live Caption's models (and SaT) from the user's and fails without them. Lines over music, words as they're heard, the box paused and the listener restarted meanwhile, WebSocket lines between lines that grow ("Detect sentence ends") |
+| `transcribe/` | "Read text from audio" (Live Caption) on a sound file the app reads in place of an app's audio (`MACPOPUP_TEST_TRANSCRIPTION_FILE`, nothing played): Kyoko's sentences made with `say -o` at test time by `speech.py` (music by `make-music.py`, both needing numpy installed for `python3 -I`, which leaves out the user's site-packages), which also clones Live Caption's models (and SaT) from the user's and fails the test without them. Lines over music, words as they're heard, the box paused and the listener restarted meanwhile, WebSocket lines between lines that grow ("Detect sentence ends") |
 | `welcome/` | the first launch's window |
 | `yomitan-api/` | lines dropped before their tokenize reaches Yomitan |
-| `iina/` | the IINA plugin in the user's IINA (`iina.py`; all interactive): its plugin must be the repo's, on 6680; history and recent files are off for the run, and its settings and plugins are checked unchanged; transcripts go to `/Users/Shared/Library/Caches/com.aury.macpopup/Transcripts`. Its lines and statuses, cards' sentence audio and screenshots from a file and from streams (HTTP, HLS, split, DASH, live, proxy, cookie), dumps from IINA's cache, transcripts of videos without subtitles, and Settings' Clear of saved transcriptions while one is being made (`transcribe-clear`) |
+| `iina/` | the IINA plugin in the user's IINA (`iina.py`; all interactive): its plugin must be the repo's, on 6680; history and recent files are off for the run, and its settings and plugins are checked unchanged (copies of the settings and the plugins' preferences from before are in the run folder); only the IINA the test started (iina-cli and the IINA it started) is ever quit; transcripts go to `/Users/Shared/Library/Caches/com.aury.macpopup/Transcripts`, the tests' own (the user's are in their `~/Library/Caches`), whose files are deleted after unless a part of that path leads elsewhere. Its lines and statuses, cards' sentence audio and screenshots from a file and from streams (HTTP, HLS, split, DASH, live, proxy, cookie), dumps from IINA's cache, transcripts of videos without subtitles, and Settings' Clear of saved transcriptions while one is being made (`transcribe-clear`) |
 
 Tests with `// interactive` (e.g. `popup/image-open`, which opens Preview) only run with `--interactive`; a line under
 the description says what each does to the Mac. Pages move the real pointer with `pointerMove(from, to, ms)` and
@@ -120,7 +128,7 @@ What needs a person or hardware, with when and how to check it and the tools for
 ## Helpers (`Helpers/`)
 
 `yomitan-api-host.py` checks the Yomitan API's native messaging host on its own, with a fake browser and Yomitan (about
-45 s); `scripts/test.sh app` runs it after the app tests.
+45 s); `scripts/test.sh app` runs it after the app tests when none are named.
 
 ## Writing a test
 

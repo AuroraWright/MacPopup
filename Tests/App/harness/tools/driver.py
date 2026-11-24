@@ -138,7 +138,7 @@ def keep_pointer():
     x, y = at.split()
     put_back = lambda: (mouse('put', x, y), log(f'the pointer put back at {x},{y}'))
     atexit.register(put_back)
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
 
 
 def keys(pids, step):

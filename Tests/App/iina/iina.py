@@ -55,11 +55,16 @@ def run(*args, **kwargs):
 # --- The user's IINA
 
 
+def iina_processes():
+    """The processes running from the user's IINA: (pid, parent's pid, command line)."""
+    out = run('ps', '-axo', 'pid=,ppid=,command=').stdout
+    return [(int(parts[0]), int(parts[1]), parts[2]) for parts in (line.split(None, 2) for line in out.splitlines())
+            if len(parts) == 3 and parts[2].startswith(USER_IINA + '/Contents/MacOS/')]
+
+
 def user_pids():
     """The processes running from the user's IINA: pids."""
-    out = run('ps', '-axo', 'pid=,command=').stdout
-    return [int(line.split(None, 1)[0]) for line in out.splitlines()
-            if len(line.split(None, 1)) == 2 and line.split(None, 1)[1].startswith(USER_IINA + '/Contents/MacOS/')]
+    return [pid for pid, _, _ in iina_processes()]
 
 
 def user_iina_running():
@@ -150,7 +155,9 @@ def check_user_iina(check):
     return check(settings_same and not changed,
                  "the user's IINA settings, plugins and their preferences unchanged"
                  + ('' if settings_same else f' (IINA SETTINGS CHANGED: {keys[:20]})')
-                 + (f' (CHANGED: {changed[:10]})' if changed else ''))
+                 + (f' (CHANGED: {changed[:10]})' if changed else '')
+                 + ('' if settings_same and not changed else
+                    f'; copies from before: {RUN}/iina-settings-before.plist, {RUN}/iina-plugin-preferences-before'))
 
 
 # --- Test media
@@ -260,7 +267,13 @@ def make_speech_media(media):
 
 
 def clear_transcripts():
-    """Deletes the files in TRANSCRIPTS' folders (the folders stay)."""
+    """Deletes the files in TRANSCRIPTS' folders (the folders stay): only the tests' (the user's are in their own
+    ~/Library/Caches), and not when a part of its path leads elsewhere (/Users/Shared is anyone's to change)."""
+    if not os.path.isdir(TRANSCRIPTS):
+        return
+    if os.path.realpath(TRANSCRIPTS) != TRANSCRIPTS or os.stat(TRANSCRIPTS).st_uid != os.getuid():
+        log(f"{TRANSCRIPTS} leads elsewhere or isn't the user's: its files are left alone")
+        return
     for folder, _, names in os.walk(TRANSCRIPTS):
         for name in names:
             os.remove(os.path.join(folder, name))
@@ -285,6 +298,13 @@ def setup(kind):
         raise RuntimeError(f"IINA's MacPopup plugin is on port {user_port()}, the tests' settings use {TEST_PORT}")
     with open(os.path.join(RUN, 'iina-user-before.json'), 'w') as f:
         json.dump(user_state(), f)
+    # Copies, to put back by hand if the check after finds them changed (the test doesn't write the user's IINA's
+    # settings, even to put them back).
+    subprocess.run(['defaults', 'export', 'com.colliderli.iina', os.path.join(RUN, 'iina-settings-before.plist')],
+                   capture_output=True)
+    preferences = os.path.join(USER_SUPPORT, 'plugins', '.preferences')
+    if os.path.isdir(preferences):
+        shutil.copytree(preferences, os.path.join(RUN, 'iina-plugin-preferences-before'), symlinks=True)
     media = os.path.join(RUN, 'media')
     if kind == 'speech':
         clear_transcripts()
@@ -340,8 +360,12 @@ class IINA:
         return False
 
     def note_pids(self):
-        """The user's IINA started by this test (none ran before it starts): noted for stop and for beside's cleanup."""
-        new = [pid for pid in user_pids() if pid not in self.pids]
+        """The IINA this test started (iina-cli, and the IINA it started, with this test's mpv socket): noted for stop
+        and for beside's cleanup. Not any other IINA, e.g. one the user opened meanwhile."""
+        if not self.cli:
+            return
+        new = [pid for pid, parent, command in iina_processes()
+               if pid not in self.pids and (self.cli.pid in (pid, parent) or self.socket in command)]
         if new:
             self.pids += new
             with open(os.path.join(RUN, 'iina-pids'), 'a') as f:
@@ -383,6 +407,9 @@ class IINA:
         self.log_tail()
         self.note_pids()
         gone = stop_pids(self.pids)
+        others = [pid for pid in user_pids() if pid not in self.pids]
+        if others:
+            log(f'IINA running that this test didn\'t start, left alone: {others}')
         if self.cli and self.cli.poll() is None:
             self.cli.kill()
         if os.path.exists(self.socket):

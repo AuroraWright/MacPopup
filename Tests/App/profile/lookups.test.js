@@ -17,7 +17,6 @@ test('overlay', async () => {
 		range.setEnd(node, i + 1);
 		return center(range.getBoundingClientRect());
 	});
-	const count = () => popupDocument()?.querySelectorAll('#dictionary-entries > .entry').length ?? 0;
 	// The driver's sample before the lookups (CPU time per lookup is from it to one at "lookups end").
 	log('lookups ready');
 	await driverSaid('sampling', 30000);
@@ -25,9 +24,12 @@ test('overlay', async () => {
 	const start = Date.now();
 	for (let round = 0; round < 6; round++) {
 		for (const p of points) {
+			// The last popup's entries marked first: a new popup's are new (the popup stays open between lookups).
+			popupDocument()?.querySelectorAll('#dictionary-entries > .entry').forEach((entry) => { entry.dataset.seen = '1'; });
 			await native('debugMouse', p);
-			for (let i = 0; i < 40 && count() === 0; i++) await wait(50);
-			if (count() > 0) shown++;
+			const fresh = () => popupDocument()?.querySelector('#dictionary-entries > .entry:not([data-seen])');
+			for (let i = 0; i < 40 && !fresh(); i++) await wait(50);
+			if (fresh()) shown++;
 			await wait(400);
 			await native('debugMouse', { x: 5, y: 5 });
 			await wait(300);

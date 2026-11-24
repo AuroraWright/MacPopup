@@ -1,11 +1,12 @@
 // beside: "$("$HARNESS/tools/build.sh" "$REPO/Tests/App/ocr-windows/windows/endmark.swift")" EndMarkTest
 // endmark <title> [seconds]: a 1200x700 window with a short line ("………殺される………", 34 pt) from 3 s on, and right after it
 // a "next" icon (48 pt, bold) that OCR reads as a bracket, as a game's was (Screen AI read it as 』 or 」, or not at all): drawn as 』,
-// then 」, then nothing, each for 0.45 s, over and over. (Live Text reads only the 」, as a row of its own.) Quits after `seconds` (25 by default). Shown without taking focus, all but 8 points of it off the right edge
+// then 」, then nothing, each for 0.45 s, over and over. (Live Text reads only the 」, as a row of its own.) 21 s after the
+// line, it's another one ("………生きている………"), the icon going on. Quits after `seconds` (32 by default). Shown without taking focus, all but 8 points of it off the right edge
 // of the main screen (still captured, and other windows can't cover it). Prints each step as "<ms since 1970> <step>".
 import AppKit
 let arguments = CommandLine.arguments
-let seconds = arguments.count > 2 ? Double(arguments[2]) ?? 25 : 25
+let seconds = arguments.count > 2 ? Double(arguments[2]) ?? 32 : 32
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let screen = NSScreen.screens[0].frame
@@ -43,6 +44,12 @@ DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
     Timer.scheduledTimer(withTimeInterval: 0.45, repeats: true) { _ in
         step += 1
         mark.stringValue = marks[step % marks.count]
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 21) {
+        line.stringValue = "………生きている………"
+        line.sizeToFit()
+        mark.setFrameOrigin(NSPoint(x: line.frame.maxX + 4, y: 322))
+        log("line changed")
     }
 }
 DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { exit(0) }

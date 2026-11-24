@@ -1,14 +1,18 @@
 #!/bin/zsh
-# Tests/App/run.sh [--interactive] [test.js | folder]...: runs app tests (every *.test.js under Tests/App by default)
-# with harness/launch.sh, one at a time, and prints PASS or FAIL for each. Tests with an "// interactive" line (they move
-# the real pointer, type, or make sound) only run with --interactive. MACPOPUP_TEST_APP names the development build to
-# test (build/test/MacPopup.app by default; scripts/test.sh app builds it). Each test's run folder (its app log, test
-# log, mock log and debug log) is in build/test/runs/<time>/.
+# Tests/App/run.sh [--interactive] [--network] [test.js | folder]...: runs app tests (every *.test.js under Tests/App by
+# default) with harness/launch.sh, one at a time, and prints PASS or FAIL for each. Tests with an "// interactive" line
+# (they move the real pointer, type, or make sound) only run with --interactive, and those with a "// network" line
+# (they send something to a service on the internet) only with --network too. MACPOPUP_TEST_APP names the development
+# build to test (build/test/MacPopup.app by default; scripts/test.sh app builds it). Each test's run folder (its app
+# log, test log, mock log and debug log) is build/test/runs/<time>/<test>/.
 set -uo pipefail
 
 cd "${0:A:h:h:h}"
-interactive=0
-[[ "${1:-}" == --interactive ]] && { interactive=1; shift; }
+interactive=0 network=0
+while [[ "${1:-}" == --(interactive|network) ]]; do
+    [[ "$1" == --interactive ]] && interactive=1 || network=1
+    shift
+done
 APP="${MACPOPUP_TEST_APP:-build/test/MacPopup.app}"
 RUNS="build/test/runs/$(date +%Y%m%d-%H%M%S)"
 
@@ -21,10 +25,13 @@ for arg in "${@:-Tests/App}"; do
     fi
 done
 
-passed=0 failed=() skipped=()
+passed=0 failed=() skipped=() notrun=()
+# Ctrl-C: launch.sh stops the test instance and says how it went; the tests after it aren't run.
+interrupted=0
+trap 'interrupted=1' INT
 for t in $tests; do
     name="${${t#Tests/App/}%.test.js}"
-    if (( ! interactive )) && grep -q '^// interactive' "$t"; then
+    if { (( ! interactive )) && grep -q '^// interactive' "$t" } || { (( ! network )) && grep -q '^// network' "$t" }; then
         skipped+=("$name"); continue
     fi
     run="$RUNS/${name//\//-}"
@@ -36,14 +43,22 @@ for t in $tests; do
     code=$?
     echo "$name: $result"
     (( code == 2 )) && { echo "stopped: $name couldn't run"; exit 2; }
-    (( code == 0 )) && passed=$((passed + 1)) || failed+=("$name")
+    if (( code == 3 )); then
+        notrun+=("$name")
+    elif (( code == 0 )); then
+        passed=$((passed + 1))
+    else
+        failed+=("$name")
+    fi
+    (( interrupted )) && { echo "interrupted"; break; }
 done
 
 echo
-(( ${#skipped} )) && echo "skipped (interactive): ${skipped[*]}"
+(( ${#skipped} )) && echo "skipped (interactive or network): ${skipped[*]}"
+(( ${#notrun} )) && echo "not run: ${notrun[*]}"
 echo "runs: $RUNS"
-if (( ${#failed} )); then
-    echo "FAIL: ${#failed} of $((passed + ${#failed})) (${failed[*]})"
+if (( ${#failed} || ${#notrun} || interrupted )); then
+    echo "FAIL: ${#failed} of $((passed + ${#failed})) (${failed[*]})${notrun:+, ${#notrun} not run}"
     exit 1
 fi
 echo "PASS: $passed"

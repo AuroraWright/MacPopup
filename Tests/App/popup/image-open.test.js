@@ -1,6 +1,7 @@
 // Clicking a dictionary image in the popup opens it in its default app (Yomitan opens it in a new tab), from a copy named
 // macpopup-media-<uuid>-red.png in the app's temporary folder: the 32×32 red image of MOCK_IMAGES. It opens Preview (or
-// whatever opens PNGs) on the desktop: close that window afterwards.
+// whatever opens PNGs) on the desktop: whoever runs it closes that window by hand afterwards (never scripted: quitting
+// or closing windows in Preview would close the user's own pictures too).
 // interactive
 // mock: MOCK_IMAGES=1
 // clipboard: 明日も晴れるといいね
