@@ -116,24 +116,30 @@ export class HighlightBoxes {
 	 * Keeps the layer in the container over its boxes, those shown and those just removed: while it had no size of its
 	 * own, WebKit sometimes didn't repaint where a removed box was, and a box stayed on screen after the highlight was
 	 * cleared (2026-11-24: the second of a word's boxes, e.g. った of 思った). While boxes are shown it covers them and
-	 * the ones drawn before (also left of its corner, where vertical lines go), and it's put back to nothing two frames
-	 * after the last one went (once that's painted), so it doesn't add to what the lines scroll.
+	 * all the ones drawn since it was last put back (also left of its corner, where vertical lines go: not only the
+	 * last draw's, as a highlight moved to another word can be drawn twice before it's painted), and it's put back to
+	 * nothing two frames after the last one went (once that's painted), so it doesn't add to what the lines scroll.
 	 * @param {{left: number, top: number, right: number, bottom: number}} extent The boxes', from the layer's corner.
 	 */
 	coverBoxes(extent) {
 		const { layer } = this;
 		cancelAnimationFrame(this.uncover ?? 0);
-		// The boxes shown before, until it's put back to nothing.
-		const last = this.covered ?? extent;
 		if (layer.childElementCount > 0) {
-			this.covered = extent;
-			const left = Math.min(extent.left, last.left);
-			const top = Math.min(extent.top, last.top);
+			// With the boxes shown before, until it's put back to nothing.
+			const last = this.covered ?? extent;
+			const covered = {
+				left: Math.min(extent.left, last.left),
+				top: Math.min(extent.top, last.top),
+				right: Math.max(extent.right, last.right),
+				bottom: Math.max(extent.bottom, last.bottom),
+			};
+			this.covered = covered;
+			const { left, top } = covered;
 			Object.assign(layer.style, {
 				left: `${left}px`,
 				top: `${top}px`,
-				width: `${Math.max(extent.right, last.right) - left}px`,
-				height: `${Math.max(extent.bottom, last.bottom) - top}px`,
+				width: `${covered.right - left}px`,
+				height: `${covered.bottom - top}px`,
 			});
 			// The boxes are placed from the corner without the offset.
 			for (const box of layer.children) {

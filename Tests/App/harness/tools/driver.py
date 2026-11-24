@@ -15,8 +15,10 @@ def _stop_without_harness():
         try:
             os.kill(harness, 0)
         except (ProcessLookupError, PermissionError):
-            # (Another user's process with its pid: it's gone all the same.)
-            os.killpg(os.getpgrp(), signal.SIGTERM)
+            # (Another user's process with its pid: it's gone all the same.) Only a driver leading a group of its own
+            # (launch.sh's "group"): a setup command importing this is in launch.sh's group, the terminal's.
+            if os.getpgrp() == os.getpid():
+                os.killpg(os.getpgrp(), signal.SIGTERM)
             return
         time.sleep(1)
 

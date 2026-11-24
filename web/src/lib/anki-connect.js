@@ -16,8 +16,8 @@ const fieldNames = new Map();
 
 /**
  * The note type's field names, in Anki's order. Asked again after 10 s, like the card formats (see getCardFormats in
- * overlay.js), so that the popups' duplicate checks don't wait for an extra request each time; a failed request isn't
- * kept.
+ * overlay.js), so that the popups' duplicate checks don't wait for an extra request each time. AnkiConnect's errors
+ * (e.g. a note type it doesn't have) are kept as long, not a request that didn't reach it (Anki may be starting).
  */
 function modelFieldNames(model) {
 	const key = `${getSettings().ankiConnectUrl}\u0000${model}`;
@@ -25,8 +25,8 @@ function modelFieldNames(model) {
 	if (cached && Date.now() - cached.time < 10000) return cached.names;
 	const names = ankiInvoke('modelFieldNames', { modelName: model });
 	fieldNames.set(key, { names, time: Date.now() });
-	names.catch(() => {
-		if (fieldNames.get(key)?.names === names) fieldNames.delete(key);
+	names.catch((e) => {
+		if (!e?.fromAnki && fieldNames.get(key)?.names === names) fieldNames.delete(key);
 	});
 	return names;
 }
@@ -61,7 +61,8 @@ export async function ankiInvoke(action, params = {}) {
 	}
 	const result = JSON.parse(response.body);
 	if (result && typeof result === 'object' && 'error' in result) {
-		if (result.error) throw new Error(result.error);
+		// (Marked as AnkiConnect's answer, unlike a request that didn't reach it.)
+		if (result.error) throw Object.assign(new Error(result.error), { fromAnki: true });
 		return result.result;
 	}
 	return result;
@@ -92,8 +93,18 @@ function getNoteQuery(note) {
 	return query;
 }
 
+/**
+ * Each note's duplicates (see getNoteQuery), as Yomitan finds them. None for a note without its first field (a card
+ * format without one, see cardFormatFirstField): an empty query would find every note in the collection or deck.
+ */
 export async function findNoteIds(notes) {
-	const queries = [...new Set(notes.map(getNoteQuery))];
+	const hasField = (note) => Object.keys(note.fields ?? {}).length > 0;
+	const queries = [...new Set(notes.filter(hasField).map(getNoteQuery))];
+	// (Still finding out whether Anki can be reached, as the search would.)
+	if (queries.length === 0) {
+		await ankiInvoke('version');
+		return notes.map(() => []);
+	}
 	const results = await ankiInvoke('multi', { actions: queries.map((query) => ({ action: 'findNotes', params: { query } })) });
 	const byQuery = new Map();
 	queries.forEach((query, i) => {
@@ -102,7 +113,7 @@ export async function findNoteIds(notes) {
 		if (typeof result?.error === 'string') throw new Error(result.error);
 		byQuery.set(query, Array.isArray(result) ? result : Array.isArray(result?.result) ? result.result : []);
 	});
-	return notes.map((note) => byQuery.get(getNoteQuery(note)) ?? []);
+	return notes.map((note) => (hasField(note) ? byQuery.get(getNoteQuery(note)) ?? [] : []));
 }
 
 /**

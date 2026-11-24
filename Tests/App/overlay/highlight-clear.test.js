@@ -64,6 +64,8 @@ test('overlay', async () => {
 		}
 		await wait(900);
 		log(`${word} at its end: popup ${popupVisible()}, text ${boxText('scan')}`);
+		// (Else the shots below would compare the whole line, where its bullet alone can change enough.)
+		expect(scanBoxes().length > 0, `${word} highlighted at its end`);
 		const where = scanBoxes().length > 0 ? boxesRect(scanBoxes()) : line;
 		const firstBox = scanBoxes().length > 0 ? boxesRect(scanBoxes().slice(0, 1)) : line;
 		expect(!overlaps(popupRect(), firstBox), `the popup on ${word} is clear of the highlight's first box`);

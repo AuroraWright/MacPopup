@@ -1227,13 +1227,15 @@ function replacedSentence(source, sentence) {
 	}
 	if (text === sentence.text) return sentence;
 	// The word starts where the first of what's left of it, or after it, is, and ends where what's after it starts
-	// (for the cloze, as a replacement in the word can change its length).
+	// (for the cloze, as a replacement in the word can change its length). Per length of the text an entry matched
+	// (wordLengths[n - 1] for n units), as the entries match more or less of it.
 	const at = (original) => {
 		const index = sources.findIndex((source) => source >= original);
 		return index < 0 ? text.length : index;
 	};
 	const offset = at(sentence.offset);
-	return { ...sentence, text, offset, wordLength: at(sentence.offset + source.text().length) - offset };
+	const wordLengths = Array.from({ length: source.text().length }, (_, i) => at(sentence.offset + i + 1) - offset);
+	return { ...sentence, text, offset, wordLengths };
 }
 
 /**

@@ -731,14 +731,14 @@ final class OCRController {
     }
 
     /// Whether a floating window over a whole display is see-through: drawn with the window's own transparency, or
-    /// mostly in see-through colors, as a small screenshot of it shows. That's taken once per window, in the
-    /// background: until it's known, the window counts as see-through (left out), and a failed one is tried again
-    /// after 5 s.
+    /// mostly in see-through colors, as a small screenshot of it shows. That's taken in the background: until it's
+    /// known, the window counts as see-through (left out). A failed one is tried again after 5 s, and a see-through
+    /// one after 10 s (it may have been taken before the window was drawn); an opaque one is kept for the window.
     private static func isSeeThroughOverlay(_ window: WindowInfo) -> Bool {
         if window.alpha < 0.9 { return true }
         let (known, start) = overlayChecks.withLock { checks -> (Bool?, Bool) in
             switch checks[window.id] {
-            case .known(let seeThrough):
+            case .known(let seeThrough, let at) where !seeThrough || Date().timeIntervalSince(at) < 10:
                 return (seeThrough, false)
             case .checking:
                 return (nil, false)
@@ -752,7 +752,7 @@ final class OCRController {
         if start {
             Task.detached {
                 let seeThrough = try? await screenshotSeeThrough(windowID: window.id)
-                overlayChecks.withLock { $0[window.id] = seeThrough.map { .known($0) } ?? .failed(Date()) }
+                overlayChecks.withLock { $0[window.id] = seeThrough.map { .known($0, Date()) } ?? .failed(Date()) }
             }
         }
         return known ?? true
@@ -760,7 +760,7 @@ final class OCRController {
 
     private enum OverlayCheck: Sendable {
         case checking
-        case known(Bool)
+        case known(Bool, Date)
         case failed(Date)
     }
 
@@ -770,8 +770,10 @@ final class OCRController {
         let content = try await ScreenCapture.shareableContent(onScreenWindowsOnly: false)
         guard let scWindow = content.windows.first(where: { $0.windowID == windowID }) else { throw AppError("Window gone") }
         let configuration = SCStreamConfiguration()
+        // The whole window in 64×40, whatever its shape (not letterboxed with the clear background).
         configuration.width = 64
         configuration.height = 40
+        configuration.preservesAspectRatio = false
         configuration.showsCursor = false
         configuration.ignoreShadowsSingleWindow = true
         configuration.backgroundColor = .clear
@@ -802,11 +804,12 @@ final class OCRController {
     ) -> [WindowInfo] {
         let list = CGWindowListCopyWindowInfo(options, window) as? [[String: Any]] ?? []
         let ownPID = ProcessInfo.processInfo.processIdentifier
+        // (The screenshot check last: only for other apps' windows that would be picked otherwise.)
         return list.compactMap(windowInfo).filter {
-            (normalOnly ? $0.layer == 0
-                : pickableLayers.contains($0.layer)
-                    && ($0.layer == 0 || $0.alpha > 0 && !(coversDisplay($0.bounds) && isSeeThroughOverlay($0))))
-                && $0.ownerPID != ownPID && $0.bounds.width >= 40 && $0.bounds.height >= 40
+            $0.ownerPID != ownPID && $0.bounds.width >= 40 && $0.bounds.height >= 40
+                && (normalOnly ? $0.layer == 0
+                    : pickableLayers.contains($0.layer)
+                        && ($0.layer == 0 || $0.alpha > 0 && !(coversDisplay($0.bounds) && isSeeThroughOverlay($0))))
         }
     }
 

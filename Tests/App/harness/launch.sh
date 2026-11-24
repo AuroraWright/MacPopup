@@ -58,7 +58,8 @@ app= mock= beside= driver= watchdog= guard=
 group() { exec python3 -I -c 'import os, sys; os.setsid(); os.execvp("zsh", ["zsh", "-c", sys.argv[1]])' "$1" }
 # Stops what the test started, with everything left in its groups (what's still there after 20 s is killed), and
 # removes the test's settings suite. Each group's leader is stopped by its pid too: one only just started may not be a
-# group yet. (Only what's still running is killed, as zsh has reaped the rest: never a pid that's been reused since.)
+# group yet. (What's still running after 20 s is killed by pid: a pid reused meanwhile would be too, which macOS's pids,
+# handed out in turn, make all but impossible.)
 stop_all() {
     local groups=() pids=() left=() end=$((SECONDS + 20))
     for p in $driver $beside $watchdog; do groups+=(-$p); pids+=($p); done
@@ -141,7 +142,12 @@ env ${=MOCK} python3 -I "$HARNESS/mock.py" "$RUN/mock.log" & mock=$!
 # The app only once the mock takes connections: a page could ask it for something at once.
 end=$((SECONDS + 15))
 until [[ -f "$RUN/mock.ready" ]]; do
-    if (( SECONDS > end )) || ! kill -0 $mock 2>/dev/null; then
+    if ! kill -0 $mock 2>/dev/null; then
+        # Most likely its ports are taken, e.g. by a mock left from a run that was killed: the other tests would fail too.
+        stop_all
+        echo "NOT RUN: the mock didn't start (are its ports, 59877-59881, taken?)"; exit 2
+    fi
+    if (( SECONDS > end )); then
         stop_all
         echo "FAIL: the mock didn't start"; exit 1
     fi

@@ -69,7 +69,7 @@ function getCloze(dictionaryEntry, sentence) {
 	const text = typeof sentence?.text === 'string' ? sentence.text : '';
 	const offset = typeof sentence?.offset === 'number' ? sentence.offset : 0;
 	// The word's length in a sentence with text replacements (see replacedSentence in overlay.js), which can differ.
-	const length = typeof sentence?.wordLength === 'number' ? sentence.wordLength : originalText.length;
+	const length = sentence?.wordLengths?.[originalText.length - 1] ?? originalText.length;
 	const textChars = [...text];
 	const body = textChars.slice(offset, offset + length).join('');
 	const bodyKana = distributeFuriganaInflected(term, reading, body)

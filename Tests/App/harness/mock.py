@@ -18,6 +18,10 @@ def entry(i):
         'pronunciations': [], 'frequencies': [],
     }
 entries = [entry(i) for i in range(150)]
+# MOCK_SHORT_ENTRY=1: the second entry is 晴 itself, matching one character of the two the others match (晴れ).
+if os.environ.get('MOCK_SHORT_ENTRY') == '1':
+    entries[1]['headwords'][0].update(term='晴', reading='はれ')
+    entries[1]['headwords'][0]['sources'][0].update(originalText='晴', transformedText='晴', deinflectedText='晴')
 def png(width, height, rgba):
     rows = b''.join(b'\0' + bytes(rgba) * width for _ in range(height))
     chunk = lambda kind, data: struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
@@ -118,10 +122,11 @@ profile = os.environ.get('MOCK_PROFILE') == '1'
 # dictionaryMedia.
 anki_media = [{**m, 'content': base64.b64encode(png(32, 32, (0, 160, 0, 255))).decode()} for m in media] if profile else media
 # MOCK_PROFILE_FAIL=n: the first n displayOptions requests are answered 503, as a request that fails once.
-# MOCK_PROFILE_FAIL_FOR=s: those in the first s seconds from the mock's start too (all the app asks at launch, however
-# many that is, and the checks right after them).
+# MOCK_PROFILE_FAIL_FOR=s: those in the s seconds from the first one too (all the app asks at launch, however many
+# that is, and the checks right after them; from the first request, so however long the app takes to start).
 profile_fails = [int(os.environ.get('MOCK_PROFILE_FAIL') or 0)]
-profile_fails_until = time.monotonic() + float(os.environ.get('MOCK_PROFILE_FAIL_FOR') or 0)
+profile_fail_for = float(os.environ.get('MOCK_PROFILE_FAIL_FOR') or 0)
+profile_fails_until = [None]
 display_options = {'general': {
     'language': 'ja', 'resultOutputMode': 'split', 'glossaryLayoutMode': 'compact', 'compactTags': True, 'averageFrequency': False,
     'frequencyDisplayMode': 'list', 'termDisplayMode': 'term-and-reading', 'showPitchAccentDownstepNotation': False,
@@ -178,7 +183,9 @@ class H(BaseHTTPRequestHandler):
                 targets = {(t.get('dictionary'), t.get('path')) for t in body.get('targets', [])}
                 out.update({'displayOptions': display_options, 'dictionaryInfo': dictionary_info,
                             'dictionaryMedia': [m for m in media if (m['dictionary'], m['path']) in targets]})
-            if path == 'displayOptions' and (profile_fails[0] > 0 or time.monotonic() < profile_fails_until):
+            if path == 'displayOptions' and profile_fails_until[0] is None:
+                profile_fails_until[0] = time.monotonic() + profile_fail_for
+            if path == 'displayOptions' and (profile_fails[0] > 0 or time.monotonic() < profile_fails_until[0]):
                 profile_fails[0] -= 1
                 log(f'yomitan-503 {path}')
                 self.send_response(503); self.send_header('Content-Length', '0'); self.end_headers()
