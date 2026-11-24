@@ -253,10 +253,12 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
 
     /// Whether two readings, `a` and `b`, have the same letters (see OCRText.isLetter), at least one, each in much the
     /// same place: the middles of its boxes in the two (`aBoxes` and `bBoxes`, the letters' boxes in order) less than
-    /// half its size apart, and the boxes about the same size.
+    /// half its size apart, and the boxes about the same size. Their sentence ends (？！。 and other languages' but dots,
+    /// see OCRText.isSentenceEnd) are the same too: 「え？」 and then 「え！」 is another line.
     static func sameLetters(_ a: String, _ aBoxes: [CGRect], as b: String, _ bBoxes: [CGRect]) -> Bool {
         let letters = a.filter(OCRText.isLetter)
-        guard !letters.isEmpty, letters == b.filter(OCRText.isLetter), aBoxes.count == letters.count, bBoxes.count == letters.count
+        guard !letters.isEmpty, letters == b.filter(OCRText.isLetter), aBoxes.count == letters.count, bBoxes.count == letters.count,
+              a.filter(OCRText.isSentenceEnd) == b.filter(OCRText.isSentenceEnd)
         else { return false }
         return zip(aBoxes, bBoxes).allSatisfy { a, b in
             let sizeA = Swift.max(a.width, a.height), sizeB = Swift.max(b.width, b.height), size = Swift.max(sizeA, sizeB)

@@ -98,6 +98,11 @@ Mr. Smith went home. -> Noted(index: 8, isNew: false, grew: true, starts: [(id: 
 ………………殺されろ･……………」 -> Noted(index: 2, isNew: true, grew: false, starts: [(id: 2, start: 0)])   [………………殺される･……………』 | ………………殺される･……………」 | ………………殺されろ･……………」]
 ……！ -> Noted(index: 3, isNew: true, grew: false, starts: [(id: 3, start: 0)])   [………………殺される･……………』 | ………………殺される･……………」 | ………………殺されろ･……………」 | ……！]
 ……？ -> Noted(index: 4, isNew: true, grew: false, starts: [(id: 4, start: 0)])   [………………殺される･……………』 | ………………殺される･……………」 | ………………殺されろ･……………」 | ……！ | ……？]
+— the same letters in the same places with another sentence end: a new line
+「え？」 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [「え？」]
+「え！」 -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 1, start: 0)])   [「え？」 | 「え！」]
+「え！」』 -> Noted(index: 1, isNew: false, grew: true, starts: [(id: 1, start: 0)])   [「え？」 | 「え！」』]
+「え！」」 -> Noted(index: 1, isNew: false, grew: false, starts: [(id: 1, start: 0)])   [「え？」 | 「え！」』]
 — a mark added after the same letters is the line growing (novel-box: 」 drawn after the round settled)
 「うん、ちょっと用事があって…… -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [「うん、ちょっと用事があって……]
 「うん、ちょっと用事があって……」 -> Noted(index: 0, isNew: false, grew: true, starts: [(id: 0, start: 0)])   [「うん、ちょっと用事があって……」]

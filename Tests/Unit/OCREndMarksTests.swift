@@ -5,9 +5,10 @@ import Testing
 
 @Test func endMarks() {
     #expect(OCRController.endMarks(["………………殺される･……………』"]) == "』")
-    #expect(OCRController.endMarks(["「はい。」 ", "そう……"]) == "。」\n")
+    #expect(OCRController.endMarks(["「はい。」 ", "そう……"]) == "」\n")
     #expect(OCRController.coreKey(["………………殺される･……………』"]) == OCRController.coreKey(["……………･殺される……………"]))
-    #expect(OCRController.coreKey(["「はい。」"]) == "「はい")
+    #expect(OCRController.coreKey(["「はい。」"]) == "「はい。")
+    #expect(OCRController.coreKey(["「え？」"]) != OCRController.coreKey(["「え！」"]))
 }
 
 @Test func endsVary() {

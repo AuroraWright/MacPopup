@@ -26,10 +26,16 @@ enum OCRText {
         !character.isWhitespace && !character.isPunctuation && !character.isSymbol
     }
 
+    /// Whether a character ends a sentence (？！。, ?, !, ।, ؟ and the like: Unicode's Sentence_Terminal), dots aside (see
+    /// isDot: OCR reads them inconsistently, and "." is often one of an ellipsis's).
+    static func isSentenceEnd(_ character: Character) -> Bool {
+        character.unicodeScalars.first?.properties.isSentenceTerminal == true && !isDot(character)
+    }
+
     /// Whether a character at the end of a row may be something OCR reads as one rather than text, e.g. a blinking
-    /// "next" icon read as a bracket: punctuation or a symbol other than dots, or whitespace.
+    /// "next" icon read as a bracket: punctuation or a symbol other than dots and sentence ends, or whitespace.
     static func isEndMark(_ character: Character) -> Bool {
-        !isLetter(character) && !isDot(character)
+        !isLetter(character) && !isDot(character) && !isSentenceEnd(character)
     }
 
     /// The marks `text` ends with (see isEndMark), whitespace left out.

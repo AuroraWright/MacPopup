@@ -130,6 +130,12 @@ import Testing
     note("………………殺されろ･……………」", letters: row([544, 598, 644, 699]))                  // new line
     note("……！")
     note("……？")                                                                           // new line
+    out("— the same letters in the same places with another sentence end: a new line")
+    lines = ShownLines<Int>()
+    note("「え？」", letters: row([100]))
+    note("「え！」", letters: row([100]))                                                    // new line
+    note("「え！」』", letters: row([100]))                                                  // grew
+    note("「え！」」", letters: row([100]))                                                  // again
     out("— a mark added after the same letters is the line growing (novel-box: 」 drawn after the round settled)")
     lines = ShownLines<Int>()
     note("「うん、ちょっと用事があって……", letters: row([0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]))
