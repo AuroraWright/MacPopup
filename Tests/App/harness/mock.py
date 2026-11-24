@@ -47,6 +47,9 @@ if os.environ.get('MOCK_NOTES') == '1':
 if os.environ.get('MOCK_EDITOR') in ('browser', 'closed'):
     card_formats = [{'type': 'term', 'model': 'Mock', 'name': 'Mock', 'deck': 'Mock',
                      'fields': {'Word': {'value': '{expression}'}, 'Sentence': {'value': '{sentence}'}, 'SentenceAudio': {'value': ''}}}]
+    # MOCK_CLOZE=1: also a field with the sentence's cloze, "{cloze-prefix}|{cloze-body}|{cloze-suffix}".
+    if os.environ.get('MOCK_CLOZE') == '1':
+        card_formats[0]['fields']['Cloze'] = {'value': '{cloze-prefix}|{cloze-body}|{cloze-suffix}'}
     browser = {'open': os.environ['MOCK_EDITOR'] == 'browser', 'selected': [333] if os.environ['MOCK_EDITOR'] == 'browser' else []}
     def anki_result(action, params):
         if action == 'multi':

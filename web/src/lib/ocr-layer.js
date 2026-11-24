@@ -8,6 +8,7 @@
 // sentences and lookups.
 
 import { clearChildren } from './dom.js';
+import { applyReplacementsMapped } from './replacements.js';
 
 const SPACE = /\s/u;
 const LINE_BREAK = /[\n\v\f\r\u0085\u2028\u2029]/u;
@@ -604,6 +605,34 @@ function firstWordSize(line, spaced) {
 export function joinLines(lines) {
 	const texts = lines.map(lineText);
 	return texts.join(texts.some((text) => /\S\s+\S/.test(text)) ? ' ' : '');
+}
+
+/**
+ * A reading's rows with text replacements applied to them as one text (joined as joinLines does, as a WebSocket line's
+ * are): `text`, and the rows (`lines`) of characters, each from the reading's character it came from (`source`, whose
+ * box it has; text a replacement put in comes from where its match started, and what's put in between rows is in the
+ * row before). The rows as they are, when the replacements change nothing.
+ */
+export function replaceInLines(lines, replacements) {
+	const joined = joinLines(lines);
+	const replaced = applyReplacementsMapped(joined, replacements);
+	if (replaced.text === joined) return { text: joined, lines };
+	// The row and reading's character of each UTF-16 unit of the joined text.
+	const spaced = joined.length > lines.map(lineText).join('').length;
+	const units = [];
+	lines.forEach((line, row) => {
+		if (row > 0 && spaced) units.push({ row: row - 1, char: units.at(-1)?.char ?? null });
+		for (const char of line.chars) for (let i = 0; i < char.text.length; i++) units.push({ row, char });
+	});
+	const rows = lines.map((line) => ({ ...line, chars: [] }));
+	let index = 0;
+	for (const text of replaced.text) {
+		const unit = units[replaced.sources[index]] ?? units.at(-1);
+		index += text.length;
+		if (!unit?.char) continue;
+		rows[unit.row].chars.push({ ...unit.char, text, source: unit.char });
+	}
+	return { text: replaced.text, lines: rows };
 }
 
 /** Groups consecutive lines into paragraphs. Lines matched with the WebSocket line form one paragraph. */

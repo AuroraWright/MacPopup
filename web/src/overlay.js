@@ -8,8 +8,8 @@ import { getPopupPosition } from './lib/popup-position.js';
 import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
 import { getTextSourceFromPoint, searchTextSource, setHighlight, textSourceAt, useHighlightBoxes } from './lib/scanner.js';
 import { HighlightBoxes, showHighlight } from './lib/highlight-boxes.js';
-import { correctWithText, decodeLines, joinLines, letterCount, lineText, ocrCharOf, paragraphBreaks, renderLines, wrappedReach } from './lib/ocr-layer.js';
-import { applyReplacements } from './lib/replacements.js';
+import { correctWithText, decodeLines, joinLines, letterCount, lineText, ocrCharOf, paragraphBreaks, renderLines, replaceInLines, wrappedReach } from './lib/ocr-layer.js';
+import { applyReplacements, applyReplacementsMapped } from './lib/replacements.js';
 import { isInLanguage } from './lib/languages.js';
 import { maxWebsocketUrls, popupHotkeyActions } from './lib/settings-defaults.js';
 import { cursorAt } from './lib/cursor.js';
@@ -109,9 +109,10 @@ function formatLineText(text, preserveWhitespace) {
 	return preserveWhitespace ? text : text.replace(/\s+/g, ' ');
 }
 
-function transformLine(text) {
+// `replaced`: the text replacements are applied already.
+function transformLine(text, replaced = false) {
 	const settings = getSettings();
-	let line = applyReplacements(text, settings.replacements);
+	let line = replaced ? text : applyReplacements(text, settings.replacements);
 	if (settings.removeAllWhitespace) line = line.replace(/\s/gm, '').trim();
 	if (settings.filterNonCJKLines && !isInLanguage(line, settings.language)) line = '';
 	if (!line) return undefined;
@@ -168,29 +169,49 @@ function notesLines(settings = getSettings()) {
  * page of lines) are left out: they were noted when they arrived, and noting them again would make them a new line.
  * The other rows' characters then get the lines they're in (rows matched with a WebSocket line keep that line), for
  * the cards added from them. With `toBox` ("Read text from OCR"), the reading also goes to the text box: as a new line,
- * as the last OCR line that grew, or not at all if it's there already.
+ * as the last OCR line that grew, or not at all if it's there already. In the Floating Window, the reading has the text
+ * replacements, as the box's other lines do, before it's matched with them; the OCR overlay's is the text as read.
  */
 function noteOcrReading(dialogue, age, toBox) {
 	const settings = getSettings();
 	const lines = withoutNextIcon(dialogue.filter((line) => !(line.match > 0)));
 	if (lines.length === 0 || !notesLines(settings)) return;
-	const rows = lines.map(lineText);
+	const replaces = !settings.ocrMode;
+	const replaced = replaces ? replaceInLines(lines, settings.replacements) : { text: joinLines(lines), lines };
+	const rows = replaced.lines.map(lineText);
 	// Each letter's box (see ShownLines.sameLetters).
-	const letters = lines.flatMap((line) => line.chars.flatMap((char) =>
+	const letters = replaced.lines.flatMap((line) => line.chars.flatMap((char) =>
 		[...char.text].filter(isLetter).map(() => [char.x, char.y, char.width, char.height])));
-	nativeCall('line', { text: joinLines(lines), age, ocr: true, rows, letters, breaks: paragraphBreaks(lines, ocr.reach ?? undefined) })
+	nativeCall('line', { text: replaced.text, age, ocr: true, rows, letters, breaks: paragraphBreaks(lines, ocr.reach ?? undefined) })
 		.catch(() => ({}))
 		.then((result) => {
-			setLines(lines, result?.segments ?? []);
+			setLines(replaced.lines, result?.segments ?? []);
+			if (replaced.lines !== lines) carryLines(replaced.lines, lines);
 			if (!toBox || state.paused || !getSettings().floatingWindowOCR) return;
 			const line = { id: result?.id ?? null, player: null };
 			if (result?.replace) {
 				removeOcrLine();
-				state.ocrLine = pushLine(result.replace, { line }) ?? null;
+				state.ocrLine = pushLine(result.replace, { line, replaced: replaces }) ?? null;
 			} else if (result?.add) {
-				state.ocrLine = pushLine(result.add, { line }) ?? null;
+				state.ocrLine = pushLine(result.add, { line, replaced: replaces }) ?? null;
 			}
 		});
+}
+
+/**
+ * Gives the reading's characters the lines setLines gave the replaced rows' characters made from them (see
+ * replaceInLines); one a replacement removed is in the line of the character before it.
+ */
+function carryLines(replacedRows, rows) {
+	const lines = new Map();
+	for (const char of replacedRows.flatMap((row) => row.chars)) {
+		if (!lines.has(char.source)) lines.set(char.source, char.line);
+	}
+	let line = null;
+	for (const char of rows.flatMap((row) => row.chars)) {
+		if (lines.has(char)) line = lines.get(char);
+		char.line = line;
+	}
 }
 
 /**
@@ -291,10 +312,10 @@ function removeOcrLine() {
 
 /**
  * Adds a line to the text box, and returns it (undefined when it's left out, see transformLine). `line` is the line
- * as cards see it (ShownLine).
+ * as cards see it (ShownLine); `replaced`: the text replacements are applied already.
  */
-function pushLine(rawText, { line: shown = null } = {}) {
-	const text = transformLine(rawText);
+function pushLine(rawText, { line: shown = null, replaced = false } = {}) {
+	const text = transformLine(rawText, replaced);
 	if (text === undefined) return;
 	const settings = getSettings();
 	const atEnd = isScrolledToEnd();
@@ -1118,7 +1139,7 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
 	scan.pending = true;
 	try {
 		const [searchResult, documentTitle] = await Promise.all([searchTextSource(source, lookup), getDocumentTitle()]);
-		result = searchResult && { ...searchResult, documentTitle, line: lineOf(source) };
+		result = searchResult && { ...searchResult, sentence: replacedSentence(source, searchResult.sentence), documentTitle, line: lineOf(source) };
 	} catch (e) {
 		log('Lookup failed', e);
 		showToast(`Yomitan API: ${e.message ?? e}`);
@@ -1167,8 +1188,7 @@ async function scanSource(source, vertical = getSettings().displayVertical, look
  * isn't in the text box or the OCR overlay's text.
  */
 function lineOf(source) {
-	const node = source.range?.startContainer;
-	const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+	const element = elementOf(source);
 	const char = element?.closest('.ocr-char');
 	if (char) {
 		const ocrChar = ocrCharOf(char);
@@ -1177,6 +1197,27 @@ function lineOf(source) {
 	const boxElement = element?.closest('#lines p[data-line-id]');
 	const boxLine = boxElement && state.lines.find((line) => line.id === boxElement.dataset.lineId);
 	return boxLine?.shown ? () => boxLine.shown : null;
+}
+
+/** The element a text source starts in. */
+function elementOf(source) {
+	const node = source.range?.startContainer;
+	return node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+}
+
+/**
+ * The sentence of a word looked up in the OCR overlay with the text replacements, as the text box's lines have them,
+ * for cards (the overlay shows the text as read). Not in rows matched with a WebSocket line: their text is that line's,
+ * which has them already.
+ */
+function replacedSentence(source, sentence) {
+	const element = elementOf(source);
+	if (!element?.closest('.ocr-char') || element.closest('.ocr-matched') || typeof sentence?.text !== 'string') return sentence;
+	const replaced = applyReplacementsMapped(sentence.text, getSettings().replacements);
+	if (replaced.text === sentence.text) return sentence;
+	// The word starts where the first of what's left of it, or after it, is.
+	const offset = replaced.sources.findIndex((index) => index >= sentence.offset);
+	return { ...sentence, text: replaced.text, offset: offset < 0 ? replaced.text.length : offset };
 }
 
 // Popup hiding works like Yomitan's Frontend: "auto-hide results" hides the popup when a scan finds

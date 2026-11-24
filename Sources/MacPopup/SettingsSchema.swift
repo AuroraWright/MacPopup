@@ -277,7 +277,7 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "replacements", "Text replacements", .replacements,
-                    hint: "Find-and-replace rules applied in order to each new line before it appears. Supports regular expressions ($1 inserts the first capture group, \\n adds a line break, and \\t adds a tab). With the OCR overlay, they only apply to WebSocket lines, before they’re matched with the recognized text."
+                    hint: "Find-and-replace rules applied in order to each new line before it appears. Supports regular expressions ($1 inserts the first capture group, \\n adds a line break, and \\t adds a tab). With the OCR overlay, they apply to WebSocket lines before they’re matched with the recognized text and to Anki cards."
                 ),
                 SettingsField(
                     "ocrShowBoxes", "Debug", .checkbox,
