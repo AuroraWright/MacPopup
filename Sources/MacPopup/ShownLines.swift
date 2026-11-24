@@ -54,9 +54,9 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
 
     private var lines: [Line] = []
     private var nextID = 0
-    /// The last reading of a page (see note), normalized and as shown, where its lines start in it, and where its rows
-    /// start (in characters of the normalized text).
-    private var page: (text: String, shown: String, starts: [Start], rows: [Int])?
+    /// The last reading of a page (see note), normalized and as shown, where its lines start in it, where its rows
+    /// start (in characters of the normalized text), and its letters' boxes.
+    private var page: (text: String, shown: String, starts: [Start], rows: [Int], letters: [CGRect])?
 
     var startIndex: Int { lines.startIndex }
     var endIndex: Int { lines.endIndex }
@@ -86,10 +86,12 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     /// text; a row ending in a comma doesn't count, since games also wrap rows after commas. Otherwise the last line
     /// grew. Text that appears all at once stays one line, because the voice of each line would start at the same time.
     /// A page whose first rows went out at the top as more came in below (a text box that scrolls) is matched by the
-    /// rest of it, so `rows` (the reading's rows of text) are needed for that.
+    /// rest of it, so `rows` (the reading's rows of text) are needed for that. A page with the same letters as the last
+    /// reading, each in much the same place (`letters`, their boxes), is that reading again, whatever marks are read
+    /// between or around them (see sameLetters).
     mutating func note(
-        _ shown: String, page isPage: Bool = false, breaks: Set<Int> = [], rows: [String] = [], sent sentLines: SentLines = .init(),
-        language: String = "ja", info: () -> Info
+        _ shown: String, page isPage: Bool = false, breaks: Set<Int> = [], rows: [String] = [], letters: [CGRect] = [],
+        sent sentLines: SentLines = .init(), language: String = "ja", info: () -> Info
     ) -> Noted? {
         let text = Self.normalized(shown)
         guard !text.isEmpty else { return nil }
@@ -114,7 +116,7 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
             }
             for cut in cuts {
                 let old = String(page.text.dropFirst(cut))
-                if let noted = noteAdded(shown, text, rows: rowStarts, to: old, starts: Self.scrolled(page.starts, by: cut), last: last, breaks: breaks, language: language, info: info) {
+                if let noted = noteAdded(shown, text, rows: rowStarts, letters: letters, to: old, starts: Self.scrolled(page.starts, by: cut), last: last, breaks: breaks, language: language, info: info) {
                     return noted
                 }
             }
@@ -124,8 +126,14 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
                 return Noted(index: last, isNew: false, grew: false, starts: Self.moved(page.starts, from: page.text, to: text))
             }
             // The page with more text added.
-            if let noted = noteAdded(shown, text, rows: rowStarts, to: page.text, starts: page.starts, last: last, breaks: breaks, language: language, info: info) {
+            if let noted = noteAdded(shown, text, rows: rowStarts, letters: letters, to: page.text, starts: page.starts, last: last, breaks: breaks, language: language, info: info) {
                 return noted
+            }
+            // The marks between or around its letters read differently, e.g. a blinking "next" icon after the text read
+            // as a bracket one time and not the next. (A mark added, as the line's last character drawn, is the line
+            // growing, above.)
+            if Self.sameLetters(text, letters, as: page.text, page.letters) {
+                return Noted(index: last, isNew: false, grew: false, starts: Self.moved(page.starts, from: page.text, to: text))
             }
         }
         let noted: Noted
@@ -153,7 +161,7 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         // A page read anew is a single line. A different line (e.g. from a WebSocket) ends the page; the last line
         // coming in again (e.g. from a WebSocket after OCR read it) doesn't.
         if isPage {
-            page = (text, shown, noted.starts, rowStarts)
+            page = (text, shown, noted.starts, rowStarts, letters)
         } else if noted.isNew {
             page = nil
         }
@@ -165,8 +173,8 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     /// part may be read a little differently or gain a mark or two (e.g. a dash before a line), so it's aligned with the
     /// new reading, and its lines' starts with it.
     private mutating func noteAdded(
-        _ shown: String, _ text: String, rows: [Int], to old: String, starts oldStarts: [Start], last: Int, breaks: Set<Int>,
-        language: String, info: () -> Info
+        _ shown: String, _ text: String, rows: [Int], letters: [CGRect], to old: String, starts oldStarts: [Start], last: Int,
+        breaks: Set<Int>, language: String, info: () -> Info
     ) -> Noted? {
         let before = String(text.prefix(old.count))
         let exact = before == old
@@ -179,10 +187,10 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
         if end < text.count, paragraphEnds || Self.sentenceEnds(in: shown, after: end, language: language) {
             let index = append(Self.shown(shown, after: end), info: info)
             starts.append((lines[index].id, end))
-            page = (text, shown, starts, rows)
+            page = (text, shown, starts, rows, letters)
             return Noted(index: index, isNew: true, grew: false, starts: starts)
         }
-        page = (text, shown, starts, rows)
+        page = (text, shown, starts, rows, letters)
         lines[last].text = Self.shown(shown, after: starts.last?.start ?? 0)
         let normalized = Self.normalized(lines[last].text)
         if !lines[last].texts.contains(normalized) { lines[last].texts.append(normalized) }
@@ -241,6 +249,19 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     private static func shown(_ shown: String, after count: Int) -> String {
         guard let start = index(after: count, in: shown) else { return "" }
         return String(shown[start...])
+    }
+
+    /// Whether two readings, `a` and `b`, have the same letters (see OCRText.isLetter), at least one, each in much the
+    /// same place: the middles of its boxes in the two (`aBoxes` and `bBoxes`, the letters' boxes in order) less than
+    /// half its size apart, and the boxes about the same size.
+    static func sameLetters(_ a: String, _ aBoxes: [CGRect], as b: String, _ bBoxes: [CGRect]) -> Bool {
+        let letters = a.filter(OCRText.isLetter)
+        guard !letters.isEmpty, letters == b.filter(OCRText.isLetter), aBoxes.count == letters.count, bBoxes.count == letters.count
+        else { return false }
+        return zip(aBoxes, bBoxes).allSatisfy { a, b in
+            let sizeA = Swift.max(a.width, a.height), sizeB = Swift.max(b.width, b.height), size = Swift.max(sizeA, sizeB)
+            return abs(a.midX - b.midX) < size / 2 && abs(a.midY - b.midY) < size / 2 && Swift.min(sizeA, sizeB) > size * 2 / 3
+        }
     }
 
     private static func undotted(_ text: String) -> String {

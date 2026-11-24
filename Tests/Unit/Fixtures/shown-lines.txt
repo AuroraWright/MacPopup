@@ -88,3 +88,17 @@ Mr. Smith went home. -> Noted(index: 8, isNew: false, grew: true, starts: [(id: 
 — a short line that ends the last one, after the box was empty (Somnium): dots don't make it long
 そしておまえは… -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [そしておまえは…]
 おまえは… -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 1, start: 0)])   [そしておまえは… | おまえは…]
+— the same letters in the same places, marks read differently (a blinking icon read as a bracket, Phantom of Inferno)
+………………殺される･……………』 -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [………………殺される･……………』]
+………………殺される･……………」 -> Noted(index: 0, isNew: false, grew: false, starts: [(id: 0, start: 0)])   [………………殺される･……………』]
+……………･殺される…………… -> Noted(index: 0, isNew: false, grew: false, starts: [(id: 0, start: 0)])   [………………殺される･……………』]
+………………殺される･……………』 -> Noted(index: 0, isNew: false, grew: false, starts: [(id: 0, start: 0)])   [………………殺される･……………』]
+— the same letters elsewhere, other letters, or no letters: new lines
+………………殺される･……………」 -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 1, start: 0)])   [………………殺される･……………』 | ………………殺される･……………」]
+………………殺されろ･……………」 -> Noted(index: 2, isNew: true, grew: false, starts: [(id: 2, start: 0)])   [………………殺される･……………』 | ………………殺される･……………」 | ………………殺されろ･……………」]
+……！ -> Noted(index: 3, isNew: true, grew: false, starts: [(id: 3, start: 0)])   [………………殺される･……………』 | ………………殺される･……………」 | ………………殺されろ･……………」 | ……！]
+……？ -> Noted(index: 4, isNew: true, grew: false, starts: [(id: 4, start: 0)])   [………………殺される･……………』 | ………………殺される･……………」 | ………………殺されろ･……………」 | ……！ | ……？]
+— a mark added after the same letters is the line growing (novel-box: 」 drawn after the round settled)
+「うん、ちょっと用事があって…… -> Noted(index: 0, isNew: true, grew: false, starts: [(id: 0, start: 0)])   [「うん、ちょっと用事があって……]
+「うん、ちょっと用事があって……」 -> Noted(index: 0, isNew: false, grew: true, starts: [(id: 0, start: 0)])   [「うん、ちょっと用事があって……」]
+「うん、ちょっと用事があって……」そう言って彼女は -> Noted(index: 1, isNew: true, grew: false, starts: [(id: 0, start: 0), (id: 1, start: 17)])   [「うん、ちょっと用事があって……」 | そう言って彼女は]

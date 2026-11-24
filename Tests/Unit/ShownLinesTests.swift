@@ -9,8 +9,8 @@ import Testing
     var output = ""
     func out(_ line: String) { output += line + "\n" }
     var lines = ShownLines<Int>()
-    func note(_ t: String, page: Bool = true, breaks: Set<Int> = [], rows: [String] = []) {
-        let r = lines.note(t, page: page, breaks: breaks, rows: rows, info: { 0 })
+    func note(_ t: String, page: Bool = true, breaks: Set<Int> = [], rows: [String] = [], letters: [CGRect] = []) {
+        let r = lines.note(t, page: page, breaks: breaks, rows: rows, letters: letters, info: { 0 })
         out(String(format: "%-46@ -> %@   [%@]", t as NSString, String(describing: r!) as NSString,
                    lines.map { $0.text }.joined(separator: " | ") as NSString))
     }
@@ -118,6 +118,23 @@ import Testing
     lines = ShownLines<Int>()
     note("そしておまえは…")
     note("おまえは…")                                                                      // new line
+    out("— the same letters in the same places, marks read differently (a blinking icon read as a bracket, Phantom of Inferno)")
+    lines = ShownLines<Int>()
+    let row = { (xs: [CGFloat]) in xs.map { CGRect(x: $0, y: 584, width: 50, height: 42) } }
+    note("………………殺される･……………』", letters: row([244, 298, 344, 399]))
+    note("………………殺される･……………」", letters: row([246, 297, 345, 401]))                  // again
+    note("……………･殺される……………", letters: row([244, 298, 344, 399]))                    // again
+    note("………………殺される･……………』", letters: row([244, 298, 344, 399]))                  // again
+    out("— the same letters elsewhere, other letters, or no letters: new lines")
+    note("………………殺される･……………」", letters: row([544, 598, 644, 699]))                  // new line
+    note("………………殺されろ･……………」", letters: row([544, 598, 644, 699]))                  // new line
+    note("……！")
+    note("……？")                                                                           // new line
+    out("— a mark added after the same letters is the line growing (novel-box: 」 drawn after the round settled)")
+    lines = ShownLines<Int>()
+    note("「うん、ちょっと用事があって……", letters: row([0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]))
+    note("「うん、ちょっと用事があって……」", letters: row([0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550])) // grew
+    note("「うん、ちょっと用事があって……」そう言って彼女は", breaks: [17], letters: row(Array(stride(from: 0, to: 1000, by: 50)))) // new line
 
     let golden = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/shown-lines.txt")
     if ProcessInfo.processInfo.environment["UPDATE_GOLDEN"] == "1" {

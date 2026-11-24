@@ -248,7 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     }
 
     /// A line was shown `age` seconds ago: a WebSocket or clipboard line, or (`fromOCR`) a settled OCR reading of the
-    /// dialogue with its `rows` of text and paragraph `breaks` (see ShownLines.note). It's noted for Anki Audio and
+    /// dialogue with its `rows` of text, its `letters`' boxes and paragraph `breaks` (see ShownLines.note). It's noted for Anki Audio and
     /// Screenshot, and the reply tells the page the line's id ("id") and what to do with it in the Floating Window's
     /// text box (for "Read text from OCR"):
     /// - A reading either adds a new line ("add"), updates the last OCR line because it grew ("replace"), or does
@@ -258,7 +258,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     ///   removes its last line before adding the new one).
     /// `replaces`: the id of the transcribed line this one grew from (see AudioTranscriber), which it takes the place of
     /// if it's still the last line.
-    func noteLine(_ text: String, age: Double, fromOCR: Bool, transcribed: Bool, replaces: Int?, rows: [String], breaks: Set<Int>) -> [String: Any] {
+    func noteLine(
+        _ text: String, age: Double, fromOCR: Bool, transcribed: Bool, replaces: Int?, rows: [String], letters: [CGRect], breaks: Set<Int>
+    ) -> [String: Any] {
         if lines.count >= 100 { lines.removeFirst(lines.count - 99) }
         // A sent line is the line before it again as the text box decides it (see transformLine in overlay.js).
         let settings = SettingsStore.shared.dictionary
@@ -267,7 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
             grows: settings["mergeEqualLineStarts"] as? Bool == true,
             replaces: replaces
         )
-        guard let noted = lines.note(text, page: fromOCR, breaks: breaks, rows: rows, sent: sent,
+        guard let noted = lines.note(text, page: fromOCR, breaks: breaks, rows: rows, letters: letters, sent: sent,
                                      language: settings["language"] as? String ?? "ja", info: { fromOCR }) else { return [:] }
         let line = lines[noted.index]
         sentenceAudio.noteLine(id: line.id, isNew: noted.isNew, text: line.text, age: age, transcribed: transcribed)

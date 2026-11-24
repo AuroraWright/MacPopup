@@ -1004,10 +1004,19 @@ final class OCRController {
         // The window as it was read since the text last changed, to learn animated spots from (see
         // learnAnimatedBlocks). When the text is still what was read before the round (e.g. the round is for a
         // blinking icon), from before the change too.
+        // Kept while the text is the same but for the marks its rows end with (see OCRText.isEndMark), which may be an
+        // icon read as one.
         var frames: [Frame] = []
-        let textBefore = (key: watchedTexts.map { $0.map(Self.settleKey).joined() }, frame: lastRecognizedFrame)
-        // Where the dialogue's text was read during the round (see textBlocks): not learned as animated.
+        let textBefore = (key: watchedTexts.map { $0.map(Self.settleKey).joined() }, core: watchedTexts.map(Self.coreKey),
+                          ends: watchedTexts.map(Self.endMarks), frame: lastRecognizedFrame)
+        var framesKey: String?
+        // Where the dialogue's text was read during the round (see textBlocks): not learned as animated, unless the
+        // marks its rows end with came and went or changed meanwhile (see endsVary). Those are then something OCR reads
+        // as marks, like a blinking "next" icon read as a bracket, often too close to the text to be told apart in
+        // blocks: what changed there is learned by its looks.
         var roundTextBlocks = Set<Int>()
+        // The marks the rows ended with in each reading kept in `frames`.
+        var ends: [String] = []
         // Near it: where the text read before it was, which may be going away during the round (fading out, or
         // replaced by text elsewhere), and where the text would go on (the rest of a line still fading in). Only
         // learned by their looks, so that the next line drawn there is still noticed.
@@ -1111,17 +1120,27 @@ final class OCRController {
             let covered = textBlocks(areaLines.first ?? [])
             roundTextBlocks.formUnion(covered)
             nearTextBlocks.formUnion(textBlocks(areaLines.first ?? [], goingOn: true))
-            unlearnAnimatedBlocks(covered)
             let texts = (areaLines.first ?? []).map { $0["text"] as? String ?? "" }
+            let core = Self.coreKey(texts)
+            // Only for new text: the same text read again where an icon next to it was learned says nothing about it.
+            if core != textBefore.core { unlearnAnimatedBlocks(covered) }
             let key = texts.map(Self.settleKey).joined(), length = texts.joined().count
             if previous?.key != key {
                 previous = (key, started, length)
-                frames = key == textBefore.key ? textBefore.frame.map { [$0] } ?? [] : []
             } else if let longest = previous?.longest, length > longest {
                 previous?.longest = length
             }
+            if framesKey != core {
+                framesKey = core
+                let before = core == textBefore.core ? textBefore.frame : nil
+                frames = before.map { [$0] } ?? []
+                ends = before != nil ? textBefore.ends.map { [$0] } ?? [] : []
+            }
             // As compared with later (see comparisonScale), rather than thumbnails of the image read.
-            if let readFrame { frames.append(readFrame) }
+            if let readFrame {
+                frames.append(readFrame)
+                ends.append(Self.endMarks(texts))
+            }
             if sawChange, read == [0] {
                 // Still the same text (growing as it's drawn, fading, or read a little differently or in another order),
                 // or other text: twice in a row, as one reading may be of a passing effect, or misread.
@@ -1157,7 +1176,11 @@ final class OCRController {
                 log("settled after \(String(format: "%.2f", OCRClock.now.timeIntervalSince(start)))s")
                 // What changed while the text stayed the same (e.g. a blinking "next" icon) doesn't count as
                 // the window changing later.
-                learnAnimatedBlocks(from: frames, text: roundTextBlocks, nearText: nearTextBlocks)
+                if Self.endsVary(ends) {
+                    learnAnimatedBlocks(from: frames, text: [], nearText: nearTextBlocks.union(roundTextBlocks))
+                } else {
+                    learnAnimatedBlocks(from: frames, text: roundTextBlocks, nearText: nearTextBlocks)
+                }
                 otherAreasOutdated = false
                 finishReading(image, frame: readFrame, areas: read, started: started, extra: waited.merging(["settled": true]) { $1 })
                 return
@@ -1199,6 +1222,22 @@ final class OCRController {
         }
         while let end = key.last, end == "—" || OCRText.isNextIcon(end) { key.removeLast() }
         return key
+    }
+
+    /// The settle key (see settleKey) of a reading's rows without the marks they end with (see OCRText.isEndMark).
+    nonisolated static func coreKey(_ texts: [String]) -> String {
+        texts.map { settleKey(String($0.reversed().drop(while: OCRText.isEndMark).reversed())) }.joined()
+    }
+
+    /// The marks a reading's rows end with (see OCRText.endMarks), a row's apart from the next's.
+    nonisolated static func endMarks(_ texts: [String]) -> String {
+        texts.map(OCRText.endMarks).joined(separator: "\n")
+    }
+
+    /// Whether the marks the rows ended with, in readings one after another, came and went or changed, rather than
+    /// staying or being added to (as the line's last characters drawn).
+    nonisolated static func endsVary(_ ends: [String]) -> Bool {
+        ends.indices.contains { i in ends[(i + 1)...].contains { !$0.hasPrefix(ends[i]) } }
     }
 
     /// Waits until `deadline`, or until the dialogue looks different from `frame` (checked at the check interval; any

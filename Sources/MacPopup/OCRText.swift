@@ -2,9 +2,9 @@
 /// out (the settle check in OCRController, and ShownLines), and whether two readings are of the same line.
 /// web/src/overlay.js's withoutNextIcon matches isNextIcon.
 enum OCRText {
-    /// Dots, which OCR often reads with one more or fewer, or misses.
+    /// Dots, which OCR often reads with one more or fewer, or misses (Live Text also reads some as bullets).
     static func isDot(_ character: Character) -> Bool {
-        "・･.．…‥·".contains(character)
+        "・･.．…‥·•".contains(character)
     }
 
     /// Dashes (a thin line), which OCR reads as any of these, or misses.
@@ -18,6 +18,23 @@ enum OCRText {
         if character.isWhitespace { return true }
         guard let category = character.unicodeScalars.first?.properties.generalCategory else { return false }
         return category == .otherSymbol || category == .mathSymbol
+    }
+
+    /// Whether a character is part of the words: not punctuation, a symbol or whitespace. web/src/overlay.js's isLetter
+    /// matches it.
+    static func isLetter(_ character: Character) -> Bool {
+        !character.isWhitespace && !character.isPunctuation && !character.isSymbol
+    }
+
+    /// Whether a character at the end of a row may be something OCR reads as one rather than text, e.g. a blinking
+    /// "next" icon read as a bracket: punctuation or a symbol other than dots, or whitespace.
+    static func isEndMark(_ character: Character) -> Bool {
+        !isLetter(character) && !isDot(character)
+    }
+
+    /// The marks `text` ends with (see isEndMark), whitespace left out.
+    static func endMarks(_ text: String) -> String {
+        String(text.reversed().prefix(while: isEndMark).reversed().filter { !$0.isWhitespace })
     }
 
     /// Text shorter than this could be part of almost any line (see isLongAndSame).

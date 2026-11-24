@@ -175,7 +175,10 @@ function noteOcrReading(dialogue, age, toBox) {
 	const lines = withoutNextIcon(dialogue.filter((line) => !(line.match > 0)));
 	if (lines.length === 0 || !notesLines(settings)) return;
 	const rows = lines.map(lineText);
-	nativeCall('line', { text: joinLines(lines), age, ocr: true, rows, breaks: paragraphBreaks(lines, ocr.reach ?? undefined) })
+	// Each letter's box (see ShownLines.sameLetters).
+	const letters = lines.flatMap((line) => line.chars.flatMap((char) =>
+		[...char.text].filter(isLetter).map(() => [char.x, char.y, char.width, char.height])));
+	nativeCall('line', { text: joinLines(lines), age, ocr: true, rows, letters, breaks: paragraphBreaks(lines, ocr.reach ?? undefined) })
 		.catch(() => ({}))
 		.then((result) => {
 			setLines(lines, result?.segments ?? []);
@@ -207,6 +210,11 @@ function setLines(rows, segments) {
 			offset += char.text.length;
 		}
 	});
+}
+
+/** Whether a character is part of the words: not punctuation, a symbol or whitespace (as OCRText.isLetter). */
+function isLetter(char) {
+	return !/[\p{P}\p{S}\s]/u.test(char);
 }
 
 /**
