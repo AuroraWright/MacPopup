@@ -182,9 +182,18 @@ class H(BaseHTTPRequestHandler):
             out = out[path]
         else:
             action = body.get('action')
-            log(f'anki {time.time() * 1000:.0f} {action} {json.dumps(body.get("params", {}))}')
+            params = body.get('params', {})
+            log(f'anki {time.time() * 1000:.0f} {action} {json.dumps(params)}')
             try:
-                out = {'result': anki_result(action, body.get('params', {})), 'error': None}
+                # Anki's sort field is the first name. The mock's order is the order written above (Word first).
+                if action == 'modelFieldNames':
+                    model = params.get('modelName')
+                    names = next((list(fmt['fields']) for fmt in card_formats if fmt.get('model') == model), None)
+                    if names is None:
+                        raise ValueError(f'model was not found: {model}')
+                    out = {'result': names, 'error': None}
+                else:
+                    out = {'result': anki_result(action, params), 'error': None}
             except ValueError as e:
                 out = {'result': None, 'error': str(e)}
             log(f'anki-reply {action} {json.dumps(out)[:200]}')
