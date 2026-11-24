@@ -60,9 +60,11 @@ stop_all() {
     for p in $driver $beside $watchdog; do groups+=(-$p); done
     for p in $app $mock $guard; do pids+=($p); done
     (( ${#groups} + ${#pids} )) && kill -TERM -- $groups $pids 2>/dev/null
-    group "sleep 20; kill -KILL -- ${groups[*]} ${pids[*]}" > /dev/null 2>&1 & local killer=$!
+    # (Not a group of its own: one only just started may not be a group yet when it's stopped, and it would then wait
+    # out the 20 s. Stopped, its sleep ends by itself.)
+    { sleep 20; kill -KILL -- $groups $pids } > /dev/null 2>&1 & local killer=$!
     for p in $groups $pids; do wait ${p#-} 2>/dev/null; done
-    kill -- -$killer 2>/dev/null; wait $killer 2>/dev/null
+    kill $killer 2>/dev/null; wait $killer 2>/dev/null
     defaults delete $SUITE 2>/dev/null
 }
 settings_changed() {
