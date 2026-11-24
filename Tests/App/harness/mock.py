@@ -4,7 +4,7 @@
 # answers with. A test's "// mock:" line sets the MOCK_* switches below (images, notes, an Anki editor, a Yomitan
 # profile, tokenizing, an added note's id, the run folder's files, WebSocket lines, WebSocket servers that stay connected,
 # a screenshot field, a note that has sentence audio already).
-import base64, io, json, os, struct, sys, threading, time, wave, zlib
+import base64, io, json, os, re, struct, sys, threading, time, wave, zlib
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 log_path = sys.argv[1]
 def entry(i):
@@ -164,7 +164,14 @@ class H(BaseHTTPRequestHandler):
                 self.send_response(503); self.send_header('Content-Length', '0'); self.end_headers()
                 return
             # MOCK_TOKENIZE=1: one token per character, with the reading よみ on each kanji (furigana in the text box).
-            if path == 'tokenize' and os.environ.get('MOCK_TOKENIZE'):
+            # MOCK_TOKENIZE=words: words as Yomitan's are, a run of kanji with the hiragana after it (花びら, 思った), the
+            # reading よみ on the kanji only; other characters a token each.
+            if path == 'tokenize' and os.environ.get('MOCK_TOKENIZE') == 'words':
+                tokens = []
+                for kanji, kana, other in re.findall(r'([\u4e00-\u9fff]+)([\u3041-\u309f]*)|([\u3041-\u309f]+|.)', body.get('text', ''), re.S):
+                    tokens.append([{'text': kanji, 'reading': 'よみ'}] + ([{'text': kana, 'reading': ''}] if kana else []) if kanji else [{'text': other, 'reading': ''}])
+                out['tokenize'] = [{'index': 0, 'content': tokens}]
+            elif path == 'tokenize' and os.environ.get('MOCK_TOKENIZE'):
                 out['tokenize'] = [{'index': 0, 'content': [[{'text': c, 'reading': 'よみ' if '\u4e00' <= c <= '\u9fff' else ''}] for c in body.get('text', '')]}]
             if path not in out:
                 log(f'yomitan-400 {path}')

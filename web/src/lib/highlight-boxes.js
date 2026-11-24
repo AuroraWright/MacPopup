@@ -88,6 +88,8 @@ export class HighlightBoxes {
 			});
 		}
 		const boxes = [];
+		let right = 0;
+		let bottom = 0;
 		for (const [name, ranges] of this.ranges) {
 			for (const range of ranges) {
 				// For a bar on the line's side (the controller's), as an underline would be.
@@ -98,10 +100,34 @@ export class HighlightBoxes {
 					box.className = vertical ? `${name} vertical` : name;
 					box.style.cssText = `left: ${rect.left - origin.left}px; top: ${rect.top - origin.top}px; width: ${rect.width}px; height: ${rect.height}px`;
 					boxes.push(box);
+					right = Math.max(right, rect.right - origin.left);
+					bottom = Math.max(bottom, rect.bottom - origin.top);
 				}
 			}
 		}
 		layer.replaceChildren(...boxes);
+		if (this.inside) this.coverBoxes(right, bottom);
+	}
+
+	/**
+	 * Keeps the layer in the container over its boxes, those shown and those just removed: while it had no size of its
+	 * own, WebKit sometimes didn't repaint where a removed box was, and a box stayed on screen after the highlight was
+	 * cleared (2026-11-24: the second of a word's boxes, e.g. った of 思った). It grows while boxes are shown and is put
+	 * back to nothing two frames after the last one went (once that's painted), so it doesn't add to what the lines scroll.
+	 */
+	coverBoxes(right, bottom) {
+		const { layer } = this;
+		cancelAnimationFrame(this.uncover ?? 0);
+		if (layer.childElementCount > 0) {
+			layer.style.width = `${Math.max(parseFloat(layer.style.width) || 0, right)}px`;
+			layer.style.height = `${Math.max(parseFloat(layer.style.height) || 0, bottom)}px`;
+			return;
+		}
+		this.uncover = requestAnimationFrame(() => {
+			this.uncover = requestAnimationFrame(() => {
+				if (layer.childElementCount === 0) layer.style.width = layer.style.height = '';
+			});
+		});
 	}
 }
 

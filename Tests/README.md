@@ -94,7 +94,7 @@ already has sentence audio).
 | Folder | What |
 |---|---|
 | `popup/` | the dictionary popup: images, audio and its menu, notes, Anki's editor, tooltips, Yomitan's display settings, collapsible definitions, scanning inside it |
-| `overlay/` | the text box: highlight boxes after a resize and with the real pointer (a wrapped row, a scrolling box, furigana), fonts and effects, the debug log, sentence audio shortcut, switching the overlay, the box never narrower than its buttons and long messages wrapping inside it |
+| `overlay/` | the text box: highlight boxes after a resize, gone from the screen after the popup closes (window screenshots) and with the real pointer (a wrapped row, a scrolling box, furigana), fonts and effects, the debug log, sentence audio shortcut, switching the overlay, the box never narrower than its buttons and long messages wrapping inside it |
 | `ocr/` | OCR mode's text while a popup is open, the crash guard, the language filter |
 | `ocr-windows/` | OCR mode (Live Text) on test windows (`windows/`, shown without taking focus, at or past the main screen's right edge): typed, sparse, fading, animated, covered, untitled and floating (kept on top) windows, blinking icons (also one read as a bracket or as a letter right after the text), moving text, a visual novel's page in the text box (also with text replacements), a card's sentence with text replacements, kept screenshots, the captured window's screenshot sizes and popups closing when the page is told it hides or the space changed (the page's handlers, called by the test; Live Text pinned); and the debug log, stale debug glyphs and noted lines |
 | `gamepad/` | the controller in the text box and on OCR text, and switching to another app while it has focus |
