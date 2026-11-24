@@ -43,7 +43,9 @@ export function applyReplacementsMapped(text, replacements) {
  * expression's lastIndex.)
  */
 function substitution(replaces, match, captures, offset, text, groups) {
-	return replaces.replace(/\$([$&`']|\d\d?|<[^>]*>)/g, (token, key) => {
+	// Without named groups, $< is itself (and what follows it is read on).
+	const tokens = groups === undefined ? /\$([$&`']|\d\d?|<)/g : /\$([$&`']|\d\d?|<[^>]*>)/g;
+	return replaces.replace(tokens, (token, key) => {
 		if (key === '$') return '$';
 		if (key === '&') return match;
 		if (key === '`') return text.slice(0, offset);

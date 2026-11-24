@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         }
         overlay.onMouseButtonEvent = { [weak self] button, isDown in
             self?.settingsWindow.mouseButtonEvent(button: button, isDown: isDown)
+            if isDown { self?.ocr?.mouseButtonPressed(button) }
         }
 
         // First, so the log starts with its session record.

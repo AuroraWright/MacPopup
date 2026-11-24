@@ -71,6 +71,12 @@ export function matchScanInput(mode, customInputs, state) {
 	return passiveMatch;
 }
 
+/** The mouse buttons the scan inputs have to be held (not the excluded ones), e.g. Set {'mouse2'}. */
+export function scanButtons(mode, customInputs) {
+	const inputs = mode === 'custom' ? (customInputs ?? []).map(parseScanInput) : [[mode]];
+	return new Set(inputs.flat().filter(isMouseButton));
+}
+
 /** Whether any active scan input uses the right mouse button (whose context menu should then be suppressed). */
 function usesRightMouseButton(settings) {
 	return [

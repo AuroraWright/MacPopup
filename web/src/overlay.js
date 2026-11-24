@@ -5,7 +5,7 @@ import { mdiAccountVoice, mdiClipboardOffOutline, mdiClipboardTextOutline, mdiCo
 import { log, nativeCall } from './lib/native.js';
 import { logDebug, logEvent } from './lib/debug-log.js';
 import { getPopupPosition } from './lib/popup-position.js';
-import { matchScanInput, preventRightClickSelection } from './lib/scan-inputs.js';
+import { matchScanInput, preventRightClickSelection, scanButtons } from './lib/scan-inputs.js';
 import { getTextSourceFromPoint, searchTextSource, setHighlight, textSourceAt, useHighlightBoxes } from './lib/scanner.js';
 import { HighlightBoxes, showHighlight } from './lib/highlight-boxes.js';
 import { correctWithText, decodeLines, joinLines, letterCount, lineText, ocrCharOf, paragraphBreaks, renderLines, replaceInLines, wrappedReach } from './lib/ocr-layer.js';
@@ -1208,16 +1208,68 @@ function elementOf(source) {
 /**
  * The sentence of a word looked up in the OCR overlay with the text replacements, as the text box's lines have them,
  * for cards (the overlay shows the text as read). Not in rows matched with a WebSocket line: their text is that line's,
- * which has them already.
+ * which has them already, also where the sentence reaches into such a row from another.
  */
 function replacedSentence(source, sentence) {
 	const element = elementOf(source);
 	if (!element?.closest('.ocr-char') || element.closest('.ocr-matched') || typeof sentence?.text !== 'string') return sentence;
-	const replaced = applyReplacementsMapped(sentence.text, getSettings().replacements);
-	if (replaced.text === sentence.text) return sentence;
-	// The word starts where the first of what's left of it, or after it, is.
-	const offset = replaced.sources.findIndex((index) => index >= sentence.offset);
-	return { ...sentence, text: replaced.text, offset: offset < 0 ? replaced.text.length : offset };
+	const { replacements } = getSettings();
+	const matched = matchedUnits(element.closest('.ocr-char'), sentence);
+	let text = '';
+	const sources = [];
+	// Each run of the sentence from matched rows, or from other rows, the latter with the replacements.
+	for (let start = 0, end; start < sentence.text.length; start = end) {
+		for (end = start + 1; end < sentence.text.length && matched[end] === matched[start]; end++);
+		const run = sentence.text.slice(start, end);
+		const replaced = matched[start] ? { text: run, sources: [...Array(run.length).keys()] } : applyReplacementsMapped(run, replacements);
+		text += replaced.text;
+		sources.push(...[...replaced.sources].map((index) => start + index));
+	}
+	if (text === sentence.text) return sentence;
+	// The word starts where the first of what's left of it, or after it, is, and ends where what's after it starts
+	// (for the cloze, as a replacement in the word can change its length).
+	const at = (original) => {
+		const index = sources.findIndex((source) => source >= original);
+		return index < 0 ? text.length : index;
+	};
+	const offset = at(sentence.offset);
+	return { ...sentence, text, offset, wordLength: at(sentence.offset + source.text().length) - offset };
+}
+
+/**
+ * For each UTF-16 unit of Yomitan's `sentence` around the scanned character `char` (an .ocr-char), whether it's from a
+ * row matched with a WebSocket line: the OCR text's characters are followed back and forth from `char` along the
+ * sentence (what isn't one of them, e.g. the newline between paragraphs, isn't from such a row).
+ */
+function matchedUnits(char, sentence) {
+	const { text, offset } = sentence;
+	const matched = new Array(text.length).fill(false);
+	const chars = [...$('#ocr-text').querySelectorAll('.ocr-char')];
+	const at = chars.indexOf(char);
+	if (at < 0) return matched;
+	const mark = (span, from) => matched.fill(!!span.closest('.ocr-matched'), from, from + span.textContent.length);
+	for (let k = at, i = offset; i < text.length; ) {
+		const span = chars[k];
+		if (span?.textContent && text.startsWith(span.textContent, i)) {
+			mark(span, i);
+			i += span.textContent.length;
+			k++;
+		} else {
+			i++;
+		}
+	}
+	for (let k = at - 1, i = offset; i > 0; ) {
+		const span = chars[k];
+		const length = span?.textContent.length ?? 0;
+		if (length > 0 && i >= length && text.slice(i - length, i) === span.textContent) {
+			mark(span, i - length);
+			i -= length;
+			k--;
+		} else {
+			i--;
+		}
+	}
+	return matched;
 }
 
 // Popup hiding works like Yomitan's Frontend: "auto-hide results" hides the popup when a scan finds
@@ -1363,7 +1415,15 @@ window.__macpopupOutsideClick = () => {
 	popupManager.closeAll();
 };
 // Popups close when switching spaces, in the Floating Window too (the box shows on every space).
-window.__macpopupSpaceChanged = () => popupManager.closeAll();
+window.__macpopupSpaceChanged = () => {
+	ocr.skipped = null;
+	popupManager.closeAll();
+};
+// The pointer went to another display (the host sends no pointer events from there).
+window.__macpopupPointerLeft = () => {
+	lastPointer = null;
+	ocr.skipped = null;
+};
 
 // Copied text, with "Read copied text from clipboard" (see ClipboardMonitor.swift).
 window.__macpopupClipboard = (text) => {
@@ -1967,6 +2027,14 @@ window.__macpopupOcr = (message) => {
 			// unless it's still the same.
 			ocr.stale = true;
 			break;
+		case 'input': {
+			// A click, key press, scroll or controller press that may have gone to the game, e.g. advancing its text. Not
+			// a press of scan inputs' mouse buttons only (`buttons`): a game is taken not to use those.
+			const settings = getSettings();
+			const scanning = scanButtons(settings.scanModifier, settings.scanInputs);
+			if (!(message.buttons?.length > 0 && message.buttons.every((button) => scanning.has(button)))) ocr.skipped = null;
+			break;
+		}
 		case 'result':
 			showOcrResult(message);
 			// The reading "as it is" readOcrNow asked for (not one of a round that was under way, or of other areas).
@@ -2026,11 +2094,12 @@ function scanOcr(x, y, mods, lineElement, delay = getSettings().scanDelay) {
 	const settings = getSettings();
 	ocr.hoveredAt = Date.now();
 	clearTimeout(scan.timer);
+	const input = matchScanInput(settings.scanModifier, settings.scanInputs, mods);
 	if (ocr.stale || ocr.deferred) {
-		ocr.skipped = ocr.deferred ? null : { x, y, at: Date.now() };
+		// Only a hover that would have looked something up (with the keys held then).
+		ocr.skipped = ocr.deferred || input === null ? null : { x, y, at: Date.now() };
 		return;
 	}
-	const input = matchScanInput(settings.scanModifier, settings.scanInputs, mods);
 	if (input === null) return;
 	const vertical = lineElement.style.writingMode === 'vertical-rl';
 	const scanAtPoint = () => void scanSource(getTextSourceFromPoint(x, y), vertical, input);
@@ -2044,8 +2113,8 @@ function scanOcr(x, y, mods, lineElement, delay = getSettings().scanDelay) {
 /**
  * Once the text shown is current again (a reading was drawn, or it was read unchanged), looks up the word under the
  * pointer if a hover there was skipped meanwhile (see ocr.skipped) and the pointer hasn't moved since: lookups only
- * start when the pointer moves, so a pointer resting on the text would otherwise get no popup. The scan input is
- * checked with the keys held now, and the scan delay counts from the hover.
+ * start when the pointer moves, so a pointer resting on the text would otherwise get no popup. The scan input must
+ * have matched then and still match with the keys held now, and the scan delay counts from the hover.
  */
 function scanSkippedOcr() {
 	const skipped = ocr.skipped;

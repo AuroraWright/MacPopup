@@ -39,6 +39,8 @@ test('the mapped replacements give the same text, and where it came from', () =>
 		['明日も晴れるといいね', [{ pattern: '明日も', replaces: 'あしたも', flags: [] }, { pattern: 'いいね', replaces: 'いいな', flags: [] }]],
 		['x-ab-cd-y', [{ pattern: '(?<first>\\w)(\\w)', replaces: '[$2$1|$<first>|$&|$`|$\'|$$|$3|$0|$12|$<none>]', flags: ['g'] }]],
 		['abcdefghijkl', [{ pattern: '(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(k)', replaces: '$11$10$1$01$011$<x>', flags: [] }]],
+		// Without named groups, $< is itself and what follows it is read on.
+		['abc', [{ pattern: '(b)', replaces: '$<a$1>', flags: [] }]],
 	];
 	for (const [text, replacements] of cases) {
 		const mapped = applyReplacementsMapped(text, replacements);

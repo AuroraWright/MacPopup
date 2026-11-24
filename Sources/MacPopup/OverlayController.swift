@@ -56,6 +56,8 @@ final class OverlayController: NSObject {
     private weak var lastSetCursor: NSCursor?
     /// Whether the pointer is over the box or a popup.
     private var pointerInside = false
+    /// Whether the pointer was on the overlay's display at the last event (the page is told when it leaves).
+    private var pointerOnDisplay = false
     /// Watches for other apps setting the cursor while the pointer is over the box or a popup (see watchCursor).
     private var cursorTimer: Timer?
     private var cursorSeed: Int32 = 0
@@ -449,7 +451,12 @@ final class OverlayController: NSObject {
         lastPressed = pressed
         let mainHeight = NSScreen.screens.first?.frame.height ?? frame.height
         onCursorMoved?(CGPoint(x: location.x, y: mainHeight - location.y))
-        guard frame.contains(location) else { return }
+        guard frame.contains(location) else {
+            if pointerOnDisplay { webView.evaluateJavaScript("window.__macpopupPointerLeft?.()") }
+            pointerOnDisplay = false
+            return
+        }
+        pointerOnDisplay = true
 
         // Names are plain identifiers ("mouse3"), so they can be quoted directly.
         let pressedList = pressed.map { "\"\($0)\"" }.joined(separator: ",")

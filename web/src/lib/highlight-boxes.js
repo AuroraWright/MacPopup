@@ -75,7 +75,9 @@ export class HighlightBoxes {
 		let origin;
 		if (this.inside) {
 			if (!layer.isConnected) container.append(layer);
-			origin = layer.getBoundingClientRect();
+			// Where the layer is with no offset of its own (see coverBoxes).
+			const at = layer.getBoundingClientRect();
+			origin = { left: at.left - (parseFloat(layer.style.left) || 0), top: at.top - (parseFloat(layer.style.top) || 0) };
 		} else {
 			// Moved by the difference, whatever it's positioned in.
 			origin = container.getBoundingClientRect();
@@ -88,8 +90,7 @@ export class HighlightBoxes {
 			});
 		}
 		const boxes = [];
-		let right = 0;
-		let bottom = 0;
+		const extent = { left: 0, top: 0, right: 0, bottom: 0 };
 		for (const [name, ranges] of this.ranges) {
 			for (const range of ranges) {
 				// For a bar on the line's side (the controller's), as an underline would be.
@@ -100,32 +101,52 @@ export class HighlightBoxes {
 					box.className = vertical ? `${name} vertical` : name;
 					box.style.cssText = `left: ${rect.left - origin.left}px; top: ${rect.top - origin.top}px; width: ${rect.width}px; height: ${rect.height}px`;
 					boxes.push(box);
-					right = Math.max(right, rect.right - origin.left);
-					bottom = Math.max(bottom, rect.bottom - origin.top);
+					extent.left = Math.min(extent.left, rect.left - origin.left);
+					extent.top = Math.min(extent.top, rect.top - origin.top);
+					extent.right = Math.max(extent.right, rect.right - origin.left);
+					extent.bottom = Math.max(extent.bottom, rect.bottom - origin.top);
 				}
 			}
 		}
 		layer.replaceChildren(...boxes);
-		if (this.inside) this.coverBoxes(right, bottom);
+		if (this.inside) this.coverBoxes(extent);
 	}
 
 	/**
 	 * Keeps the layer in the container over its boxes, those shown and those just removed: while it had no size of its
 	 * own, WebKit sometimes didn't repaint where a removed box was, and a box stayed on screen after the highlight was
-	 * cleared (2026-11-24: the second of a word's boxes, e.g. った of 思った). It grows while boxes are shown and is put
-	 * back to nothing two frames after the last one went (once that's painted), so it doesn't add to what the lines scroll.
+	 * cleared (2026-11-24: the second of a word's boxes, e.g. った of 思った). While boxes are shown it covers them and
+	 * the ones drawn before (also left of its corner, where vertical lines go), and it's put back to nothing two frames
+	 * after the last one went (once that's painted), so it doesn't add to what the lines scroll.
+	 * @param {{left: number, top: number, right: number, bottom: number}} extent The boxes', from the layer's corner.
 	 */
-	coverBoxes(right, bottom) {
+	coverBoxes(extent) {
 		const { layer } = this;
 		cancelAnimationFrame(this.uncover ?? 0);
+		// The boxes shown before, until it's put back to nothing.
+		const last = this.covered ?? extent;
 		if (layer.childElementCount > 0) {
-			layer.style.width = `${Math.max(parseFloat(layer.style.width) || 0, right)}px`;
-			layer.style.height = `${Math.max(parseFloat(layer.style.height) || 0, bottom)}px`;
+			this.covered = extent;
+			const left = Math.min(extent.left, last.left);
+			const top = Math.min(extent.top, last.top);
+			Object.assign(layer.style, {
+				left: `${left}px`,
+				top: `${top}px`,
+				width: `${Math.max(extent.right, last.right) - left}px`,
+				height: `${Math.max(extent.bottom, last.bottom) - top}px`,
+			});
+			// The boxes are placed from the corner without the offset.
+			for (const box of layer.children) {
+				box.style.left = `${parseFloat(box.style.left) - left}px`;
+				box.style.top = `${parseFloat(box.style.top) - top}px`;
+			}
 			return;
 		}
 		this.uncover = requestAnimationFrame(() => {
 			this.uncover = requestAnimationFrame(() => {
-				if (layer.childElementCount === 0) layer.style.width = layer.style.height = '';
+				if (layer.childElementCount > 0) return;
+				layer.style.left = layer.style.top = layer.style.width = layer.style.height = '';
+				this.covered = null;
 			});
 		});
 	}

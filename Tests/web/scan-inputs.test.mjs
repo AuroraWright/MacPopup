@@ -1,7 +1,7 @@
 // Scan inputs (lib/scan-inputs.js): Yomitan's names and order, and which input applies to the keys and buttons held.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatScanInput, isValidInputName, matchScanInput, parseScanInput } from '../../web/src/lib/scan-inputs.js';
+import { formatScanInput, isValidInputName, matchScanInput, parseScanInput, scanButtons } from '../../web/src/lib/scan-inputs.js';
 
 const nothing = { shift: false, ctrl: false, alt: false, meta: false, pressed: [] };
 
@@ -39,4 +39,10 @@ test('custom inputs: an active one wins over hover, excluded keys and lookups co
 
 test('a name Yomitan doesn\'t allow never counts as held', () => {
 	assert.equal(matchScanInput('custom', ['cmd'], { ...nothing, meta: true }), null);
+});
+
+test('the mouse buttons scan inputs have to be held, not excluded ones', () => {
+	assert.deepEqual([...scanButtons('custom', ['mouse2', 'shift mouse3, terms', 'ctrl -mouse0', ''])], ['mouse2', 'mouse3']);
+	assert.deepEqual([...scanButtons('shift', [])], []);
+	assert.deepEqual([...scanButtons('none', ['mouse2'])], []);
 });

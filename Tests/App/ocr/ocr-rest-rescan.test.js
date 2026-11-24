@@ -6,6 +6,8 @@
 //   3  the pointer left the text before the reading came: no popup
 //   4  the reading comes before the scan delay (300 ms) has passed since the hover: the popup waits for the rest of it
 //   5  a click outside the popups before the reading (e.g. advancing the game's text): no popup
+//   6  a key or controller press that may have gone to the game before the reading (the host's "input"): no popup
+// (With a scan key and "Scan without mouse move" off: ocr-rest-rescan-key.)
 // (A hover while a reading waits for the popup to close isn't looked up once it's closed: see ocr-defer2's 1.)
 // settings: {"ocrMode": true, "ocrCloudEngine": "none", "scanDelay": 300, "autoHideResults": false, "hidePopupOnCursorExit": false, "ankiEnabled": false}
 // timeout: 90
@@ -97,6 +99,15 @@ test('overlay', async () => {
 	window.__macpopupOcr(reading('今日も晴れるかな'));
 	await wait(1200);
 	equal(popupVisible(), false, '5 a click before the reading: no popup');
+
+	// 6
+	await restWhileChanging();
+	await wait(400);
+	window.__macpopupOcr({ type: 'input' });
+	await wait(100);
+	window.__macpopupOcr(reading('今日も晴れるかな'));
+	await wait(1200);
+	equal(popupVisible(), false, '6 a key or controller press before the reading: no popup');
 
 	window.__macpopupOutsideClick();
 	window.__macpopupOcr({ type: 'window', visible: false });

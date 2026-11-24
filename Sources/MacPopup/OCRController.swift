@@ -1,6 +1,7 @@
 import AppKit
 import LiveText
 import OCREngines
+import os
 import ScreenCaptureKit
 import UniformTypeIdentifiers
 
@@ -95,6 +96,8 @@ final class OCRController {
     private static let animatedIgnoreTime: TimeInterval = 5
     /// When a click, key press or scroll was last seen (see checkInput).
     private var lastPress = Date.distantPast
+    /// The mouse buttons pressed (Yomitan's numbers) and when, from the overlay's button events (see mouseButtonPressed).
+    private var buttonPresses: [(button: Int, at: Date)] = []
     /// Per area, the lines last read there: an area is read on its own, and sent with the others.
     private var areaLines: [[[String: Any]]] = []
     /// Where the dialogue's text would go on, in its thumbnail's pixels (see thumbnails): a character's room after the
@@ -163,19 +166,35 @@ final class OCRController {
         inputUsed()
         // Not the cursor moving (e.g. to hover the text) nor modifier keys (e.g. the scan modifier).
         let presses: [CGEventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .scrollWheel]
-        let pressed = OCRClock.now.addingTimeInterval(-(presses.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? .infinity))
+        let times = presses.map { OCRClock.now.addingTimeInterval(-CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0)) }
+        let pressed = times.max() ?? .distantPast
         guard pressed.timeIntervalSince(lastPress) > 0.02 else { return }
+        // Which mouse buttons, when they were all there was since the last press seen (no key press or scroll).
+        let mouseOnly = zip(presses, times).allSatisfy { type, time in
+            [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(type) || time.timeIntervalSince(lastPress) <= 0.02
+        }
+        let buttons = Set(buttonPresses.filter { $0.at.timeIntervalSince(lastPress) > -0.05 }.map(\.button)).sorted()
+        buttonPresses = []
         lastPress = pressed
         if !overlay.showsPopups, NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
-            gameInput()
+            gameInput(buttons: mouseOnly && !buttons.isEmpty ? buttons : nil)
         }
+    }
+
+    /// A mouse button was pressed (Yomitan's number), anywhere: which one, for the press checkInput sees.
+    func mouseButtonPressed(_ button: Int) {
+        buttonPresses.append((button, OCRClock.now))
+        if buttonPresses.count > 16 { buttonPresses.removeFirst() }
     }
 
     /// A click, key press, scroll or controller press that may have gone to the game (not to MacPopup or its popups),
     /// whether or not reading waits for input: it can bring up text anywhere, also where an animation was learned
     /// that changes too much to be left out by its looks (see AnimatedBlock), so those are watched again. They're
-    /// learned again from the next reading of the same text.
-    func gameInput() {
+    /// learned again from the next reading of the same text. The page is told too: a hover made while the text was
+    /// changing isn't looked up once it's current (it may be the next line's), unless `buttons`, the mouse buttons it
+    /// was all of (Yomitan's numbers), are scan inputs' (a game is taken not to use those).
+    func gameInput(buttons: [Int]? = nil) {
+        send(["type": "input", "buttons": buttons.map { $0.map { "mouse\($0)" } } ?? []])
         let now = OCRClock.now
         var watched = 0
         for area in animatedBlocks.indices {
@@ -699,8 +718,8 @@ final class OCRController {
 
     /// The window levels a captured window can be at: normal windows and floating ones (floating panels, players
     /// kept on top), below the Dock, the menu bar and menus. A floating window that's entirely transparent isn't one,
-    /// nor one over a whole display (an overlay such as a screen dimmer, see-through where it's drawn clear, would
-    /// otherwise be picked wherever the picker points).
+    /// nor a see-through one over a whole display (an overlay such as a screen dimmer would otherwise be picked
+    /// wherever the picker points), while an opaque one is (a player kept on top in full screen).
     private static let pickableLayers = 0..<Int(CGWindowLevelForKey(.dockWindow))
 
     private static func coversDisplay(_ bounds: CGRect) -> Bool {
@@ -711,6 +730,72 @@ final class OCRController {
         return displays.prefix(Int(count)).contains { bounds.contains(CGDisplayBounds($0)) }
     }
 
+    /// Whether a floating window over a whole display is see-through: drawn with the window's own transparency, or
+    /// mostly in see-through colors, as a small screenshot of it shows. That's taken once per window, in the
+    /// background: until it's known, the window counts as see-through (left out), and a failed one is tried again
+    /// after 5 s.
+    private static func isSeeThroughOverlay(_ window: WindowInfo) -> Bool {
+        if window.alpha < 0.9 { return true }
+        let (known, start) = overlayChecks.withLock { checks -> (Bool?, Bool) in
+            switch checks[window.id] {
+            case .known(let seeThrough):
+                return (seeThrough, false)
+            case .checking:
+                return (nil, false)
+            case .failed(let at) where Date().timeIntervalSince(at) < 5:
+                return (nil, false)
+            default:
+                checks[window.id] = .checking
+                return (nil, true)
+            }
+        }
+        if start {
+            Task.detached {
+                let seeThrough = try? await screenshotSeeThrough(windowID: window.id)
+                overlayChecks.withLock { $0[window.id] = seeThrough.map { .known($0) } ?? .failed(Date()) }
+            }
+        }
+        return known ?? true
+    }
+
+    private enum OverlayCheck: Sendable {
+        case checking
+        case known(Bool)
+        case failed(Date)
+    }
+
+    nonisolated private static let overlayChecks = OSAllocatedUnfairLock<[CGWindowID: OverlayCheck]>(initialState: [:])
+
+    nonisolated private static func screenshotSeeThrough(windowID: CGWindowID) async throws -> Bool {
+        let content = try await ScreenCapture.shareableContent(onScreenWindowsOnly: false)
+        guard let scWindow = content.windows.first(where: { $0.windowID == windowID }) else { throw AppError("Window gone") }
+        let configuration = SCStreamConfiguration()
+        configuration.width = 64
+        configuration.height = 40
+        configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
+        configuration.backgroundColor = .clear
+        let filter = SCContentFilter(desktopIndependentWindow: scWindow)
+        return isSeeThrough(try await ScreenCapture.image(filter: filter, configuration: configuration))
+    }
+
+    /// Whether most of `image` is see-through (under 90% opaque).
+    nonisolated static func isSeeThrough(_ image: CGImage) -> Bool {
+        let width = image.width, height = image.height
+        guard width > 0, height > 0 else { return false }
+        var data = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = data.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(data: bytes.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return false }
+        let seeThrough = stride(from: 3, to: data.count, by: 4).count { data[$0] < 230 }
+        return seeThrough * 2 > width * height
+    }
+
     /// Other apps' windows of at least 40×40 points: normal and floating ones, or with `normalOnly` normal ones.
     private static func windows(
         _ options: CGWindowListOption, relativeTo window: CGWindowID = kCGNullWindowID, normalOnly: Bool = false
@@ -719,7 +804,8 @@ final class OCRController {
         let ownPID = ProcessInfo.processInfo.processIdentifier
         return list.compactMap(windowInfo).filter {
             (normalOnly ? $0.layer == 0
-                : pickableLayers.contains($0.layer) && ($0.layer == 0 || $0.alpha > 0 && !coversDisplay($0.bounds)))
+                : pickableLayers.contains($0.layer)
+                    && ($0.layer == 0 || $0.alpha > 0 && !(coversDisplay($0.bounds) && isSeeThroughOverlay($0))))
                 && $0.ownerPID != ownPID && $0.bounds.width >= 40 && $0.bounds.height >= 40
         }
     }

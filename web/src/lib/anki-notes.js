@@ -68,8 +68,10 @@ function getCloze(dictionaryEntry, sentence) {
 	}
 	const text = typeof sentence?.text === 'string' ? sentence.text : '';
 	const offset = typeof sentence?.offset === 'number' ? sentence.offset : 0;
+	// The word's length in a sentence with text replacements (see replacedSentence in overlay.js), which can differ.
+	const length = typeof sentence?.wordLength === 'number' ? sentence.wordLength : originalText.length;
 	const textChars = [...text];
-	const body = textChars.slice(offset, offset + originalText.length).join('');
+	const body = textChars.slice(offset, offset + length).join('');
 	const bodyKana = distributeFuriganaInflected(term, reading, body)
 		.map(({ text: text2, reading: reading2 }) => (reading2.length > 0 ? reading2 : text2))
 		.join('');
@@ -78,7 +80,7 @@ function getCloze(dictionaryEntry, sentence) {
 		prefix: textChars.slice(0, offset).join(''),
 		body,
 		bodyKana,
-		suffix: textChars.slice(offset + originalText.length).join(''),
+		suffix: textChars.slice(offset + length).join(''),
 	};
 }
 
