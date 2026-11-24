@@ -44,7 +44,9 @@ fi
 header() { sed -n "s|^// $1: ||p" "$TEST" | head -1; }
 SETTINGS=$(header settings) MOCK=$(header mock) CLIPBOARD=$(header clipboard) TIMEOUT=$(header timeout)
 SETUP=$(header setup) ENV=$(header env) DRIVER=$(header driver) BESIDE=$(header beside)
-export RUN HARNESS REPO SUITE
+# HARNESS_PID: drivers stop themselves if this script is gone (see tools/driver.py).
+HARNESS_PID=$$
+export RUN HARNESS REPO SUITE HARNESS_PID
 # A test that starts IINA itself (the user's app: there's no other) can't tell the user's IINA starting from its own.
 uses_iina=0
 [[ "$SETUP$BESIDE$DRIVER" == */Tests/App/iina/* ]] && uses_iina=1
@@ -54,17 +56,22 @@ app= mock= beside= driver= watchdog= guard=
 # what's left running once it ended (a window started by a beside command that's gone). Only run with &: the function's
 # subshell is replaced (exec), so that $! is the group's id.
 group() { exec python3 -I -c 'import os, sys; os.setsid(); os.execvp("zsh", ["zsh", "-c", sys.argv[1]])' "$1" }
-# Stops what the test started (killed if still there after 20 s) and removes the test's settings suite.
+# Stops what the test started, with everything left in its groups (what's still there after 20 s is killed), and
+# removes the test's settings suite. Each group's leader is stopped by its pid too: one only just started may not be a
+# group yet. (Only what's still running is killed, as zsh has reaped the rest: never a pid that's been reused since.)
 stop_all() {
-    local groups=() pids=()
-    for p in $driver $beside $watchdog; do groups+=(-$p); done
+    local groups=() pids=() left=() end=$((SECONDS + 20))
+    for p in $driver $beside $watchdog; do groups+=(-$p); pids+=($p); done
     for p in $app $mock $guard; do pids+=($p); done
-    (( ${#groups} + ${#pids} )) && kill -TERM -- $groups $pids 2>/dev/null
-    # (Not a group of its own: one only just started may not be a group yet when it's stopped, and it would then wait
-    # out the 20 s. Stopped, its sleep ends by itself.)
-    { sleep 20; kill -KILL -- $groups $pids } > /dev/null 2>&1 & local killer=$!
-    for p in $groups $pids; do wait ${p#-} 2>/dev/null; done
-    kill $killer 2>/dev/null; wait $killer 2>/dev/null
+    (( ${#pids} )) && kill -TERM -- $groups $pids 2>/dev/null
+    while (( ${#pids} )); do
+        left=()
+        for p in $groups $pids; do kill -0 -- $p 2>/dev/null && left+=($p); done
+        (( ${#left} )) || break
+        if (( SECONDS > end )); then kill -KILL -- $left 2>/dev/null; break; fi
+        sleep 0.1
+    done
+    for p in $pids; do wait $p 2>/dev/null; done
     defaults delete $SUITE 2>/dev/null
 }
 settings_changed() {
@@ -78,7 +85,8 @@ user_started() {
     pgrep -f "$( (( uses_iina )) && echo "$USER_MACPOPUP" || echo "$USER_MACPOPUP|$USER_IINA")" >/dev/null
 }
 interrupted() {
-    trap - INT TERM HUP
+    # Another Ctrl-C meanwhile doesn't cut the stopping short (it takes 20 s at most).
+    trap '' INT TERM HUP
     echo "interrupted: stopping the test instance" >&2
     stop_all
     [[ -f "$RUN/user-settings.plist" ]] && settings_changed \
@@ -130,6 +138,15 @@ if pgrep -f "$USER_MACPOPUP|$USER_IINA" >/dev/null; then
     echo "NOT RUN: the user's MacPopup or IINA is running"; exit 2
 fi
 env ${=MOCK} python3 -I "$HARNESS/mock.py" "$RUN/mock.log" & mock=$!
+# The app only once the mock takes connections: a page could ask it for something at once.
+end=$((SECONDS + 15))
+until [[ -f "$RUN/mock.ready" ]]; do
+    if (( SECONDS > end )) || ! kill -0 $mock 2>/dev/null; then
+        stop_all
+        echo "FAIL: the mock didn't start"; exit 1
+    fi
+    sleep 0.05
+done
 if [[ -n "$BESIDE" ]]; then
     group "$BESIDE" > "$RUN/beside.log" 2>&1 & beside=$!
 fi
@@ -153,8 +170,10 @@ grep -q "^test(" "$TEST" && page=1
 driver_status=0
 if [[ -n "$DRIVER" ]]; then
     PID=$app group "$DRIVER" > "$RUN/driver.log" 2>&1 & driver=$!
+    # Stops the driver after the timeout, unless it ended first (the page can take longer: it has 30 s to start too).
     # (Its output away from run.sh's: a sleep left over would hold that open until it ends.)
-    group "sleep ${TIMEOUT:-60}; touch '$RUN/watchdog'; kill -TERM -- -$driver" > /dev/null 2>&1 & watchdog=$!
+    group "end=\$((SECONDS + ${TIMEOUT:-60})); while (( SECONDS < end )); do kill -0 $driver || exit 0; sleep 0.2; done
+        kill -0 -- -$driver && touch '$RUN/watchdog' && kill -TERM -- -$driver" > /dev/null 2>&1 & watchdog=$!
 fi
 if (( page )) && logged ready 30; then
     [[ -n "$CLIPBOARD" ]] && sleep 1 && "$PB" $SUITE "$CLIPBOARD"

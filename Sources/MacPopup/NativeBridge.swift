@@ -19,6 +19,8 @@ protocol BridgeHost: AnyObject {
     /// - Parameter fullResolution: At the display's scale, or else at 1x.
     func ocrWindowScreenshot(fullResolution: Bool) async throws -> CGImage?
     func simulateMouse(x: Double, y: Double, shift: Bool)
+    /// Acts as if a click, key press or controller press went to the game (see OCRController.gameInput).
+    func simulateGameInput()
     /// Acts as if the sentence audio shortcut was pressed. `note` is a card added from a popup: the recording goes to
     /// that card only, replacing its sentence audio.
     func pressSentenceAudioShortcut(note: Int64?)
@@ -246,6 +248,12 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
                 shift: body["shift"] as? Bool ?? false
             )
             return ["ignoresMouseEvents": host.overlayIgnoresMouseEvents]
+        case "debugGameInput":
+            guard DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
+                throw AppError("Unavailable")
+            }
+            host.simulateGameInput()
+            return nil
         case "debugSentenceAudio":
             guard DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"] != nil, let host else {
                 throw AppError("Unavailable")

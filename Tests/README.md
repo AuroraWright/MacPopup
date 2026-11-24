@@ -65,7 +65,8 @@ test('overlay', async () => {
 `center`, `popupDocument`, `popupVisible`, `boxText` (the highlight boxes' text), `gamepadPress`, `mockLog`, `runFile`
 and `debugRecords` (the run folder's files, with `MOCK_RUN_FILES=1`), `windowSteps` and `windowStep` (a test window's
 steps, from beside.log), `watch` (a value's changes over time), `ocrText`, and `native` for the app's bridge, e.g.
-`native('debugMouse', {x, y})` to point at something without moving the real pointer. A test passes when it finished,
+`native('debugMouse', {x, y})` to point at something without moving the real pointer, or `native('debugGameInput')`
+for a click or key press that went to the game (see OCRController.gameInput). A test passes when it finished,
 checked something and nothing failed.
 
 More header lines, for what a page script can't do (see `harness/launch.sh`):
@@ -85,7 +86,7 @@ found, which would otherwise be the terminal running the tests (test instances d
 the guard is there in case that changes).
 
 `harness/mock.py`'s switches (`// mock:`): `MOCK_IMAGES` (dictionary images), `MOCK_NOTES` (notes 111 and 222 exist),
-`MOCK_EDITOR=browser|closed` (Anki's card browser), `MOCK_ADD_NOTE=<id>`, `MOCK_PROFILE` and `MOCK_PROFILE_FAIL=<n>`
+`MOCK_EDITOR=browser|closed` (Anki's card browser), `MOCK_ADD_NOTE=<id>`, `MOCK_PROFILE`, `MOCK_PROFILE_FAIL=<n>` and `MOCK_PROFILE_FAIL_FOR=<seconds>`
 (Yomitan's display options), `MOCK_TOKENIZE` (furigana), `MOCK_MATCH_LENGTH=<n>`, `MOCK_WEBSOCKET` (a WebSocket server
 on 59880 sending what's POSTed to 59881), `MOCK_WEBSOCKET_PORTS=<port>,…` (servers that stay connected),
 `MOCK_RUN_FILES`, `MOCK_SHOT` (with `MOCK_EDITOR`: a {screenshot} field), `MOCK_OVER` (with `MOCK_EDITOR`: note 333
@@ -94,7 +95,7 @@ already has sentence audio).
 | Folder | What |
 |---|---|
 | `popup/` | the dictionary popup: images, audio and its menu, notes, Anki's editor, tooltips, Yomitan's display settings, collapsible definitions, scanning inside it |
-| `overlay/` | the text box: highlight boxes after a resize, gone from the screen after the popup closes (window screenshots) and with the real pointer (a wrapped row, a scrolling box, furigana), fonts and effects, the debug log, sentence audio shortcut, switching the overlay, the box never narrower than its buttons and long messages wrapping inside it |
+| `overlay/` | the text box: highlight boxes after a resize, gone from the screen after the popup closes (window screenshots; `highlight-clear-driver.py` needs Python's PIL) and with the real pointer (a wrapped row, a scrolling box, furigana), fonts and effects, the debug log, sentence audio shortcut, switching the overlay, the box never narrower than its buttons and long messages wrapping inside it |
 | `ocr/` | OCR mode's text while a popup is open, a hover while the text changes looked up once it's current, the crash guard, the language filter |
 | `ocr-windows/` | OCR mode (Live Text) on test windows (`windows/`, shown without taking focus, at or past the main screen's right edge): typed, sparse, fading, animated, covered, untitled and floating (kept on top) windows, blinking icons (also one read as a bracket or as a letter right after the text), moving text, a visual novel's page in the text box (also with text replacements), a card's sentence with text replacements, kept screenshots, the captured window's screenshot sizes and popups closing when the page is told it hides or the space changed (the page's handlers, called by the test; Live Text pinned); and the debug log, stale debug glyphs and noted lines |
 | `gamepad/` | the controller in the text box and on OCR text, and switching to another app while it has focus |

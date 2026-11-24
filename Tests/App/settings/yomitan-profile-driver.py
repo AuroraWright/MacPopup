@@ -56,8 +56,8 @@ if __name__ == '__main__':
     retry = len(sys.argv) > 1 and sys.argv[1] == 'retry'
     if open_settings('Yomitan Popup', 'Use Yomitan’s display settings'):
         if retry:
-            # The first displayOptions request failed (MOCK_PROFILE_FAIL=1): no profile until YomitanAPIStatus asks
-            # again, at its next check (every 30 s).
+            # The displayOptions requests at launch failed (MOCK_PROFILE_FAIL_FOR): no profile until YomitanAPIStatus
+            # asks again, at its next check (every 30 s).
             time.sleep(2)
             equal(controlled(), [], 'rows controlled by Yomitan after the failed request')
             began = time.monotonic()

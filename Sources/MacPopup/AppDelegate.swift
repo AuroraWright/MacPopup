@@ -246,6 +246,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         return context.makeImage() ?? full
     }
 
+    func simulateGameInput() {
+        ocr.gameInput()
+    }
+
     func pressSentenceAudioShortcut(note: Int64?) {
         sentenceAudio.shortcutPressed(note: note)
     }

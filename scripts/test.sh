@@ -1,12 +1,12 @@
 #!/bin/zsh
-# Runs the tests. Usage: scripts/test.sh [unit|web|all] | app [--no-build] [--interactive] [test or folder...]
+# Runs the tests. Usage: scripts/test.sh [unit|web|all] | app [--no-build] [--interactive] [--network] [test or folder...]
 # See Tests/README.md.
 #   unit: the Swift unit tests (Tests/Unit, Swift Testing), a debug build of the package first.
 #   web:  the web code's tests (Tests/web, Node's test runner), no packages needed.
 #   all:  unit and web (default).
-#   app:  the app tests (Tests/App/run.sh) on a development build at build/test/MacPopup.app, built first unless
-#         --no-build, and its Yomitan API host's (Tests/Helpers). They don't run while the user's MacPopup or IINA is
-#         running.
+#   app:  the app tests (Tests/App/run.sh, which takes --interactive and --network) on a development build at
+#         build/test/MacPopup.app, built first unless --no-build, and its Yomitan API host's (Tests/Helpers) when no
+#         tests are named. They don't run while the user's MacPopup or IINA is running.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -25,14 +25,14 @@ if [[ "$SUITE" == app ]]; then
     Tests/App/run.sh "$@" || result=$?
     (( result == 2 )) && exit 2
     # The Yomitan API host on its own (no app instance): when no tests were named.
-    if (( $# == 0 )) || [[ "$*" == --interactive ]]; then
+    if [[ -z "${@:#--(interactive|network)}" ]]; then
         echo "== Yomitan API host"
         python3 -I Tests/Helpers/yomitan-api-host.py build/test/MacPopup.app/Contents/Helpers/yomitan_api || result=1
     fi
     exit $result
 fi
 if [[ "$SUITE" != (unit|web|all) ]]; then
-    echo "usage: scripts/test.sh [unit|web|all] | app [--no-build] [--interactive] [test or folder...]" >&2
+    echo "usage: scripts/test.sh [unit|web|all] | app [--no-build] [--interactive] [--network] [test or folder...]" >&2
     exit 2
 fi
 

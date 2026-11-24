@@ -1,10 +1,27 @@
 # driver.py: helpers for drivers written in Python (launch.sh's "// driver:"; RUN, HARNESS, REPO, SUITE and PID set).
 # A driver imports it with sys.path.insert(0, os.environ['HARNESS'] + '/tools') and checks with check/equal, which print
 # "TEST ok …"/"TEST FAIL …" lines as a page's checks; it exits 0 whatever they found.
-import json, os, subprocess, sys, time
+import json, os, signal, subprocess, sys, threading, time
 
 RUN, HARNESS, REPO, SUITE = (os.environ[name] for name in ('RUN', 'HARNESS', 'REPO', 'SUITE'))
 PID = os.environ.get('PID', '')
+
+
+def _stop_without_harness():
+    """Stops the driver's group (as launch.sh would) if launch.sh is gone, e.g. killed: a driver in a session of its
+    own doesn't get the terminal's Ctrl-C, and would otherwise go on pressing keys and moving the pointer."""
+    harness = int(os.environ.get('HARNESS_PID') or 0)
+    while harness:
+        try:
+            os.kill(harness, 0)
+        except (ProcessLookupError, PermissionError):
+            # (Another user's process with its pid: it's gone all the same.)
+            os.killpg(os.getpgrp(), signal.SIGTERM)
+            return
+        time.sleep(1)
+
+
+threading.Thread(target=_stop_without_harness, daemon=True).start()
 
 
 def log(message):

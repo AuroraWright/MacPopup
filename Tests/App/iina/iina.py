@@ -268,15 +268,20 @@ def make_speech_media(media):
 
 def clear_transcripts():
     """Deletes the files in TRANSCRIPTS' folders (the folders stay): only the tests' (the user's are in their own
-    ~/Library/Caches), and not when a part of its path leads elsewhere (/Users/Shared is anyone's to change)."""
+    ~/Library/Caches), and not when a part of its path leads elsewhere (/Users/Shared is anyone's to change). Each
+    folder is opened without following links and its files are deleted from it, so a folder swapped for a link
+    meanwhile can't lead elsewhere; only in folders that are the user's."""
     if not os.path.isdir(TRANSCRIPTS):
         return
     if os.path.realpath(TRANSCRIPTS) != TRANSCRIPTS or os.stat(TRANSCRIPTS).st_uid != os.getuid():
         log(f"{TRANSCRIPTS} leads elsewhere or isn't the user's: its files are left alone")
         return
-    for folder, _, names in os.walk(TRANSCRIPTS):
+    for folder, _, names, fd in os.fwalk(TRANSCRIPTS, follow_symlinks=False):
+        if os.fstat(fd).st_uid != os.getuid():
+            log(f"{folder} isn't the user's: its files are left alone")
+            continue
         for name in names:
-            os.remove(os.path.join(folder, name))
+            os.unlink(name, dir_fd=fd)
 
 
 def setup(kind):

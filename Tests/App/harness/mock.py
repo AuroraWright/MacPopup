@@ -101,7 +101,10 @@ profile = os.environ.get('MOCK_PROFILE') == '1'
 # dictionaryMedia.
 anki_media = [{**m, 'content': base64.b64encode(png(32, 32, (0, 160, 0, 255))).decode()} for m in media] if profile else media
 # MOCK_PROFILE_FAIL=n: the first n displayOptions requests are answered 503, as a request that fails once.
+# MOCK_PROFILE_FAIL_FOR=s: those in the first s seconds from the mock's start too (all the app asks at launch, however
+# many that is, and the checks right after them).
 profile_fails = [int(os.environ.get('MOCK_PROFILE_FAIL') or 0)]
+profile_fails_until = time.monotonic() + float(os.environ.get('MOCK_PROFILE_FAIL_FOR') or 0)
 display_options = {'general': {
     'language': 'ja', 'resultOutputMode': 'split', 'glossaryLayoutMode': 'compact', 'compactTags': True, 'averageFrequency': False,
     'frequencyDisplayMode': 'list', 'termDisplayMode': 'term-and-reading', 'showPitchAccentDownstepNotation': False,
@@ -158,14 +161,15 @@ class H(BaseHTTPRequestHandler):
                 targets = {(t.get('dictionary'), t.get('path')) for t in body.get('targets', [])}
                 out.update({'displayOptions': display_options, 'dictionaryInfo': dictionary_info,
                             'dictionaryMedia': [m for m in media if (m['dictionary'], m['path']) in targets]})
-            if path == 'displayOptions' and profile_fails[0] > 0:
+            if path == 'displayOptions' and (profile_fails[0] > 0 or time.monotonic() < profile_fails_until):
                 profile_fails[0] -= 1
                 log(f'yomitan-503 {path}')
                 self.send_response(503); self.send_header('Content-Length', '0'); self.end_headers()
                 return
             # MOCK_TOKENIZE=1: one token per character, with the reading よみ on each kanji (furigana in the text box).
-            # MOCK_TOKENIZE=words: words as Yomitan's are, a run of kanji with the hiragana after it (花びら, 思った), the
-            # reading よみ on the kanji only; other characters a token each.
+            # MOCK_TOKENIZE=words: about words, as Yomitan's tokens are: a run of kanji with all the hiragana after it
+            # (思った, also 花びらを, where Yomitan would make を a token of its own), the reading よみ on the kanji only;
+            # other characters a token each.
             if path == 'tokenize' and os.environ.get('MOCK_TOKENIZE') == 'words':
                 tokens = []
                 for kanji, kana, other in re.findall(r'([\u4e00-\u9fff]+)([\u3041-\u309f]*)|([\u3041-\u309f]+|.)', body.get('text', ''), re.S):
@@ -240,9 +244,25 @@ def ws_hold(port):
     import hashlib, socket
     server = socket.socket(); server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(('127.0.0.1', port)); server.listen()
+    # Reads the client's frames until it closes the connection, or sends a close frame, which is answered with one, as
+    # a server does (a client can wait for that before it drops the connection).
     def read(conn):
+        data = b''
         try:
-            while conn.recv(4096): pass
+            while chunk := conn.recv(4096):
+                data += chunk
+                while len(data) >= 2:
+                    if len(data) < {126: 4, 127: 10}.get(data[1] & 0x7f, 2): break
+                    length, at = data[1] & 0x7f, 2
+                    if length == 126: length, at = int.from_bytes(data[2:4], 'big'), 4
+                    elif length == 127: length, at = int.from_bytes(data[2:10], 'big'), 10
+                    end = at + (4 if data[1] & 0x80 else 0) + length
+                    if len(data) < end: break
+                    if data[0] & 0x0f == 8:
+                        conn.sendall(b'\x88\x00')
+                        conn.close()
+                        raise OSError
+                    data = data[end:]
         except OSError: pass
         log(f'websocket-port-closed {port} {time.time() * 1000:.0f}')
     while True:
@@ -257,4 +277,6 @@ def ws_hold(port):
         threading.Thread(target=read, args=(conn,), daemon=True).start()
 for port in filter(None, os.environ.get('MOCK_WEBSOCKET_PORTS', '').split(',')):
     threading.Thread(target=ws_hold, args=(int(port),), daemon=True).start()
+# The HTTP servers take connections from here on (launch.sh starts the app once this is there; WebSocket clients retry).
+open(os.path.join(os.path.dirname(log_path), 'mock.ready'), 'w').close()
 threading.Event().wait()
