@@ -1296,12 +1296,15 @@ let pointerPopup = null;
 
 window.__macpopupPointer = (x, y, shift, ctrl, alt, meta, pressed = []) => {
 	const moved = lastPointer === null || x !== lastPointer.x || y !== lastPointer.y;
-	lastPointer = { x, y };
+	const mods = { shift, ctrl, alt, meta, pressed };
+	lastPointer = { x, y, mods };
 	const lastPressedBefore = lastPressed;
 	const buttonPressed = pressed.some((button) => !lastPressed.includes(button));
+	// A skipped hover is looked up later only while the pointer stays where it was, and not after a click (which may
+	// have advanced the game's text).
+	if (moved || buttonPressed) ocr.skipped = null;
 	lastPressed = pressed;
 	const settings = getSettings();
-	const mods = { shift, ctrl, alt, meta, pressed };
 	const input = matchScanInput(settings.scanModifier, settings.scanInputs, mods);
 	const wasHeld = scanKeyHeld;
 	scanKeyHeld = input !== null && !input.passive;
@@ -1355,7 +1358,10 @@ window.__macpopupPointer = (x, y, shift, ctrl, alt, meta, pressed = []) => {
 	scan.overPopup = overPopup;
 };
 
-window.__macpopupOutsideClick = () => popupManager.closeAll();
+window.__macpopupOutsideClick = () => {
+	ocr.skipped = null;
+	popupManager.closeAll();
+};
 // Popups close when switching spaces, in the Floating Window too (the box shows on every space).
 window.__macpopupSpaceChanged = () => popupManager.closeAll();
 
@@ -1482,6 +1488,10 @@ const ocr = {
 	heldTimer: null,
 	// When the cursor last moved over the text's lines (Date.now()).
 	hoveredAt: 0,
+	// A hover over the text that wasn't looked up because the text was stale, as {x, y, at}: the word under the pointer
+	// is looked up once the text shown is current, if the pointer is still there (see scanSkippedOcr). Not once a
+	// reading waits for the popups to close (deferred): it's shown when they close, which isn't a hover.
+	skipped: null,
 	// Called with the next reading "as it is" (its message's `now`), or an error (see readOcrNow).
 	onReading: [],
 };
@@ -1548,6 +1558,7 @@ function clearOcrText() {
 	// The reading that follows decides whether the popup's word is still there.
 	if (highlightedOcrChars()) {
 		ocr.deferred = { clear: true };
+		ocr.skipped = null;
 		return;
 	}
 	ocr.deferred = null;
@@ -1776,6 +1787,7 @@ function showOcrResult(message) {
 		ocr.deferred = null;
 		ocr.held = null;
 		logDebug({ ...debug, shown, outcome: 'unchanged' });
+		scanSkippedOcr();
 		return;
 	}
 	// On screen from now on, even if it's shown once the popups close (for Anki Audio and Screenshot).
@@ -1786,6 +1798,7 @@ function showOcrResult(message) {
 	if (highlighted && (unsettled || hasCharsInPlace(lines, size, highlighted))) {
 		ocr.held = null;
 		ocr.deferred = { lines, size, key };
+		ocr.skipped = null;
 		logDebug({ ...debug, shown, outcome: 'shown once the popups close' });
 		return;
 	}
@@ -1820,6 +1833,7 @@ function holdOcrResult(reading) {
 		ocr.held = null;
 		if (highlightedOcrChars()) {
 			ocr.deferred = held;
+			ocr.skipped = null;
 			logEvent('held reading waits for the popups to close');
 			return;
 		}
@@ -1837,6 +1851,7 @@ function renderOcrResult({ lines, size, key }) {
 	const kept = moveOcrScan(scanned);
 	if (scanned) logEvent(kept ? `hovered word ${kept === 'moved' ? 'found where it moved' : 'kept'}` : 'hovered word gone', { place: scanned });
 	if (!kept) clearMainScan();
+	scanSkippedOcr();
 }
 
 /**
@@ -2007,20 +2022,42 @@ function ocrLineAt(x, y) {
 	return document.elementFromPoint(x, y)?.closest('#ocr-text .ocr-line') ?? null;
 }
 
-function scanOcr(x, y, mods, lineElement) {
+function scanOcr(x, y, mods, lineElement, delay = getSettings().scanDelay) {
 	const settings = getSettings();
 	ocr.hoveredAt = Date.now();
 	clearTimeout(scan.timer);
-	if (ocr.stale || ocr.deferred) return;
+	if (ocr.stale || ocr.deferred) {
+		ocr.skipped = ocr.deferred ? null : { x, y, at: Date.now() };
+		return;
+	}
 	const input = matchScanInput(settings.scanModifier, settings.scanInputs, mods);
 	if (input === null) return;
 	const vertical = lineElement.style.writingMode === 'vertical-rl';
 	const scanAtPoint = () => void scanSource(getTextSourceFromPoint(x, y), vertical, input);
 	if (input.passive) {
-		scan.timer = setTimeout(scanAtPoint, settings.scanDelay);
+		scan.timer = setTimeout(scanAtPoint, delay);
 	} else {
 		scanAtPoint();
 	}
+}
+
+/**
+ * Once the text shown is current again (a reading was drawn, or it was read unchanged), looks up the word under the
+ * pointer if a hover there was skipped meanwhile (see ocr.skipped) and the pointer hasn't moved since: lookups only
+ * start when the pointer moves, so a pointer resting on the text would otherwise get no popup. The scan input is
+ * checked with the keys held now, and the scan delay counts from the hover.
+ */
+function scanSkippedOcr() {
+	const skipped = ocr.skipped;
+	if (!skipped || ocr.stale || ocr.deferred) return;
+	ocr.skipped = null;
+	const { x, y, at } = skipped;
+	if (lastPointer?.x !== x || lastPointer?.y !== y || gamepad.focus || popupManager.hitTest(x, y)) return;
+	if (!box.hidden && rectContains(box.getBoundingClientRect(), x, y)) return;
+	const line = ocrLineAt(x, y);
+	if (!line) return;
+	logEvent('hover looked up once the text was current', { waited: Date.now() - at });
+	scanOcr(x, y, lastPointer.mods, line, Math.max(0, getSettings().scanDelay - (Date.now() - at)));
 }
 
 // Game controllers (Gamepads.swift). The host sends the held controls by GameController's names ("Button A",
