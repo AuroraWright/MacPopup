@@ -1,4 +1,5 @@
 import AppKit
+import OCREngines
 import PauseHelperInterface
 import ServiceManagement
 import Synchronization
@@ -54,11 +55,17 @@ final class GamePause {
     /// With pausing on, the helper is connected to (and so started by launchd) beforehand: the first freeze would
     /// otherwise wait for it to start.
     private func connectEarly() {
-        guard settings["gamePause"] as? Bool == true, connection == nil, Self.service.status == .enabled else { return }
+        guard settings["gamePause"] as? Bool == true, connection == nil, Self.helperAllowed else { return }
         helper()?.resume {}
     }
 
     nonisolated static var service: SMAppService { SMAppService.daemon(plistName: PauseHelper.plistName) }
+    /// Whether the helper may be asked: it's allowed in System Settings, or this is a copy without it (scripts/build.sh,
+    /// for test runs), which asks the one the installed MacPopup registered (the helper checks who asks).
+    nonisolated static var helperAllowed: Bool {
+        let plist = Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LaunchDaemons/\(PauseHelper.plistName)")
+        return !FileManager.default.fileExists(atPath: plist.path) || service.status == .enabled
+    }
     /// Shows a message on the overlay.
     var onToast: ((String) -> Void)?
     /// The game goes on after it was frozen (e.g. to watch its window for the rest of a line it was drawing).
@@ -90,7 +97,7 @@ final class GamePause {
         let freeze = requested && settings["gamePause"] as? Bool == true
         guard freeze != frozen else { return }
         if freeze {
-            guard Self.service.status == .enabled else {
+            guard Self.helperAllowed else {
                 DebugLog.note("game not paused: the pause helper isn't allowed")
                 if !toldAboutHelper {
                     toldAboutHelper = true
@@ -169,12 +176,13 @@ final class GamePause {
 
     // MARK: The game
 
-    /// The game's app and the processes to stop: the captured window's app (or else the app in front) and its helpers,
-    /// or for a Windows app in Parallels' Coherence mode, Parallels' VM (the whole VM pauses).
+    /// The game's app and the processes to stop: the captured window's app (or else the app in front, except in a test
+    /// instance, which would freeze whatever the user has in front) and its helpers, or for a Windows app in Parallels'
+    /// Coherence mode, Parallels' VM (the whole VM pauses).
     private static func gameProcesses() -> (app: pid_t, pids: [pid_t])? {
         let own = ProcessInfo.processInfo.processIdentifier
-        guard let app = OCRController.savedWindow()?.ownerPID ?? NSWorkspace.shared.frontmostApplication?.processIdentifier, app != own
-        else { return nil }
+        let front = isTest ? nil : NSWorkspace.shared.frontmostApplication?.processIdentifier
+        guard let app = OCRController.savedWindow()?.ownerPID ?? front, app != own else { return nil }
         let all = allPIDs()
         let bundleID = NSRunningApplication(processIdentifier: app)?.bundleIdentifier ?? ""
         if PauseHelper.isParallelsWinApp(bundleID: bundleID) {
@@ -183,6 +191,8 @@ final class GamePause {
         let bundle = AudioTap.bundlePath(of: app)
         return (app, all.filter { $0 != own && AudioTap.belongs($0, to: app, bundle: bundle) })
     }
+
+    private static let isTest = DevelopmentEnvironment["MACPOPUP_TEST_SCRIPT"] != nil
 
     private static func allPIDs() -> [pid_t] {
         let count = proc_listallpids(nil, 0)

@@ -77,9 +77,14 @@ cp "$BIN_DIR/MacPopup" "$APP/Contents/MacOS/MacPopup"
 # The Yomitan API's native messaging host, which Settings → Scanning → Install copies next to a browser's manifest.
 cp "$BIN_DIR/yomitan-api" "$APP/Contents/Helpers/yomitan_api"
 # The pause helper (Sources/PauseHelper), a launchd daemon that Settings → Yomitan Popup registers with SMAppService.
-cp "$BIN_DIR/pause-helper" "$APP/Contents/Helpers/pause-helper"
-mkdir -p "$APP/Contents/Library/LaunchDaemons"
-cp Resources/com.aury.macpopup.pause-helper.plist "$APP/Contents/Library/LaunchDaemons/"
+# Not in a development copy built elsewhere (test runs): macOS keeps one record of the app the helper belongs to, and
+# launching a copy that has it moves that record to the copy, after which launchd can't start the helper (exit 78,
+# EX_CONFIG) until it's reset. Such a copy uses the helper of the MacPopup that registered it (GamePause.helperAllowed).
+if [[ -z "${MACPOPUP_APP:-}" || "${MACPOPUP_HARDENED:-}" == 1 ]]; then
+    cp "$BIN_DIR/pause-helper" "$APP/Contents/Helpers/pause-helper"
+    mkdir -p "$APP/Contents/Library/LaunchDaemons"
+    cp Resources/com.aury.macpopup.pause-helper.plist "$APP/Contents/Library/LaunchDaemons/"
+fi
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # Marks a development build, for the test harness (Tests/App), which refuses to run the app as shipped: it would ignore
 # the test settings suite and use the user's settings.
@@ -144,7 +149,8 @@ if [[ -d "$APP/Contents/Frameworks" ]]; then
     "${SIGN[@]}" "$APP"/Contents/Frameworks/*.dylib >/dev/null
 fi
 "${SIGN[@]}" --identifier com.aury.macpopup.yomitan-api "$APP/Contents/Helpers/yomitan_api" >/dev/null
-"${SIGN[@]}" --identifier com.aury.macpopup.pause-helper "$APP/Contents/Helpers/pause-helper" >/dev/null
+[[ -f "$APP/Contents/Helpers/pause-helper" ]] \
+    && "${SIGN[@]}" --identifier com.aury.macpopup.pause-helper "$APP/Contents/Helpers/pause-helper" >/dev/null
 if [[ -f "$APP/Contents/Helpers/ffmpeg" ]]; then
     "${SIGN[@]}" --identifier com.aury.macpopup.ffmpeg "$APP/Contents/Helpers/ffmpeg" >/dev/null
 fi
