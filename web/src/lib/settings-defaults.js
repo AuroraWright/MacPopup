@@ -122,6 +122,9 @@ export const defaultSettings = {
 	overlayHideButtons: [],
 	overlaySwitchShortcut: null,
 	overlaySwitchButtons: [],
+	// Choose ocrWindow from any app, as the menu bar's Select Captured Window… (AppDelegate.selectOCRWindow): {key,
+	// modifiers} as in hotkeys, or null.
+	selectWindowShortcut: null,
 	// The window to read, {ownerName, title}, found again by these when MacPopup starts.
 	ocrWindow: null,
 	// Areas of the window to read, normalized to it ({x, y, width, height} in 0-1). Empty: the whole window.

@@ -69,8 +69,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         setUpEditMenu()
         setOverlayVisible(true)
         hideShortcut.onPress = { [weak self] _ in self?.toggleOverlayVisible(from: "keyboard") }
-        SettingsStore.shared.observe { [weak self] _ in self?.applyHideShortcut() }
-        applyHideShortcut()
+        selectWindowShortcut.onPress = { [weak self] _ in
+            if DebugLog.isOn { DebugLog.record(["type": "event", "event": "select window", "from": "keyboard"]) }
+            self?.selectOCRWindow()
+        }
+        SettingsStore.shared.observe { [weak self] _ in self?.applyShortcuts() }
+        applyShortcuts()
 
         if WelcomeWindowController.isFirstLaunch {
             welcomeWindow = WelcomeWindowController(yomitanAPI: yomitanAPI) { [weak self] section in
@@ -143,10 +147,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     /// Settings → General → Overlay hide key/buttons: the keyboard shortcut (the controller buttons are matched by
     /// overlay.js).
     private let hideShortcut = HotkeyController(signature: 0x4D50_4F48) // "MPOH"
+    /// Settings → General → Select captured window key, as Select Captured Window… in the menu bar.
+    private let selectWindowShortcut = HotkeyController(signature: 0x4D50_5357) // "MPSW"
 
-    private func applyHideShortcut() {
-        hideShortcut.set(KeyCombination(setting: SettingsStore.shared.dictionary["overlayHideShortcut"])) { [weak self] taken in
+    private func applyShortcuts() {
+        let settings = SettingsStore.shared.dictionary
+        hideShortcut.set(KeyCombination(setting: settings["overlayHideShortcut"])) { [weak self] taken in
             self?.overlay.showToast("The overlay hide shortcut \(taken.displayName) is used by another app or shortcut")
+        }
+        selectWindowShortcut.set(KeyCombination(setting: settings["selectWindowShortcut"])) { [weak self] taken in
+            self?.overlay.showToast("The select captured window key \(taken.displayName) is used by another app or shortcut")
         }
     }
 

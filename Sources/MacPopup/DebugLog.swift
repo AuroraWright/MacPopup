@@ -98,10 +98,10 @@ enum DebugLog {
     }
 
     /// The settings logged: those that change how OCR reads and shows text, how lines and popups are scanned, Game Pause,
-    /// the controller, the popup shortcuts, the overlay switch, Anki (but not its key), Anki Screenshot, Anki Audio and
+    /// the controller, the popup shortcuts, the overlay switch, the select window shortcut, Anki (but not its key), Anki Screenshot, Anki Audio and
     /// IINA.
     @MainActor static var settings: [String: Any] {
-        let prefixes = ["ocr", "gamePause", "gamepad", "scan", "popupScan", "overlayHide", "overlaySwitch", "anki", "screenshot", "sentenceAudio", "iina"]
+        let prefixes = ["ocr", "gamePause", "gamepad", "scan", "popupScan", "overlayHide", "overlaySwitch", "selectWindow", "anki", "screenshot", "sentenceAudio", "iina"]
         let keys: Set<String> = ["language", "websocketUrls", "floatingWindowOCR", "hotkeys", "duplicateBehavior", "checkForDuplicates"]
         return SettingsStore.shared.dictionary.filter { key, _ in
             key != "ankiConnectKey" && (keys.contains(key) || prefixes.contains { key.hasPrefix($0) })

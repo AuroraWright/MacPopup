@@ -254,6 +254,10 @@ enum SettingsSchema {
                     hint: "The target window used for OCR, Anki {screenshot} fields, Anki sentence audio and transcription. If none is selected, the entire screen/system audio are used."
                 ),
                 SettingsField(
+                    "selectWindowShortcut", "Select captured window key", .shortcut,
+                    hint: "Chooses the captured window from any app, as Select Captured Window… in the menu bar does. Your game doesn’t see this shortcut."
+                ),
+                SettingsField(
                     "theme", "Theme", .select(support.themes.map { SettingsOption($0) }),
                     hint: "The colors of the text box in the Floating Window. With the OCR overlay, it only sets the color of text highlights."
                 ),

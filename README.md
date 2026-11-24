@@ -176,7 +176,7 @@ Security*).
 ### Selecting a Window and Capture Areas
 
 Choose **Select Captured Window…** in the menu bar (or click **Select…** next to **Captured window** in
-*Settings → General*):
+*Settings → General*, or press the **Select captured window key** set below it, from any app):
 
 1. **Click the window** you want MacPopup to read, or **Whole Screen** for the entire screen.
 2. **Optionally, drag over the areas where text appears**, then click **Done** (`Return`).
