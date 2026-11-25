@@ -9,6 +9,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) CGRect box;
 /// The words of a line (for Japanese, usually single characters). Empty for words themselves.
 @property (nonatomic, readonly, copy) NSArray<MPLiveTextItem *> *words;
+/// Its corners (top left, top right, bottom right, bottom left), normalized as `box` is: turned with the text.
+@property (nonatomic, readonly) CGPoint topLeft, topRight, bottomRight, bottomLeft;
 @end
 
 /// Text recognition with Apple's Live Text (VisionKit's image analyzer), the same engine as Live Text

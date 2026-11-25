@@ -146,9 +146,9 @@ private enum GoogleLens {
                 }
                 text = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { continue }
-                let box = line.message(2)?.message(1).map { bounds($0, width: width, height: height) }
-                    ?? words.map(\.box).reduce(CGRect.null) { $0.union($1) }
-                lines.append(RecognizedLine(text: text, box: box, words: words))
+                let quad = line.message(2)?.message(1).map { corners($0, width: width, height: height) }
+                let box = quad.map(bounds) ?? words.map(\.box).reduce(CGRect.null) { $0.union($1) }
+                lines.append(RecognizedLine(text: text, box: box, words: words, corners: quad))
             }
         }
         return lines
@@ -156,18 +156,29 @@ private enum GoogleLens {
 
     /// A CenterRotatedBox's bounds, normalized to the image (as its coordinates are, unless it says they're pixels).
     static func bounds(_ box: ProtoMessage, width: Int, height: Int) -> CGRect {
+        bounds(corners(box, width: width, height: height))
+    }
+
+    /// A CenterRotatedBox's corners (top left, top right, bottom right, bottom left), normalized to the image.
+    static func corners(_ box: ProtoMessage, width: Int, height: Int) -> [CGPoint] {
         let (w, h) = (CGFloat(width), CGFloat(height))
         let isPixels = box.number(6) == 2  // coordinate_type: IMAGE
         let scaleX = isPixels ? 1 : w, scaleY = isPixels ? 1 : h
         let center = CGPoint(x: CGFloat(box.float(1) ?? 0) * scaleX, y: CGFloat(box.float(2) ?? 0) * scaleY)
         let size = CGSize(width: CGFloat(box.float(3) ?? 0) * scaleX, height: CGFloat(box.float(4) ?? 0) * scaleY)
-        let rect = CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
-        let rotated = rect.applying(
-            CGAffineTransform(translationX: center.x, y: center.y)
-                .rotated(by: CGFloat(box.float(5) ?? 0))
-                .translatedBy(x: -center.x, y: -center.y)
-        )
-        return CGRect(x: rotated.minX / w, y: rotated.minY / h, width: rotated.width / w, height: rotated.height / h)
+        let turn = CGAffineTransform(translationX: center.x, y: center.y)
+            .rotated(by: CGFloat(box.float(5) ?? 0))
+            .translatedBy(x: -center.x, y: -center.y)
+        let (x0, y0, x1, y1) = (center.x - size.width / 2, center.y - size.height / 2, center.x + size.width / 2, center.y + size.height / 2)
+        return [CGPoint(x: x0, y: y0), CGPoint(x: x1, y: y0), CGPoint(x: x1, y: y1), CGPoint(x: x0, y: y1)].map {
+            let p = $0.applying(turn)
+            return CGPoint(x: p.x / w, y: p.y / h)
+        }
+    }
+
+    static func bounds(_ points: [CGPoint]) -> CGRect {
+        let xs = points.map(\.x), ys = points.map(\.y)
+        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
     }
 }
 
@@ -249,24 +260,32 @@ private enum Bing {
         let regions = (action?["data"] as? [String: Any])?["regions"] as? [[String: Any]] ?? []
         return regions.flatMap { region in
             (region["lines"] as? [[String: Any]] ?? []).compactMap { line -> RecognizedLine? in
-                guard let text = line["text"] as? String, !text.isEmpty, let box = bounds(line["boundingBox"]) else { return nil }
+                guard let text = line["text"] as? String, !text.isEmpty, let quad = corners(line["boundingBox"]) else { return nil }
                 let words = (line["words"] as? [[String: Any]] ?? []).compactMap { word -> (text: String, box: CGRect)? in
                     guard let text = word["text"] as? String, let box = bounds(word["boundingBox"]) else { return nil }
                     return (text, box)
                 }
-                return RecognizedLine(text: text, box: box, words: words)
+                return RecognizedLine(text: text, box: bounds(quad), words: words, corners: quad)
             }
         }
     }
 
     /// The bounds of a quadrilateral (topLeft, topRight, bottomRight, bottomLeft).
     static func bounds(_ quad: Any?) -> CGRect? {
+        corners(quad).map(bounds)
+    }
+
+    /// A quadrilateral's corners, in that order.
+    static func corners(_ quad: Any?) -> [CGPoint]? {
         guard let quad = quad as? [String: Any] else { return nil }
         let points = ["topLeft", "topRight", "bottomRight", "bottomLeft"].compactMap { corner -> CGPoint? in
             guard let point = quad[corner] as? [String: Any], let x = point["x"] as? Double, let y = point["y"] as? Double else { return nil }
             return CGPoint(x: x, y: y)
         }
-        guard points.count == 4 else { return nil }
+        return points.count == 4 ? points : nil
+    }
+
+    static func bounds(_ points: [CGPoint]) -> CGRect {
         let xs = points.map(\.x), ys = points.map(\.y)
         return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
     }

@@ -216,7 +216,7 @@ final class Simulation: @unchecked Sendable {
             cache[key] = (lines.map { line in
                 let box = Self.rect(line["box"])
                 let words = (line["words"] as? [[Any]] ?? []).map { word in (word.first as? String ?? "", Self.rect(Array(word.dropFirst()))) }
-                return RecognizedLine(text: line["text"] as? String ?? "", box: box, words: words)
+                return RecognizedLine(text: line["text"] as? String ?? "", box: box, words: words, corners: RecognizedLine.corners(saved: line["corners"]))
             }, ms)
         }
     }
@@ -224,7 +224,9 @@ final class Simulation: @unchecked Sendable {
     private func save(_ key: String, _ lines: [RecognizedLine], _ ms: Double) {
         let numbers = { (rect: CGRect) -> [Any] in [Double(rect.minX), Double(rect.minY), Double(rect.width), Double(rect.height)] }
         let record: [String: Any] = ["key": key, "ms": ms, "lines": lines.map { line in
-            ["text": line.text, "box": numbers(line.box), "words": line.words.map { [$0.text as Any] + numbers($0.box) }] as [String: Any]
+            var item: [String: Any] = ["text": line.text, "box": numbers(line.box), "words": line.words.map { [$0.text as Any] + numbers($0.box) }]
+            item["corners"] = line.savedCorners
+            return item
         }]
         guard let data = try? JSONSerialization.data(withJSONObject: record) else { return }
         if let handle = try? FileHandle(forWritingTo: cacheURL) {

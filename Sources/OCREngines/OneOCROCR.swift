@@ -28,7 +28,7 @@ public final class OneOCROCR: Sendable {
         }
     }
 
-    /// Lines with their words' boxes (CJK characters are words of their own), normalized to the image.
+    /// Lines with their words' boxes (CJK characters are words of their own) and their corners, normalized to the image.
     private static func lines(_ lines: [OneOCREngine.Line], width: Int, height: Int) -> [RecognizedLine] {
         let w = CGFloat(width), h = CGFloat(height)
         func normalized(_ quad: [CGPoint]) -> CGRect {
@@ -37,7 +37,8 @@ public final class OneOCROCR: Sendable {
             return CGRect(x: x0 / w, y: y0 / h, width: ((xs.max() ?? 0) - x0) / w, height: ((ys.max() ?? 0) - y0) / h)
         }
         return lines.map { line in
-            RecognizedLine(text: line.text, box: normalized(line.quad), words: line.words.map { ($0.text, normalized($0.quad)) })
+            RecognizedLine(text: line.text, box: normalized(line.quad), words: line.words.map { ($0.text, normalized($0.quad)) },
+                           corners: line.quad.count == 4 ? line.quad.map { CGPoint(x: $0.x / w, y: $0.y / h) } : nil)
         }
     }
 }

@@ -124,7 +124,7 @@ final class ReadingStore: @unchecked Sendable {
         let kept = items.filter { OCRLanguage.contains($0.text, language: language) }
         var lines = kept.map { OCRLayout.layOut($0, image: gray, size: size, exactBoxes: engine.hasExactBoxes, toWindow: toPixels) }
         if stripsFurigana { lines = OCRLayout.removingFurigana(lines) }
-        let ordered = engine.ordersLines ? OCRLayout.keepingRowsTogether(lines) : OCRLayout.inReadingOrder(lines)
+        let ordered = OCRLayout.inReadingOrder(lines)
         return [
             "image": ["width": image.width, "height": image.height],
             "engine": engine.rawValue,

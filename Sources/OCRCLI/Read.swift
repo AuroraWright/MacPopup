@@ -44,7 +44,7 @@ import OCREngines
                     }
                 }
             }
-            return items.map { line in RecognizedLine(text: line.text, box: line.box, words: line.words.map { ($0.text, $0.box) }) }
+            return items.map(RecognizedLine.init)
         case .screenAI:
             return try await ScreenAIOCR.shared.recognize(image, language: language)
         case .oneOCR:
@@ -74,7 +74,11 @@ import OCREngines
             let start = Date()
             let lines = try await recognize(picture)
             if done > 0 { recognizing += Date().timeIntervalSince(start) }
-            let raw = lines.map { ["text": $0.text, "box": rectArray($0.box), "words": $0.words.map { [$0.text] + rectArray($0.box).map { $0 as Any } }] as [String: Any] }
+            let raw = lines.map { line in
+                var item: [String: Any] = ["text": line.text, "box": rectArray(line.box), "words": line.words.map { [$0.text] + rectArray($0.box).map { $0 as Any } }]
+                item["corners"] = line.savedCorners
+                return item
+            }
             let output = outputFolder.appendingPathComponent(path + ".json")
             try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONSerialization.data(withJSONObject: raw).write(to: output)

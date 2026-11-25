@@ -7,11 +7,29 @@ public struct RecognizedLine {
     public var box: CGRect
     /// Its words in order (for Japanese, usually single characters).
     public var words: [(text: String, box: CGRect)]
+    /// Its corners (top left, top right, bottom right, bottom left), normalized as the box is, from engines that give
+    /// how a line is turned (Live Text, OneOCR, Screen AI, Google Lens, Bing); nil for the box itself.
+    public var corners: [CGPoint]?
 
-    public init(text: String, box: CGRect, words: [(text: String, box: CGRect)]) {
+    public init(text: String, box: CGRect, words: [(text: String, box: CGRect)], corners: [CGPoint]? = nil) {
         self.text = text
         self.box = box
         self.words = words
+        self.corners = corners
+    }
+
+    /// Its corners as readings are saved (ocr-cli read, the simulator's cache): [[x, y], …], nil without them.
+    public var savedCorners: [[Double]]? {
+        corners?.map { [Double($0.x), Double($0.y)] }
+    }
+
+    /// Corners from a saved reading (see savedCorners).
+    public static func corners(saved value: Any?) -> [CGPoint]? {
+        guard let points = value as? [[Any]], points.count == 4 else { return nil }
+        return points.map { point in
+            let numbers = point.map { ($0 as? NSNumber)?.doubleValue ?? 0 }
+            return CGPoint(x: numbers.first ?? 0, y: numbers.dropFirst().first ?? 0)
+        }
     }
 }
 
@@ -103,14 +121,89 @@ public enum OCRLayout {
         public var chars: [Char]
         /// Where its ink is across it; nil without the picture.
         public var ink: Ink?
+        /// Its corners (see RecognizedLine.corners), or nil for its box.
+        public var corners: [CGPoint]?
 
-        public init(text: String, box: CGRect, vertical: Bool, chars: [Char], ink: Ink? = nil) {
+        public init(text: String, box: CGRect, vertical: Bool, chars: [Char], ink: Ink? = nil, corners: [CGPoint]? = nil) {
             self.text = text
             self.box = box
             self.vertical = vertical
             self.chars = chars
             self.ink = ink
+            self.corners = corners
         }
+
+        /// How far it's turned from upright or from straight down, in radians (clockwise, within a quarter turn either
+        /// way): the mean of its top and bottom edges' angles. Nil without corners, and for a line under 2.5 times as
+        /// long as it's thick, whose angle says little (a character or two: engines read some vertical text as such
+        /// pieces, at any angle).
+        var tilt: CGFloat? {
+            guard let c = corners, c.count == 4 else { return nil }
+            let sides = (hypot(c[1].x - c[0].x, c[1].y - c[0].y), hypot(c[3].x - c[0].x, c[3].y - c[0].y))
+            guard max(sides.0, sides.1) >= min(sides.0, sides.1) * 2.5 else { return nil }
+            let angle = atan2((c[1].y - c[0].y) + (c[2].y - c[3].y), (c[1].x - c[0].x) + (c[2].x - c[3].x))
+            return angle - (angle / (.pi / 2)).rounded() * (.pi / 2)
+        }
+
+        /// How long it is along its text (its longer side), which its tilt counts for in a mean of tilts: a character's
+        /// is a poor guide to its paragraph's.
+        var length: CGFloat {
+            guard let c = corners, c.count == 4 else { return max(box.width, box.height) }
+            return max(hypot(c[1].x - c[0].x, c[1].y - c[0].y), hypot(c[3].x - c[0].x, c[3].y - c[0].y))
+        }
+
+        /// How it's drawn over its text: turned by its own tilt, or its paragraph's (`paragraphTilt`, see paragraphs)
+        /// when it has none, with its box as seen turned back by that about its middle (upright, along its text). Nil
+        /// when it's turned less than leastTilt or has no corners.
+        public func turn(paragraphTilt: CGFloat) -> (angle: CGFloat, box: CGRect)? {
+            guard let corners, corners.count == 4 else { return nil }
+            let angle = tilt ?? paragraphTilt
+            guard abs(angle) >= OCRLayout.leastTilt else { return nil }
+            let middle = CGPoint(x: corners.reduce(0) { $0 + $1.x } / 4, y: corners.reduce(0) { $0 + $1.y } / 4)
+            let (c, s) = (cos(angle), sin(angle))
+            let turned = corners.map { point in
+                let (x, y) = (point.x - middle.x, point.y - middle.y)
+                return CGPoint(x: middle.x + x * c + y * s, y: middle.y - x * s + y * c)
+            }
+            let xs = turned.map(\.x), ys = turned.map(\.y)
+            return (angle, CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!))
+        }
+
+        /// The line with its box as seen turned back by `angle` (about the origin): upright when that's its tilt.
+        func turnedBack(by angle: CGFloat) -> Line {
+            guard angle != 0 else { return self }
+            let points = corners ?? [CGPoint(x: box.minX, y: box.minY), CGPoint(x: box.maxX, y: box.minY),
+                                     CGPoint(x: box.maxX, y: box.maxY), CGPoint(x: box.minX, y: box.maxY)]
+            let (c, s) = (cos(angle), sin(angle))
+            let turned = points.map { CGPoint(x: $0.x * c + $0.y * s, y: -$0.x * s + $0.y * c) }
+            var line = self
+            let xs = turned.map(\.x), ys = turned.map(\.y)
+            line.box = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+            return line
+        }
+    }
+
+    /// Lines turned less than this (radians, 3°) are taken as upright: engines' corners for straight text are often a
+    /// degree or two off.
+    static let leastTilt: CGFloat = 3 * .pi / 180
+    /// Lines whose tilts differ by more than this (radians, 8°) aren't one paragraph: the rows of a game's slanted
+    /// dialogue were 6–7.8° apart, and a sign turned 8–10° beside straight dialogue joined it when 12° was allowed.
+    static let mostTiltDifference: CGFloat = 8 * .pi / 180
+
+    /// The tilt two lines are compared at: 0 when they're about upright, their mean when they're turned alike (text
+    /// set at an angle, as games' dialogue sometimes is), and nil when they're turned differently.
+    static func sharedTilt(_ a: Line, _ b: Line) -> CGFloat? {
+        if let tiltA = a.tilt, let tiltB = b.tilt, abs(tiltA - tiltB) > mostTiltDifference { return nil }
+        return meanTilt([a, b])
+    }
+
+    /// The lines' tilt, the mean of those they have by their lengths; 0 when that's under leastTilt or none has one.
+    static func meanTilt(_ lines: [Line]) -> CGFloat {
+        let tilted = lines.compactMap { line in line.tilt.map { (tilt: $0, length: line.length) } }
+        let total = tilted.reduce(0) { $0 + $1.length }
+        guard total > 0 else { return 0 }
+        let mean = tilted.reduce(0) { $0 + $1.tilt * $1.length } / total
+        return abs(mean) < leastTilt ? 0 : mean
     }
 
     /// Where a line's ink is across it (x in vertical lines, y in horizontal ones), in window points: runs of rows or
@@ -126,6 +219,11 @@ public enum OCRLayout {
         public init(_ measure: @escaping () -> [Run]?) {
             self.measure = measure
         }
+    }
+
+    /// The lines' paragraphs in reading order (see inParagraphs), each with its tilt (see meanTilt).
+    public static func paragraphs(_ lines: [Line]) -> [(lines: [Line], tilt: CGFloat)] {
+        inParagraphs(lines) { $0 }.map { ($0, meanTilt($0)) }
     }
 
     /// The lines in reading order, a paragraph at a time (see inParagraphs).
@@ -158,9 +256,21 @@ public enum OCRLayout {
             }
             return index
         }
+        // Each paragraph's tilts, kept within mostTiltDifference: lines turned differently could otherwise join a few
+        // degrees at a time (straight dialogue, a label turned 8°, a sign turned 17° beside it).
+        var tilts = lines.map { line in line.tilt.map { (least: $0, most: $0) } }
         for i in lines.indices {
             for j in lines.indices where j > i && joins(lines[i], lines[j]) {
-                parent[root(j)] = root(i)
+                let (a, b) = (root(i), root(j))
+                guard a != b else { continue }
+                if let tiltsA = tilts[a], let tiltsB = tilts[b] {
+                    let range = (least: min(tiltsA.least, tiltsB.least), most: max(tiltsA.most, tiltsB.most))
+                    guard range.most - range.least <= mostTiltDifference else { continue }
+                    tilts[a] = range
+                } else {
+                    tilts[a] = tilts[a] ?? tilts[b]
+                }
+                parent[b] = a
             }
         }
         var members: [Int: [Int]] = [:]
@@ -168,7 +278,10 @@ public enum OCRLayout {
         let paragraphs = members.keys.sorted().map { key -> (indices: [Int], box: CGRect) in
             let indices = members[key]!
             let vertical = indices.filter { lines[$0].vertical }.count * 2 > indices.count
-            return (inRows(indices, box: { lines[$0].box }, vertical: vertical), indices.reduce(CGRect.null) { $0.union(lines[$1].box) })
+            // Its rows as they run, when it's turned.
+            let angle = meanTilt(indices.map { lines[$0] })
+            return (inRows(indices, box: { lines[$0].turnedBack(by: angle).box }, vertical: vertical),
+                    indices.reduce(CGRect.null) { $0.union(lines[$1].box) })
         }
         let vertical = lines.filter(\.vertical).count * 2 > lines.count
         return inRows(paragraphs, box: \.box, vertical: vertical).map { $0.indices.map { items[$0] } }
@@ -197,9 +310,11 @@ public enum OCRLayout {
     }
 
     /// Whether two lines are in one paragraph: one goes on along the other's row (see continues), or they're
-    /// consecutive rows or columns (see isNextRow).
+    /// consecutive rows or columns (see isNextRow), as seen turned back by their shared tilt (see sharedTilt).
     static func joins(_ a: Line, _ b: Line) -> Bool {
-        continues(b, a) || continues(a, b) || isNextRow(b, after: a) || isNextRow(a, after: b)
+        guard let angle = sharedTilt(a, b) else { return false }
+        let (a, b) = (a.turnedBack(by: angle), b.turnedBack(by: angle))
+        return continues(b, a) || continues(a, b) || isNextRow(b, after: a) || isNextRow(a, after: b)
     }
 
     /// Whether `next` is the row after `line` (the column to its left in vertical text) in a paragraph: about as thick,
@@ -300,6 +415,7 @@ public enum OCRLayout {
             toWindow(CGRect(x: box.minX / size.width, y: box.minY / size.height, width: box.width / size.width, height: box.height / size.height))
         }
         let windowBox = toWindow(line.box)
+        let windowCorners = line.corners.map { $0.map { toWindow(CGRect(origin: $0, size: .zero)).origin } }
         // In window points, scaled as the line's box is.
         let ink = image.map { image in
             Ink {
@@ -317,7 +433,8 @@ public enum OCRLayout {
             box: windowBox,
             vertical: isVertical,
             chars: chars.map { Char(text: $0.text, box: toWindowFromPixels($0.box)) },
-            ink: ink
+            ink: ink,
+            corners: windowCorners
         )
     }
 

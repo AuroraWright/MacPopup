@@ -17,17 +17,32 @@
 - (NSString *)string;
 - (id)quad;
 - (CGRect)boundingBox;
+- (CGPoint)topLeft;
+- (CGPoint)topRight;
+- (CGPoint)bottomRight;
+- (CGPoint)bottomLeft;
 @end
 
 static const NSInteger MPAnalysisTypeText = 1;
 
 @implementation MPLiveTextItem
 
-- (instancetype)initWithText:(NSString *)text box:(CGRect)box words:(NSArray<MPLiveTextItem *> *)words {
+- (instancetype)initWithText:(NSString *)text box:(CGRect)box words:(NSArray<MPLiveTextItem *> *)words quad:(id)quad {
     if ((self = [super init])) {
         _text = [text copy];
         _box = box;
         _words = [words copy];
+        if ([quad respondsToSelector:@selector(topLeft)] && [quad respondsToSelector:@selector(bottomLeft)]) {
+            _topLeft = [quad topLeft];
+            _topRight = [quad topRight];
+            _bottomRight = [quad bottomRight];
+            _bottomLeft = [quad bottomLeft];
+        } else {
+            _topLeft = box.origin;
+            _topRight = CGPointMake(CGRectGetMaxX(box), CGRectGetMinY(box));
+            _bottomRight = CGPointMake(CGRectGetMaxX(box), CGRectGetMaxY(box));
+            _bottomLeft = CGPointMake(CGRectGetMinX(box), CGRectGetMaxY(box));
+        }
     }
     return self;
 }
@@ -62,8 +77,9 @@ static const NSInteger MPAnalysisTypeText = 1;
             [words addObject:[self itemFromObject:child includeWords:NO]];
         }
     }
-    CGRect box = [object respondsToSelector:@selector(quad)] ? [[object quad] boundingBox] : CGRectZero;
-    return [[MPLiveTextItem alloc] initWithText:[object string] ?: @"" box:box words:words];
+    id quad = [object respondsToSelector:@selector(quad)] ? [object quad] : nil;
+    CGRect box = quad ? [quad boundingBox] : CGRectZero;
+    return [[MPLiveTextItem alloc] initWithText:[object string] ?: @"" box:box words:words quad:quad];
 }
 
 + (void)recognizeImage:(CGImageRef)image

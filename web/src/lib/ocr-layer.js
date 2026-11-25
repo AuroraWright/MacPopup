@@ -26,14 +26,18 @@ const UNSPACED = /[\p{scx=Han}\p{scx=Hira}\p{scx=Kana}\p{scx=Thai}\p{scx=Lao}\p{
 
 /**
  * @typedef {{text: string, x: number, y: number, width: number, height: number, corrected?: boolean}} OcrChar
- * @typedef {{chars: OcrChar[], vertical: boolean, area: number, cloud: boolean, matched?: boolean, match?: number}} OcrLine
+ * @typedef {{angle: number, box: {x: number, y: number, width: number, height: number}}} OcrTurn
+ * @typedef {{chars: OcrChar[], vertical: boolean, area: number, cloud: boolean, paragraph?: number, turn?: OcrTurn,
+ *   matched?: boolean, match?: number}} OcrLine
  *   `match` is how recent the WebSocket line it matched is: 0 for the latest, 1 for the one before, and so on.
  */
 
 /**
  * Lines from the native side: chars are [text, x, y, width, height] in window points, `area` is the
  * chosen area they're in (0, the first, is the dialogue), and `cloud` is set for a line the cloud
- * engine read.
+ * engine read. `paragraph` is the number of its paragraph in the area (OCRLayout.paragraphs), and `turn` is set for a
+ * line set at an angle (OCRLayout.Line.turn): its angle (radians, clockwise) and its box turned back by that about its
+ * middle. Its characters' boxes are upright, around their part of the line, like those of other lines.
  */
 export function decodeLines(lines) {
 	return lines
@@ -41,6 +45,13 @@ export function decodeLines(lines) {
 			vertical: !!line.vertical,
 			area: line.area ?? 0,
 			cloud: !!line.cloud,
+			...(line.paragraph !== undefined && { paragraph: line.paragraph }),
+			...(line.turn && {
+				turn: {
+					angle: line.turn.angle,
+					box: { x: line.turn.box[0], y: line.turn.box[1], width: line.turn.box[2], height: line.turn.box[3] },
+				},
+			}),
 			chars: line.chars.map(([text, x, y, width, height]) => ({ text, x, y, width, height })),
 		}))
 		.filter((line) => line.chars.some((char) => !SPACE.test(char.text)));
@@ -505,8 +516,13 @@ function bounds(chars) {
 	};
 }
 
-/** Whether `next` continues the paragraph of `previous` (the next line of a wrapped text). */
+/**
+ * Whether `next` continues the paragraph of `previous` (the next line of a wrapped text). A turned line's (see
+ * decodeLines) is the native side's paragraph, which compared the lines turned back: their upright boxes here overlap
+ * the rows around them.
+ */
 function continuesParagraph(previous, next) {
+	if (previous.turn || next.turn) return previous.paragraph !== undefined && previous.area === next.area && previous.paragraph === next.paragraph;
 	if (previous.vertical !== next.vertical) return false;
 	const a = bounds(previous.chars);
 	const b = bounds(next.chars);
@@ -568,7 +584,8 @@ export function wrappedReach(lines, reach = { horizontal: 0, vertical: 0 }) {
  * row in this reading, or `reach`; see wrappedReach). In text written without spaces, the first word is one character.
  * A row that ends with a letter or digit (mid-sentence) has to end before halfway, since some games wrap rows at the
  * end of a phrase rather than where the next word wouldn't fit. ー and 一 count as dashes, which OCR reads them as (see
- * OCRText.isDash).
+ * OCRText.isDash). Turned rows (see decodeLines) never end early: set at an angle, each is shifted along the window from
+ * the one before (Danganronpa's staggered dialogue), so where their boxes end says nothing about the text.
  */
 export function paragraphBreaks(lines, reach = { horizontal: 0, vertical: 0 }) {
 	const ends = lines.map(rowEnd);
@@ -587,7 +604,7 @@ export function paragraphBreaks(lines, reach = { horizontal: 0, vertical: 0 }) {
 		// with punctuation), so it ends a paragraph only well short of the others. A long vowel mark (or the 一 it's
 		// misread as) can end an exclamation without punctuation.
 		const midSentence = /[\p{L}\p{N}]$/u.test(lineText(previous).trimEnd()) && !/[ー一]$/.test(lineText(previous).trimEnd());
-		const endsEarly = room > firstWordSize(line, spaced) + size * 0.5 && (!midSentence || room > (far - rowStart(previous)) / 2);
+		const endsEarly = !previous.turn && !line.turn && room > firstWordSize(line, spaced) + size * 0.5 && (!midSentence || room > (far - rowStart(previous)) / 2);
 		return !continuesParagraph(previous, line) || endsEarly ? [index] : [];
 	});
 }
@@ -678,7 +695,39 @@ export function ocrCharOf(span) {
 }
 
 /**
- * Fills `container` (positioned over the window, in window points) with the lines.
+ * Where a turned line's characters are as seen turned back (see decodeLines), across all of its turned box: each one's
+ * middle is where the middle of its box in the window is along the row (only that: a turned character's upright box is
+ * longer than the character, e.g. 59 points for one of 44 turned 25°), and neighbours meet halfway between their
+ * middles. Its characters' boxes otherwise.
+ */
+function turnedBack(line) {
+	const turn = line.turn;
+	if (!turn) return line.chars;
+	const box = turn.box;
+	const middle = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+	const cos = Math.cos(turn.angle);
+	// Along the row from the line's middle (down it when vertical), where the line through its middle is at that x (y).
+	const centers = line.chars.map((char) =>
+		line.vertical ? (char.y + char.height / 2 - middle.y) / cos : (char.x + char.width / 2 - middle.x) / cos);
+	const start = line.vertical ? box.y : box.x;
+	const length = line.vertical ? box.height : box.width;
+	const edges = centers.map((center, index) => {
+		const before = index > 0 ? (centers[index - 1] + center) / 2 : null;
+		const after = index < centers.length - 1 ? (center + centers[index + 1]) / 2 : null;
+		const half = after !== null ? after - center : before !== null ? center - before : length / 2;
+		return [before ?? center - half, after ?? center + half];
+	});
+	return line.chars.map((char, index) => {
+		const [from, to] = edges[index].map((edge) => start + length / 2 + edge);
+		return line.vertical
+			? { ...char, x: box.x, width: box.width, y: from, height: Math.max(to - from, 0) }
+			: { ...char, y: box.y, height: box.height, x: from, width: Math.max(to - from, 0) };
+	});
+}
+
+/**
+ * Fills `container` (positioned over the window, in window points) with the lines. A turned line is laid out turned
+ * back and then turned about its middle (see turnedBack), so its text and box run along its text in the window.
  * @param {HTMLElement} container
  * @param {OcrLine[]} lines
  */
@@ -687,10 +736,12 @@ export function renderLines(container, lines) {
 	const [horizontalRatio, verticalRatio] = measureGlyphRatios(document);
 	clearChildren(container);
 	const spans = [];
+	const turned = [];
 	groupParagraphs(lines).forEach((paragraph, index) => {
 		if (index > 0) container.append('\n');
 		for (const line of paragraph) {
-			const box = bounds(line.chars);
+			const places = turnedBack(line);
+			const box = bounds(places);
 			const element = document.createElement('div');
 			element.className = ['ocr-line', line.matched && 'ocr-matched', line.cloud && 'ocr-cloud', line.provisional && 'ocr-provisional']
 				.filter(Boolean)
@@ -711,8 +762,14 @@ export function renderLines(container, lines) {
 				style.fontSize = `${box.height / horizontalRatio}px`;
 				style.lineHeight = `${box.height}px`;
 			}
+			if (line.turn) {
+				const turn = line.turn.box;
+				style.transformOrigin = `${turn.x + turn.width / 2 - box.x}px ${turn.y + turn.height / 2 - box.y}px`;
+				turned.push({ element, angle: line.turn.angle });
+			}
 			let end = line.vertical ? box.y : box.x;
-			for (const char of line.chars) {
+			line.chars.forEach((char, charIndex) => {
+				const place = places[charIndex];
 				const span = document.createElement('span');
 				span.className = 'ocr-char';
 				span.textContent = char.text;
@@ -720,20 +777,20 @@ export function renderLines(container, lines) {
 				const charStyle = span.style;
 				if (line.vertical) {
 					charStyle.width = `${box.width}px`;
-					charStyle.height = `${char.height}px`;
-					charStyle.marginTop = `${char.y - end}px`;
-					charStyle.left = `${char.x + char.width - (box.x + box.width)}px`;
-					end = char.y + char.height;
+					charStyle.height = `${place.height}px`;
+					charStyle.marginTop = `${place.y - end}px`;
+					charStyle.left = `${place.x + place.width - (box.x + box.width)}px`;
+					end = place.y + place.height;
 				} else {
-					charStyle.width = `${char.width}px`;
+					charStyle.width = `${place.width}px`;
 					charStyle.height = `${box.height}px`;
-					charStyle.marginLeft = `${char.x - end}px`;
-					charStyle.top = `${char.y - box.y}px`;
-					end = char.x + char.width;
+					charStyle.marginLeft = `${place.x - end}px`;
+					charStyle.top = `${place.y - box.y}px`;
+					end = place.x + place.width;
 				}
 				element.append(span);
-				spans.push({ span, length: line.vertical ? char.height : char.width, vertical: line.vertical });
-			}
+				spans.push({ span, length: line.vertical ? place.height : place.width, vertical: line.vertical });
+			});
 			container.append(element);
 		}
 	});
@@ -759,4 +816,6 @@ export function renderLines(container, lines) {
 		span.style.letterSpacing = `${spacing}px`;
 		span.style.textShadow = vertical ? `0 ${spacing / 2}px 0 currentColor` : `${spacing / 2}px 0 0 currentColor`;
 	});
+	// Turned once measured, as the glyphs' rects would be turned too.
+	for (const { element, angle } of turned) element.style.transform = `rotate(${angle}rad)`;
 }

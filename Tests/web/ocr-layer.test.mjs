@@ -54,3 +54,24 @@ test('replacements on rows keep each character with the box it came from, and th
 	assert.equal(spaced.text, 'say hi - to me');
 	assert.deepEqual(spaced.lines.map(lineText), ['say hi - ', 'to me']);
 });
+
+test('turned rows go by their paragraphs, upright ones by their boxes', async () => {
+	const { decodeLines, paragraphBreaks } = await import('../../web/src/lib/ocr-layer.js');
+	// Two rows set at 15° (as Danganronpa's dialogue), the second starting further right: their upright boxes don't
+	// overlap along the row, so as upright rows the second would start a paragraph.
+	const turn = { angle: 0.26, box: [0, 0, 400, 60] };
+	const rows = decodeLines([
+		{ vertical: false, area: 0, paragraph: 0, turn, chars: [['鋭', 0, 0, 200, 160], ['利', 200, 0, 200, 160]] },
+		{ vertical: false, area: 0, paragraph: 0, turn, chars: [['よ', 420, 170, 200, 160], ['る', 620, 170, 200, 160]] },
+		{ vertical: false, area: 0, paragraph: 1, turn, chars: [['は', 0, 400, 200, 160], ['い', 200, 400, 200, 160]] },
+	]);
+	assert.deepEqual(rows[0].turn, { angle: 0.26, box: { x: 0, y: 0, width: 400, height: 60 } });
+	assert.deepEqual(paragraphBreaks(rows, { horizontal: 820, vertical: 0 }), [2]);
+	// Upright rows (no turn) are as before, whatever paragraphs the native side sent.
+	const upright = decodeLines([
+		{ vertical: false, area: 0, paragraph: 0, chars: [['一', 0, 0, 40, 40], ['行', 40, 0, 40, 40]] },
+		{ vertical: false, area: 0, paragraph: 0, chars: [['二', 0, 300, 40, 40], ['行', 40, 300, 40, 40]] },
+	]);
+	assert.equal(upright[0].turn, undefined);
+	assert.deepEqual(paragraphBreaks(upright, { horizontal: 80, vertical: 0 }), [1]);
+});

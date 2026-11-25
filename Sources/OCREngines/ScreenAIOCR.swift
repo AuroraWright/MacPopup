@@ -31,7 +31,8 @@ public final class ScreenAIOCR: Sendable {
         }
     }
 
-    /// Lines with a box per character where the recognizer gives them (its symbols), normalized to the image.
+    /// Lines with a box per character where the recognizer gives them (its symbols), and their corners, normalized to
+    /// the image.
     private static func lines(_ lines: [ScreenAIEngine.Line], width: Int, height: Int) -> [RecognizedLine] {
         let w = CGFloat(width), h = CGFloat(height)
         func normalized(_ box: ScreenAIEngine.Box) -> CGRect {
@@ -44,7 +45,8 @@ public final class ScreenAIOCR: Sendable {
                     ? [(word.text, normalized(word.box))]
                     : word.symbols.map { ($0.text, normalized($0.box)) }
             }
-            return RecognizedLine(text: line.text, box: normalized(line.box), words: words)
+            let corners = line.box.angle == 0 ? nil : line.box.corners.map { CGPoint(x: $0.x / w, y: $0.y / h) }
+            return RecognizedLine(text: line.text, box: normalized(line.box), words: words, corners: corners)
         }
     }
 }

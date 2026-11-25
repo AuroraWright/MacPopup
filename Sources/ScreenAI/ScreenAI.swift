@@ -30,6 +30,14 @@ public final class ScreenAIEngine: @unchecked Sendable {
         public var left: Int, top: Int, width: Int, height: Int
         public var angle: Float
 
+        /// Its corners: top left, top right, bottom right, bottom left.
+        public var corners: [CGPoint] {
+            let r = Double(angle) * .pi / 180, c = cos(r), s = sin(r)
+            let w = Double(width), h = Double(height), x = Double(left), y = Double(top)
+            return [CGPoint(x: x, y: y), CGPoint(x: x + w * c, y: y + w * s),
+                    CGPoint(x: x + w * c - h * s, y: y + w * s + h * c), CGPoint(x: x - h * s, y: y + h * c)]
+        }
+
         /// The axis-aligned rectangle around it.
         public var bounds: CGRect {
             if angle == 0 { return CGRect(x: left, y: top, width: width, height: height) }

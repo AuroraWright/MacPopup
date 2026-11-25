@@ -55,7 +55,7 @@ let package = Package(
         // language), shared with the iOS app.
         .target(
             name: "OCREngines",
-            dependencies: ["ScreenAI", "OneOCR", "CurlImpersonate", "OCRLineCache"],
+            dependencies: ["ScreenAI", "OneOCR", "CurlImpersonate", "OCRLineCache", "LiveText"],
             path: "Sources/OCREngines"
         ),
         // Speech recognition for the Floating Window's "Read text from audio": models converted or packed by

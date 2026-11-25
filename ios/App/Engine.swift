@@ -51,15 +51,10 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
     /// Whether its boxes for words are where they are (see OCRLayout.layOut).
     var hasExactBoxes: Bool { self != .liveText }
 
-    /// Whether it gives the lines in reading order (see OCRController.lines(from:)).
-    var ordersLines: Bool { self == .screenAI }
-
     func recognize(_ image: CGImage, language: String) async throws -> [RecognizedLine] {
         switch self {
         case .liveText:
-            try await Self.liveText(image, locales: await Self.liveTextLocales(for: language)).map { line in
-                RecognizedLine(text: line.text, box: line.box, words: line.words.map { ($0.text, $0.box) })
-            }
+            try await Self.liveText(image, locales: await Self.liveTextLocales(for: language)).map(RecognizedLine.init)
         case .meikiocr: try await MeikiOCR.shared.recognize(image)
         case .screenAI: try await ScreenAIOCR.shared.recognize(image, language: language)
         case .oneOCR: try await OneOCROCR.shared.recognize(image)

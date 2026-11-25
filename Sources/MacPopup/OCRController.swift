@@ -1797,10 +1797,19 @@ final class OCRController {
             }
             lines = lines.indices.filter { bases[$0] == nil }.map { lines[$0] }
         }
-        let encoded = OCRLayout.inReadingOrder(lines).map {
-            var line = Self.encode($0)
-            line["area"] = index
-            return line
+        // With its paragraph's number in the area, and how it's turned (see OCRLayout.Line.turn): the page draws a
+        // turned line turned, and groups turned lines by their paragraphs, since their upright boxes don't show which
+        // rows go on from one another.
+        let encoded = OCRLayout.paragraphs(lines).enumerated().flatMap { number, paragraph in
+            paragraph.lines.map { line -> [String: Any] in
+                var encoded = Self.encode(line)
+                encoded["area"] = index
+                encoded["paragraph"] = number
+                if let turn = line.turn(paragraphTilt: paragraph.tilt) {
+                    encoded["turn"] = ["angle": turn.angle, "box": box(turn.box)]
+                }
+                return encoded
+            }
         }
         return (encoded, removed)
     }
@@ -1906,9 +1915,7 @@ final class OCRController {
     private func recognizeEngine(_ image: CGImage) async throws -> [RecognizedLine] {
         switch engine {
         case .liveText:
-            try await Self.recognizeText(image, locales: languages).map { line in
-                RecognizedLine(text: line.text, box: line.box, words: line.words.map { ($0.text, $0.box) })
-            }
+            try await Self.recognizeText(image, locales: languages).map(RecognizedLine.init)
         case .meikiocr:
             try await MeikiOCR.shared.recognize(image)
         case .screenAI:
