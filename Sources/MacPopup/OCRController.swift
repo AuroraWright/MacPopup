@@ -798,15 +798,18 @@ final class OCRController {
         return seeThrough * 2 > width * height
     }
 
-    /// Other apps' windows of at least 40×40 points: normal and floating ones, or with `normalOnly` normal ones.
+    /// Other apps' windows of at least 40×40 points: normal and floating ones, or with `normalOnly` normal ones. The
+    /// Dock's are left out: Mission Control's, over the whole screen and over each window's thumbnail, are at floating
+    /// levels (one at the normal level as it closes).
     private static func windows(
         _ options: CGWindowListOption, relativeTo window: CGWindowID = kCGNullWindowID, normalOnly: Bool = false
     ) -> [WindowInfo] {
         let list = CGWindowListCopyWindowInfo(options, window) as? [[String: Any]] ?? []
         let ownPID = ProcessInfo.processInfo.processIdentifier
+        let dockPID = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first?.processIdentifier
         // (The screenshot check last: only for other apps' windows that would be picked otherwise.)
         return list.compactMap(windowInfo).filter {
-            $0.ownerPID != ownPID && $0.bounds.width >= 40 && $0.bounds.height >= 40
+            $0.ownerPID != ownPID && $0.ownerPID != dockPID && $0.bounds.width >= 40 && $0.bounds.height >= 40
                 && (normalOnly ? $0.layer == 0
                     : pickableLayers.contains($0.layer)
                         && ($0.layer == 0 || $0.alpha > 0 && !(coversDisplay($0.bounds) && isSeeThroughOverlay($0))))

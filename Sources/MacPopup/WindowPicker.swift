@@ -66,6 +66,9 @@ final class WindowPicker {
     private var keyMonitor: Any?
     /// Observers of apps becoming active and of the space changing.
     private var observers: [NSObjectProtocol] = []
+    /// Looks again at the window under the pointer while one is chosen, for windows that move or change size without
+    /// the pointer moving (as they grow back when Mission Control closes, after the app became active).
+    private var hoverTimer: Timer?
     /// Development aid: MACPOPUP_DEBUG_PICKER_DIR=<dir> saves what the picker draws (only its own
     /// drawing, not the screen) after each change, and logs clicks and button positions to stderr.
     static let debugDirectory = DevelopmentEnvironment["MACPOPUP_DEBUG_PICKER_DIR"]
@@ -99,6 +102,9 @@ final class WindowPicker {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { self?.screenChanged(activated: nil) }
             },
         ]
+        hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.mouseMoved(to: Self.globalPoint(NSEvent.mouseLocation)) }
+        }
         mouseMoved(to: Self.globalPoint(NSEvent.mouseLocation))
         redraw()
     }
@@ -108,6 +114,8 @@ final class WindowPicker {
             NSEvent.removeMonitor(keyMonitor)
         }
         keyMonitor = nil
+        hoverTimer?.invalidate()
+        hoverTimer = nil
         observers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         observers = []
         windows.forEach { $0.orderOut(nil) }
@@ -225,7 +233,7 @@ final class WindowPicker {
     func mouseMoved(to point: CGPoint) {
         guard case .window = phase else { return }
         let window = OCRController.onScreenWindows().first { $0.bounds.contains(point) }
-        if window?.id != hovered?.id {
+        if window?.id != hovered?.id || window?.bounds != hovered?.bounds {
             hovered = window
             redraw()
         }
