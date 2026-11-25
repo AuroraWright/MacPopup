@@ -10,11 +10,14 @@ import PauseHelperInterface
 /// recording of an app leaves out. A Windows app in Parallels' Coherence mode has a window of its own
 /// helper app, which can't be told from the VM's process: the sound of every Parallels VM is recorded.
 ///
-/// A tap keeps recording the processes it was made with: Core Audio doesn't follow changes to them while
-/// it runs. So when the processes to record change (a process is added to the ones Core Audio knows
-/// when it first plays sound), or the default output device does, the tap is made again, which leaves a
-/// gap of a few milliseconds. Its buffers keep the first tap's format: another output device can have
-/// another sample rate (or, for a tap of the device, other channels), and then they're converted.
+/// A tap keeps recording the processes it was made with: Core Audio doesn't follow changes to them on its
+/// own. So when the processes to record change (a process is added to the ones Core Audio knows when it
+/// first plays sound), the running tap is given the new ones, as Chromium does; until the app has played,
+/// its tap has none. Remaking it instead slowed the app's start (0.55 s rather than 0.13 s) and once hung
+/// it. When the default output device changes (or Core Audio doesn't take the new processes), the tap is
+/// made again, which leaves a gap of a few milliseconds. Its buffers keep the first tap's format: another
+/// output device can have another sample rate (or, for a tap of the device, other channels), and then
+/// they're converted.
 ///
 /// A tap only records while its processes play sound. So that the recording keeps time (as for how long
 /// to wait for a voice), silence stands in for the time they don't.
@@ -33,7 +36,8 @@ final class AudioTap {
     /// A tap of some processes, and the private device that records it.
     private final class Recorder {
         let exclusive: Bool
-        let objects: [AudioObjectID]
+        private(set) var objects: [AudioObjectID]
+        private let description: CATapDescription
         let outputDevice: String
         /// The format of the buffers it gives.
         let format: AVAudioFormat
@@ -58,6 +62,7 @@ final class AudioTap {
             let description = exclusive
                 ? CATapDescription(excludingProcesses: objects, deviceUID: outputDevice, stream: 0)
                 : CATapDescription(stereoMixdownOfProcesses: objects)
+            self.description = description
             description.uuid = UUID()
             description.name = "MacPopup sentence audio"
             description.isPrivate = true
@@ -103,6 +108,18 @@ final class AudioTap {
                 destroy()
                 throw error
             }
+        }
+
+        /// Records (or leaves out) `objects` from now on, changing the tap as it runs. Whether Core Audio took it.
+        func update(_ objects: [AudioObjectID]) -> Bool {
+            description.processes = objects
+            var address = AudioTap.address(kAudioTapPropertyDescription)
+            var value = description
+            let status = withUnsafeMutablePointer(to: &value) {
+                AudioObjectSetPropertyData(tapID, &address, 0, nil, UInt32(MemoryLayout<CATapDescription>.size), $0)
+            }
+            if status == noErr { self.objects = objects }
+            return status == noErr
         }
 
         /// Drops the buffers still to come.
@@ -250,7 +267,7 @@ final class AudioTap {
         onBuffer(buffer)
     }
 
-    /// The processes to tap: the app's (none until it has played sound, by leaving every process out), or
+    /// The processes to tap: the app's (none until it has played sound), or
     /// every one but the app's.
     private func target() -> (exclusive: Bool, objects: [AudioObjectID], summary: String) {
         let all = Self.audioProcesses(withBundleIDs: isParallelsApp)
@@ -263,7 +280,7 @@ final class AudioTap {
         let pids = matching.map { "\($0.pid)" }.joined(separator: ", ")
         switch processes {
         case .app where matching.isEmpty:
-            return (true, all.map(\.object), "the app hasn't played sound yet")
+            return (false, [], "the app hasn't played sound yet")
         case .app:
             return (false, matching.map(\.object), "recording processes \(pids)")
         case .allBut:
@@ -287,6 +304,10 @@ final class AudioTap {
         guard exclusive != current.exclusive || Set(objects) != Set(current.objects)
             || current.outputDevice != Self.defaultOutputDevice() else { return }
         sentenceAudioLog(summary)
+        if exclusive == current.exclusive, current.outputDevice == Self.defaultOutputDevice() {
+            if current.update(objects) { return }
+            sentenceAudioLog("couldn't change the tap's processes, made again")
+        }
         // A process comes to Core Audio as it starts its sound, which takes 0.1-0.6 s, and stopping a tap that records
         // it before its start was through once kept the start from ever ending (its AudioDeviceStart waited for
         // coreaudiod for good). So the replaced tap gives no more buffers but is only stopped a second later.

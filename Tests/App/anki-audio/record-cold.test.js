@@ -1,5 +1,5 @@
 // As record-app.test.js, with a captured app that opens its audio output only when it speaks (windows/audiowin.swift
-// "cold"): until then the recording leaves every process out ("the app hasn't played sound yet"), then records the
+// "cold"): until then the recording has no process ("the app hasn't played sound yet"), then records the
 // app's process once it plays. The card gets the Japanese line whole, not the English one. Expected from
 // evals/sentence-audio/run.sh (its "cold" case) and AudioTap.swift (target()).
 // It plays sound: a Japanese and an English line (say's voices, volume 0.15), about 5 s each.
