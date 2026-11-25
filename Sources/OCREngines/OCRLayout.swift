@@ -33,6 +33,14 @@ public struct RecognizedLine {
     }
 }
 
+extension CGRect {
+    /// The smallest rectangle around `points` (at least one).
+    public init(bounding points: [CGPoint]) {
+        let xs = points.map(\.x), ys = points.map(\.y)
+        self.init(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+    }
+}
+
 /// A grayscale copy of a captured image, for measuring where text actually is.
 public struct GrayImage {
     public let width: Int
@@ -134,11 +142,11 @@ public enum OCRLayout {
         }
 
         /// How far it's turned from upright or from straight down, in radians (clockwise, within a quarter turn either
-        /// way): the mean of its top and bottom edges' angles. Nil without corners, and for a line under 2.5 times as
-        /// long as it's thick, whose angle says little (a character or two: engines read some vertical text as such
-        /// pieces, at any angle).
+        /// way): the mean of its top and bottom edges' angles. 0 without corners (an engine that doesn't give them, or
+        /// Screen AI for a line that's upright); nil for a line under 2.5 times as long as it's thick, whose angle says
+        /// little (a character or two: engines read some vertical text as such pieces, at any angle).
         var tilt: CGFloat? {
-            guard let c = corners, c.count == 4 else { return nil }
+            guard let c = corners, c.count == 4 else { return 0 }
             let sides = (hypot(c[1].x - c[0].x, c[1].y - c[0].y), hypot(c[3].x - c[0].x, c[3].y - c[0].y))
             guard max(sides.0, sides.1) >= min(sides.0, sides.1) * 2.5 else { return nil }
             let angle = atan2((c[1].y - c[0].y) + (c[2].y - c[3].y), (c[1].x - c[0].x) + (c[2].x - c[3].x))
@@ -165,8 +173,7 @@ public enum OCRLayout {
                 let (x, y) = (point.x - middle.x, point.y - middle.y)
                 return CGPoint(x: middle.x + x * c + y * s, y: middle.y - x * s + y * c)
             }
-            let xs = turned.map(\.x), ys = turned.map(\.y)
-            return (angle, CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!))
+            return (angle, CGRect(bounding: turned))
         }
 
         /// The line with its box as seen turned back by `angle` (about the origin): upright when that's its tilt.
@@ -177,8 +184,7 @@ public enum OCRLayout {
             let (c, s) = (cos(angle), sin(angle))
             let turned = points.map { CGPoint(x: $0.x * c + $0.y * s, y: -$0.x * s + $0.y * c) }
             var line = self
-            let xs = turned.map(\.x), ys = turned.map(\.y)
-            line.box = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+            line.box = CGRect(bounding: turned)
             return line
         }
     }
@@ -197,7 +203,8 @@ public enum OCRLayout {
         return meanTilt([a, b])
     }
 
-    /// The lines' tilt, the mean of those they have by their lengths; 0 when that's under leastTilt or none has one.
+    /// The lines' tilt, the mean of those they have by their lengths; 0 when that's under leastTilt or none has one
+    /// (only short pieces have none, see tilt).
     static func meanTilt(_ lines: [Line]) -> CGFloat {
         let tilted = lines.compactMap { line in line.tilt.map { (tilt: $0, length: line.length) } }
         let total = tilted.reduce(0) { $0 + $1.length }
@@ -221,9 +228,9 @@ public enum OCRLayout {
         }
     }
 
-    /// The lines' paragraphs in reading order (see inParagraphs), each with its tilt (see meanTilt).
-    public static func paragraphs(_ lines: [Line]) -> [(lines: [Line], tilt: CGFloat)] {
-        inParagraphs(lines) { $0 }.map { ($0, meanTilt($0)) }
+    /// Items by their lines' paragraphs in reading order (see inParagraphs), each with its tilt (see meanTilt).
+    public static func paragraphs<Item>(_ items: [Item], line: (Item) -> Line) -> [(items: [Item], tilt: CGFloat)] {
+        inParagraphs(items, line: line).map { ($0, meanTilt($0.map(line))) }
     }
 
     /// The lines in reading order, a paragraph at a time (see inParagraphs).

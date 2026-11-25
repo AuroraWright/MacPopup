@@ -333,9 +333,7 @@ public final class PPOCRManga: @unchecked Sendable {
             best = (rectArea, min(u1 - u0, v1 - v0))
         }
         guard let best, best.thickness >= 3 else { return nil }
-        let xs = hull.map(\.x), ys = hull.map(\.y)
-        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-            .insetBy(dx: -distance, dy: -distance)
+        return CGRect(bounding: hull).insetBy(dx: -distance, dy: -distance)
     }
 
     /// The characters the recognizer reads in `line` (turned to read across), each with its output steps, and the

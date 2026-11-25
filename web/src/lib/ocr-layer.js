@@ -560,13 +560,13 @@ function rowSize(line) {
  * How far wrapped rows reach in `lines` (a reading's rows, in reading order), for horizontal and vertical text, and at
  * least as far as `reach` (learned from earlier readings). A row wrapped when the next row continues it from the same
  * starting point, so its end shows where the text wraps. This is learned over time because on a short page every row
- * may end before that point.
+ * may end before that point. Turned rows (see decodeLines) don't count: their upright boxes reach past their text.
  */
 export function wrappedReach(lines, reach = { horizontal: 0, vertical: 0 }) {
 	const result = { ...reach };
 	lines.forEach((line, index) => {
 		const next = lines[index + 1];
-		if (!next || !continuesParagraph(line, next)) return;
+		if (!next || line.turn || next.turn || !continuesParagraph(line, next)) return;
 		const a = bounds(line.chars);
 		const b = bounds(next.chars);
 		const start = line.vertical ? Math.abs(a.y - b.y) : Math.abs(a.x - b.x);

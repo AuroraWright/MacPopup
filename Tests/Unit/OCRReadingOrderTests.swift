@@ -99,3 +99,14 @@ private func turned(_ text: String, centerX: CGFloat, centerY: CGFloat, width: C
     plain.corners = nil
     #expect(plain.turn(paragraphTilt: 0.2) == nil)
 }
+
+@Test func aLineWithoutCornersIsUprightNotUnknown() {
+    // Screen AI gives no corners for an upright line: it doesn't share a tilt with a sign turned 15°, while a short
+    // piece (any angle) does.
+    let upright = line("これは普通の台詞です", 100, 100, 400, 40)
+    let sign = turned("右に曲がる看板です", centerX: 300, centerY: 170, width: 300, height: 40, degrees: 15)
+    let piece = turned("は", centerX: 520, centerY: 120, width: 40, height: 40, degrees: 30)
+    #expect(upright.tilt == 0)
+    #expect(OCRLayout.sharedTilt(upright, sign) == nil)
+    #expect(piece.tilt == nil && OCRLayout.sharedTilt(piece, sign) != nil)
+}

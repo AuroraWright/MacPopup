@@ -1611,7 +1611,7 @@ final class OCRController {
             }
         }
         guard !missing.isEmpty else { return cloud }
-        return OCRLayout.inReadingOrder(cloud + missing, line: decode)
+        return inParagraphs(cloud + missing, line: decode) { $0 }
     }
 
     /// A cloud reading on its way is dropped, and the last one isn't reused.
@@ -1752,7 +1752,11 @@ final class OCRController {
     private func saveForDebugging(_ items: [RecognizedLine], area index: Int, engine suffix: String = "") {
         guard let debugDirectory else { return }
         let rect = { (box: CGRect) in [box.minX, box.minY, box.width, box.height] }
-        let raw = items.map { ["text": $0.text, "box": rect($0.box), "words": $0.words.map { [$0.text] + rect($0.box).map { $0 as Any } }] as [String: Any] }
+        let raw = items.map { line -> [String: Any] in
+            var item: [String: Any] = ["text": line.text, "box": rect(line.box), "words": line.words.map { [$0.text] + rect($0.box).map { $0 as Any } }]
+            item["corners"] = line.savedCorners
+            return item
+        }
         let url = URL(fileURLWithPath: debugDirectory).appendingPathComponent("read-\(debugReadings)-area\(index)\(suffix).json")
         try? JSONSerialization.data(withJSONObject: raw).write(to: url)
     }
@@ -1797,19 +1801,10 @@ final class OCRController {
             }
             lines = lines.indices.filter { bases[$0] == nil }.map { lines[$0] }
         }
-        // With its paragraph's number in the area, and how it's turned (see OCRLayout.Line.turn): the page draws a
-        // turned line turned, and groups turned lines by their paragraphs, since their upright boxes don't show which
-        // rows go on from one another.
-        let encoded = OCRLayout.paragraphs(lines).enumerated().flatMap { number, paragraph in
-            paragraph.lines.map { line -> [String: Any] in
-                var encoded = Self.encode(line)
-                encoded["area"] = index
-                encoded["paragraph"] = number
-                if let turn = line.turn(paragraphTilt: paragraph.tilt) {
-                    encoded["turn"] = ["angle": turn.angle, "box": box(turn.box)]
-                }
-                return encoded
-            }
+        let encoded = Self.inParagraphs(lines, line: { $0 }) { line in
+            var encoded = Self.encode(line)
+            encoded["area"] = index
+            return encoded
         }
         return (encoded, removed)
     }
@@ -2031,10 +2026,39 @@ final class OCRController {
     }
 
     /// A line as the page gets it.
+    /// Items for the page in reading order (see OCRLayout.paragraphs), encoded by `encode`, each with its paragraph's
+    /// number and, when it's turned, how (see OCRLayout.Line.turn): the page draws a turned line turned, and groups
+    /// turned lines by their paragraphs, since their upright boxes don't show which rows go on from one another.
+    private static func inParagraphs<Item>(
+        _ items: [Item], line: (Item) -> OCRLayout.Line, encode: (Item) -> [String: Any]
+    ) -> [[String: Any]] {
+        OCRLayout.paragraphs(items, line: line).enumerated().flatMap { number, paragraph in
+            paragraph.items.map { item -> [String: Any] in
+                var encoded = encode(item)
+                encoded["paragraph"] = number
+                encoded["turn"] = line(item).turn(paragraphTilt: paragraph.tilt).map { turn -> [String: Any] in
+                    ["angle": turn.angle, "box": [turn.box.minX, turn.box.minY, turn.box.width, turn.box.height]]
+                }
+                return encoded
+            }
+        }
+    }
+
+    /// A line as the page gets it, as a layout line: a turned one's corners are its turned-back box turned back again.
     private static func decode(_ line: [String: Any]) -> OCRLayout.Line {
         let rect = { (values: [Any]) in
             let numbers = values.map { $0 as? CGFloat ?? 0 }
             return CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3])
+        }
+        let corners = (line["turn"] as? [String: Any]).flatMap { turn -> [CGPoint]? in
+            guard let angle = turn["angle"] as? CGFloat, let values = turn["box"] as? [Any], values.count == 4 else { return nil }
+            let box = rect(values)
+            let (c, s) = (cos(angle), sin(angle))
+            return [CGPoint(x: box.minX, y: box.minY), CGPoint(x: box.maxX, y: box.minY),
+                    CGPoint(x: box.maxX, y: box.maxY), CGPoint(x: box.minX, y: box.maxY)].map { point in
+                let (x, y) = (point.x - box.midX, point.y - box.midY)
+                return CGPoint(x: box.midX + x * c - y * s, y: box.midY + x * s + y * c)
+            }
         }
         return OCRLayout.Line(
             text: line["text"] as? String ?? "",
@@ -2042,7 +2066,8 @@ final class OCRController {
             vertical: line["vertical"] as? Bool ?? false,
             chars: (line["chars"] as? [[Any]] ?? []).filter { $0.count == 5 }.map {
                 OCRLayout.Char(text: $0[0] as? String ?? "", box: rect(Array($0[1...])))
-            }
+            },
+            corners: corners
         )
     }
 

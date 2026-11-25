@@ -147,7 +147,7 @@ private enum GoogleLens {
                 text = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { continue }
                 let quad = line.message(2)?.message(1).map { corners($0, width: width, height: height) }
-                let box = quad.map(bounds) ?? words.map(\.box).reduce(CGRect.null) { $0.union($1) }
+                let box = quad.map(CGRect.init(bounding:)) ?? words.map(\.box).reduce(CGRect.null) { $0.union($1) }
                 lines.append(RecognizedLine(text: text, box: box, words: words, corners: quad))
             }
         }
@@ -156,7 +156,7 @@ private enum GoogleLens {
 
     /// A CenterRotatedBox's bounds, normalized to the image (as its coordinates are, unless it says they're pixels).
     static func bounds(_ box: ProtoMessage, width: Int, height: Int) -> CGRect {
-        bounds(corners(box, width: width, height: height))
+        CGRect(bounding: corners(box, width: width, height: height))
     }
 
     /// A CenterRotatedBox's corners (top left, top right, bottom right, bottom left), normalized to the image.
@@ -174,11 +174,6 @@ private enum GoogleLens {
             let p = $0.applying(turn)
             return CGPoint(x: p.x / w, y: p.y / h)
         }
-    }
-
-    static func bounds(_ points: [CGPoint]) -> CGRect {
-        let xs = points.map(\.x), ys = points.map(\.y)
-        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
     }
 }
 
@@ -265,14 +260,14 @@ private enum Bing {
                     guard let text = word["text"] as? String, let box = bounds(word["boundingBox"]) else { return nil }
                     return (text, box)
                 }
-                return RecognizedLine(text: text, box: bounds(quad), words: words, corners: quad)
+                return RecognizedLine(text: text, box: CGRect(bounding: quad), words: words, corners: quad)
             }
         }
     }
 
     /// The bounds of a quadrilateral (topLeft, topRight, bottomRight, bottomLeft).
     static func bounds(_ quad: Any?) -> CGRect? {
-        corners(quad).map(bounds)
+        corners(quad).map(CGRect.init(bounding:))
     }
 
     /// A quadrilateral's corners, in that order.
@@ -283,11 +278,6 @@ private enum Bing {
             return CGPoint(x: x, y: y)
         }
         return points.count == 4 ? points : nil
-    }
-
-    static func bounds(_ points: [CGPoint]) -> CGRect {
-        let xs = points.map(\.x), ys = points.map(\.y)
-        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
     }
 }
 

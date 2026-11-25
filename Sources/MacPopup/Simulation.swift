@@ -207,10 +207,14 @@ final class Simulation: @unchecked Sendable {
         return "\(image.width)x\(image.height) " + hasher.finalize().prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// What's cached: 2 has the lines' corners (2026-11-25). Records of another version are read again.
+    private static let cacheVersion = 2
+
     private func loadCache() {
         guard let text = try? String(contentsOf: cacheURL, encoding: .utf8) else { return }
         for line in text.split(separator: "\n") {
             guard let record = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  record["version"] as? Int == Self.cacheVersion,
                   let key = record["key"] as? String, let ms = record["ms"] as? Double,
                   let lines = record["lines"] as? [[String: Any]] else { continue }
             cache[key] = (lines.map { line in
@@ -223,7 +227,7 @@ final class Simulation: @unchecked Sendable {
 
     private func save(_ key: String, _ lines: [RecognizedLine], _ ms: Double) {
         let numbers = { (rect: CGRect) -> [Any] in [Double(rect.minX), Double(rect.minY), Double(rect.width), Double(rect.height)] }
-        let record: [String: Any] = ["key": key, "ms": ms, "lines": lines.map { line in
+        let record: [String: Any] = ["version": Self.cacheVersion, "key": key, "ms": ms, "lines": lines.map { line in
             var item: [String: Any] = ["text": line.text, "box": numbers(line.box), "words": line.words.map { [$0.text as Any] + numbers($0.box) }]
             item["corners"] = line.savedCorners
             return item
