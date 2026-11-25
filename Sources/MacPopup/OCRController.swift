@@ -2316,6 +2316,11 @@ final class OCRController {
             let pointSize = CGSize(width: area.width * bounds.width, height: area.height * bounds.height)
             let factor = Self.thumbnailLongSide / max(pointSize.width, pointSize.height, 1)
             let width = max(1, Int(pointSize.width * factor)), height = max(1, Int(pointSize.height * factor))
+            if let pixels = GrayImage.scaledCapture(crop, width: width, height: height) {
+                result.append(pixels)
+                widths.append(width)
+                continue
+            }
             var pixels = [UInt8](repeating: 0, count: width * height)
             let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
                 guard let context = CGContext(

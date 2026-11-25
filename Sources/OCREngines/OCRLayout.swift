@@ -71,6 +71,23 @@ public struct GrayImage {
         self.pixels = pixels
     }
 
+    /// A capture's gray at `width` × `height` (see converted), scaled by vImage: a quarter of the time drawing it scaled
+    /// takes (0.6 ms against 2.2 for a half-size 1080p window), though not the same values (Lanczos against Core
+    /// Graphics' low-quality scaling, a few gray levels apart on average). Nil for images that aren't captures.
+    public static func scaledCapture(_ image: CGImage, width: Int, height: Int) -> [UInt8]? {
+        guard var gray = converted(image) else { return nil }
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        let error = gray.withUnsafeMutableBytes { g in
+            pixels.withUnsafeMutableBytes { out -> vImage_Error in
+                var src = vImage_Buffer(data: g.baseAddress, height: vImagePixelCount(image.height),
+                                        width: vImagePixelCount(image.width), rowBytes: image.width)
+                var dst = vImage_Buffer(data: out.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width)
+                return vImageScale_Planar8(&src, &dst, nil, vImage_Flags(kvImageNoFlags))
+            }
+        }
+        return error == kvImageNoError ? pixels : nil
+    }
+
     /// A capture's gray (8-bit BGRA in an RGB color space, as ScreenCaptureKit's) through vImage's converter, which
     /// gives the bytes drawing it does (ColorSync's conversion to device gray; the same on 600 game and manga captures,
     /// sRGB and Display P3) in about a seventh of the time: 1.3 ms for 1080p, against 9.3. Nil for other images, which
