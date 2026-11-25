@@ -44,7 +44,8 @@ public final class ScreenAIEngine: @unchecked Sendable {
     private let resources: Resources
     private let detector: TextDetector
     private let recognizer: LineRecognizer
-    private let layoutModel: LayoutModel
+    /// The layout analysis' graph network, which only stageDumps runs: loaded when it first does.
+    private var loadedLayoutModel: LayoutModel?
     /// One OCR call at a time.
     private let lock = NSLock()
 
@@ -53,7 +54,14 @@ public final class ScreenAIEngine: @unchecked Sendable {
         resources = Resources(root: modelsDirectory, cpuOnly: cpuOnly)
         detector = try TextDetector(resources: resources)
         recognizer = try LineRecognizer(resources: resources)
-        layoutModel = try LayoutModel(resources: resources)
+    }
+
+    /// The layout model, loaded the first time (called with `lock` held).
+    private func layoutModel() throws -> LayoutModel {
+        if let loadedLayoutModel { return loadedLayoutModel }
+        let model = try LayoutModel(resources: resources)
+        loadedLayoutModel = model
+        return model
     }
 
     /// The layout after each stage, as goodoc.PageLayoutProto (named like the C++ port's SCREENAI_STAGE_DUMP files:
@@ -79,11 +87,11 @@ public final class ScreenAIEngine: @unchecked Sendable {
             append(graph.edges.map { Int64($0.a) })
             append(graph.edges.map { Int64($0.b) })
             if !graph.edges.isEmpty {
-                append(try layoutModel.nodeLogits(senders: graph.edges.map(\.a), receivers: graph.edges.map(\.b),
+                append(try layoutModel().nodeLogits(senders: graph.edges.map(\.a), receivers: graph.edges.map(\.b),
                                                   features: features, lines: graph.lines.count))
             }
             dumps["003_features"] = blob
-            try layout.clusterSort(layoutModel)
+            try layout.clusterSort(layoutModel())
             dumps["003_sorted"] = layout.goodocProto()
             layout.estimateLines()
             layout.recomputeLineTexts()
@@ -102,16 +110,20 @@ public final class ScreenAIEngine: @unchecked Sendable {
         return layout
     }
 
-    /// The layout analysis: the steps above, then reading order and line merging.
-    private func analyzed(_ layout: PageLayout) throws -> PageLayout {
+    /// The layout analysis as OCR mode needs it: the filters above, then each line's box fitted to its symbols. The
+    /// rest of it (ClusterSort's graph network and reading order, EstimateLines' line merging) changed nothing OCR mode
+    /// shows once it ordered lines itself (2026-11-25), and runs only in stageDumps.
+    private func analyzed(_ layout: PageLayout) -> PageLayout {
         var layout = Self.filtered(layout)
-        try layout.clusterSort(layoutModel)
-        layout.estimateLines()
+        var lines: [Int] = []
+        layout.fitBoxes(tracking: &lines)
+        // Each entity after its parent again (sorting a paragraph's lines moves them), as recognize reads them.
+        layout.reorderUsingDfs()
         layout.recomputeLineTexts()
         return layout
     }
 
-    /// The text lines of the image, in reading order.
+    /// The text lines of the image (not in reading order: OCR mode puts them in it, see OCRLayout.inParagraphs).
     /// - Parameter recognizers: The script recognizers to use besides the general one (ISO 15924 codes, e.g. "Jpan"), or
     ///   nil for all of them (see LineRecognizer.recognize).
     public func recognize(_ image: CGImage, recognizers: Set<String>? = nil) throws -> [Line] {
@@ -119,7 +131,7 @@ public final class ScreenAIEngine: @unchecked Sendable {
             try autoreleasepool {
                 let gray = try Self.gray(image)
                 let (detected, pyramid) = try detector.detect(gray)
-                return try analyzed(try recognizer.recognize(gray, detected, pyramid: pyramid, keys: recognizers))
+                return analyzed(try recognizer.recognize(gray, detected, pyramid: pyramid, keys: recognizers))
             }
         }
         func box(_ b: RotatedBox) -> Box { Box(left: b.left, top: b.top, width: b.width, height: b.height, angle: b.angle) }

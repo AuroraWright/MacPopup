@@ -840,7 +840,8 @@ extension PageLayout {
     }
 
     /// ClusterSortGcnStep (skip_line_clustering, recompute_entity_boxes_and_confidences, sort_lines_in_paragraphs;
-    /// no heuristic blocks): one BLOCK per paragraph, in reading order.
+    /// no heuristic blocks): one BLOCK per paragraph, in reading order. OCR mode puts the lines in reading order itself
+    /// and only runs fitBoxes; this whole step runs for stageDumps, to check the port against the original.
     mutating func clusterSort(_ model: LayoutModel) throws {
         let g = lineGraph()
         var columns = [Bool](repeating: false, count: g.lines.count)
@@ -850,6 +851,31 @@ extension PageLayout {
             for k in logits.indices { columns[k] = logits[k] > 0 }
         }
         var lines = g.lines
+        fitBoxes(tracking: &lines)
+
+        let order = orderParagraphs(lines, g.edges, columns)
+        var oldBlocks = entities.map { $0.type == .block }
+        for p in order {
+            var block = Entity()
+            block.type = .block
+            block.orientation = entities[p].orientation
+            block.writingDirection = entities[p].writingDirection
+            block.textlineOrder = entities[p].textlineOrder
+            block.box = entities[p].box
+            entities.append(block)
+            entities[p].parent = entities.count - 1
+        }
+        oldBlocks += [Bool](repeating: false, count: entities.count - oldBlocks.count)
+        deleteWithDescendants(oldBlocks)
+        reorderUsingDfs()
+        recomputeConfidencesFromSymbols()
+    }
+
+    /// ClusterSortGcnStep's part OCR mode uses: each entity's box and confidence estimated again from its symbols (the
+    /// detector's box for a line can reach well past its text, which changes how OCR mode joins lines into
+    /// paragraphs), empty paragraphs deleted, and each paragraph's lines sorted. `lines` (entity indices) follow the
+    /// entities as they move.
+    mutating func fitBoxes(tracking lines: inout [Int]) {
         func track(_ remap: [Int]) { lines = lines.map { $0 >= 0 ? remap[$0] : -1 } }
 
         track(reorderUsingDfs())
@@ -874,22 +900,5 @@ extension PageLayout {
         track(deleteWithDescendants(delete))
         children = childLists()
         for i in entities.indices where entities[i].type == .paragraph { sortChildren(of: i, children, track: &lines) }
-
-        let order = orderParagraphs(lines, g.edges, columns)
-        var oldBlocks = entities.map { $0.type == .block }
-        for p in order {
-            var block = Entity()
-            block.type = .block
-            block.orientation = entities[p].orientation
-            block.writingDirection = entities[p].writingDirection
-            block.textlineOrder = entities[p].textlineOrder
-            block.box = entities[p].box
-            entities.append(block)
-            entities[p].parent = entities.count - 1
-        }
-        oldBlocks += [Bool](repeating: false, count: entities.count - oldBlocks.count)
-        deleteWithDescendants(oldBlocks)
-        reorderUsingDfs()
-        recomputeConfidencesFromSymbols()
     }
 }
