@@ -18,9 +18,15 @@ test('overlay', async () => {
 	// In view first: with four long lines the box is scrolled, and this one is partly under the header.
 	line.scrollIntoView({ block: 'center', behavior: 'instant' });
 	await wait(300);
-	await native('debugMouse', center(rangeOf(line, text.charAt(1)).getBoundingClientRect()));
+	const at = center(rangeOf(line, text.charAt(1)).getBoundingClientRect());
+	const hovered = hoverState(at);
+	await native('debugMouse', at);
 	const button = await until('the add button', () => [...(popupDocument()?.querySelectorAll(
-		'.note-actions-container .action-button[data-action=save-note][data-card-format-index="0"]') ?? [])].find((b) => !b.disabled), 10000);
+		'.note-actions-container .action-button[data-action=save-note][data-card-format-index="0"]') ?? [])].find((b) => !b.disabled), 10000)
+		.catch((e) => {
+			log(`hovered ${JSON.stringify(at)}: ${hovered}; at the timeout: ${hoverState(at)}`);
+			throw e;
+		});
 	const before = (await sentenceAudioNotes()).length;
 	button.dispatchEvent(new (button.ownerDocument.defaultView.MouseEvent)('click', { bubbles: true, cancelable: true, altKey: true }));
 	const added = await until('the card', async () => (await sentenceAudioNotes()).slice(before).find((n) => n.startsWith('card ')), 10000).catch(() => '');

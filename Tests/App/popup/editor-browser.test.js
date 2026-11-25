@@ -3,7 +3,7 @@
 // then the browser is cleared (guiBrowse nid:1), the note's SentenceAudio field updated without an error, and the note
 // shown in the browser again (guiBrowse nid:333). No error message is shown.
 // mock: MOCK_EDITOR=browser
-// setup: say -v Kyoko -o "$RUN/voice.aiff" 明日も晴れるといいね
+// setup: "$HARNESS/tools/say.sh" -v Kyoko -o "$RUN/voice.aiff" 明日も晴れるといいね
 // env: MACPOPUP_TEST_AUDIO_FILE=$RUN/voice.aiff
 // settings: {"ankiEnabled": true, "sentenceAudioEnabled": true, "sentenceAudioField": "SentenceAudio", "sentenceAudioApp": "none", "sentenceAudioPlay": false}
 // timeout: 90

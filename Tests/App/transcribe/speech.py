@@ -38,7 +38,8 @@ def clone(name, marker):
 def said(text, name):
     """Kyoko saying `text`, as 16 kHz samples (written by say -o, not played)."""
     path = os.path.join(RUN, f'{name}.wav')
-    run('say', '-v', 'Kyoko', f'--data-format=LEI16@{RATE}', '-o', path, text)
+    run(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'harness', 'tools', 'say.sh'), '-v', 'Kyoko',
+        f'--data-format=LEI16@{RATE}', '-o', path, text)
     with wave.open(path) as w:
         assert w.getframerate() == RATE and w.getnchannels() == 1
         return np.frombuffer(w.readframes(w.getnframes()), np.int16).astype(np.float32) / 32768

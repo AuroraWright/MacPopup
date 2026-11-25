@@ -71,7 +71,9 @@ checked something and nothing failed.
 
 More header lines, for what a page script can't do (see `harness/launch.sh`):
 
-- `// setup: <command>` runs before the launch, e.g. `say -v Kyoko -o "$RUN/voice.aiff" …` for a sound file;
+- `// setup: <command>` runs before the launch (stopped and failed after 120 s), e.g.
+  `"$HARNESS/tools/say.sh" -v Kyoko -o "$RUN/voice.aiff" …` for a sound file (`say`, tried again when it hangs, as it
+  sometimes does);
 - `// env: NAME=value` passes test variables to the app (`$RUN` is the run folder);
 - `// beside: <command>` runs from just before the launch until the test ends, e.g. a test window for OCR mode to read
   (`ocr-windows/windows/*.swift`, compiled by `"$HARNESS/tools/build.sh" <path>.swift`, which prints its path);

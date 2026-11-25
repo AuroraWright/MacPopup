@@ -104,8 +104,18 @@ if [[ -n "$CLIPBOARD" && ( ! -x "$PB" || "$HARNESS/pb.swift" -nt "$PB" ) ]]; the
     mkdir -p "${PB:h}" && swiftc -o "$PB" "$HARNESS/pb.swift" || { echo "NOT RUN: couldn't build pb"; exit 3; }
 fi
 
-if [[ -n "$SETUP" ]] && ! zsh -c "$SETUP" > "$RUN/setup.log" 2>&1; then
-    echo "FAIL: the setup failed ($RUN/setup.log)"; exit 1
+# Stopped (with what it started) after 120 s: setups take up to about 16 s, and `say -o` once hung for minutes.
+if [[ -n "$SETUP" ]]; then
+    python3 -I -c 'import os, sys; os.setsid(); os.execvp("zsh", ["zsh", "-c", sys.argv[1]])' "$SETUP" > "$RUN/setup.log" 2>&1 &
+    setup=$!
+    end=$((SECONDS + 120))
+    while kill -0 $setup 2>/dev/null && (( SECONDS < end )); do sleep 0.2; done
+    if kill -0 $setup 2>/dev/null; then
+        kill -KILL -- -$setup $setup 2>/dev/null
+        wait $setup 2>/dev/null
+        echo "FAIL: the setup took over 120 s ($RUN/setup.log)"; exit 1
+    fi
+    wait $setup || { echo "FAIL: the setup failed ($RUN/setup.log)"; exit 1; }
 fi
 APP_ENV=(${(e)=ENV})
 

@@ -245,7 +245,7 @@ def make_speech_media(media):
     voices, timeline, at = [], [], 5.0
     for n, text in enumerate(SENTENCES):
         voice = os.path.join(media, f'voice{n}.aiff')
-        result = run('say', '-v', 'Kyoko', '-o', voice, text)
+        result = run(os.path.join(REPO, 'Tests/App/harness/tools/say.sh'), '-v', 'Kyoko', '-o', voice, text)
         if result.returncode or not os.path.exists(voice):
             raise RuntimeError(f'say -v Kyoko -o failed: {result.stderr.strip()}')
         length = duration(voice)

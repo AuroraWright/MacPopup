@@ -4,7 +4,7 @@
 /* exported test, native, log, wait, until, expect, equal, near, lineWith, rangeOf, center, mockLog, popupDocument,
    runFile, logLines, debugRecords, boxText, popupVisible, gamepadPress, windowSteps, windowStep, watch, ocrText, pointerMove,
    pointerClick, driverSaid, processStates, gamePauseNotes,
-   sentenceAudioNotes */
+   sentenceAudioNotes, hoverState */
 'use strict';
 
 function native(cmd, args = {}) {
@@ -74,6 +74,21 @@ function rangeOf(element, text) {
 
 function center(rect) {
 	return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+}
+
+/** What's under `point` in the page (the element, its text box line, the box's scroll and the popup), for a test's log
+ * when a hover found nothing. */
+function hoverState(point) {
+	const element = document.elementFromPoint(point.x, point.y);
+	const line = element?.closest('#lines p[data-line-id]');
+	const lines = document.querySelector('#lines');
+	return JSON.stringify({
+		element: element ? `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}.${[...element.classList].join('.')}` : null,
+		line: line ? `${line.dataset.lineId} ${line.textContent.slice(0, 8)}` : null,
+		box: document.querySelector('#box')?.hidden ? 'hidden' : 'shown',
+		scrollTop: lines?.scrollTop, scrollHeight: lines?.scrollHeight,
+		popup: popupVisible(), at: Date.now(),
+	});
 }
 
 /** The lines mock.py has logged so far (its requests: "anki <ms> <action> <params>", "yomitan <ms> <path>", "audio <ms> <path>"). */
