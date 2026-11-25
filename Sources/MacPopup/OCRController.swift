@@ -938,7 +938,8 @@ final class OCRController {
     }
 
     private func sendWindowState(visible: Bool) {
-        var message: [String: Any] = ["type": "window", "visible": visible && bounds != nil]
+        // "available": whether it's read now (see isWindowAvailable): the page doesn't draw its text meanwhile.
+        var message: [String: Any] = ["type": "window", "visible": visible && bounds != nil, "available": isWindowAvailable]
         if let bounds {
             let origin = overlay.globalOrigin
             message["x"] = bounds.minX - origin.x

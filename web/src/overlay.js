@@ -1519,6 +1519,10 @@ function clearLiveLines() {
 
 const ocr = {
 	window: null,
+	// The window can be read: not covered by other windows, off the displays or moving (OCRController's
+	// isWindowAvailable). While it can't, the text read before stays, but isn't drawn with "Show OCR boxes", since it
+	// would be drawn over what covers the window.
+	available: true,
 	// Another window is in front of the target under the cursor.
 	covered: false,
 	// The latest WebSocket line, matched against what's read, as {text, shown}: its text, and the line as cards see it
@@ -1592,6 +1596,8 @@ function setOcrWindow(message) {
 	const layer = $('#ocr-layer');
 	const wasShown = !layer.hidden;
 	ocr.window = message.visible ? message : null;
+	ocr.available = message.available !== false;
+	showOcrBoxes();
 	layer.hidden = !ocr.window || !getSettings().ocrMode;
 	if (layer.hidden) {
 		// E.g. the window is on another space now: its popups go with its text.
@@ -1601,6 +1607,11 @@ function setOcrWindow(message) {
 	}
 	Object.assign(layer.style, { left: `${message.x}px`, top: `${message.y}px`, width: `${message.width}px`, height: `${message.height}px` });
 	applyOcrScale();
+}
+
+/** The OCR text drawn ("Show OCR boxes", ocrShowBoxes) while the window can be read (see ocr.available). */
+function showOcrBoxes() {
+	$('#ocr-layer').classList.toggle('show-boxes', !!getSettings().ocrShowBoxes && ocr.available);
 }
 
 // The window was resized since it was read: scale the text with it until it's read again.
@@ -2730,7 +2741,7 @@ function applySettings(settings) {
 	// Before the font, writing direction or line order change the scroll position.
 	const atEnd = isScrolledToEnd();
 	box.hidden = !!settings.ocrMode;
-	$('#ocr-layer').classList.toggle('show-boxes', !!settings.ocrShowBoxes);
+	showOcrBoxes();
 	if (!settings.ocrMode) setOcrWindow({ visible: false });
 	box.style.setProperty('--box-opacity', `${settings.boxOpacity}`);
 	linesElement.style.fontSize = `${settings.fontSize}px`;
