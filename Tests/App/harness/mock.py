@@ -1,6 +1,7 @@
 # mock.py <log>: the services a test instance talks to, until it's stopped: AnkiConnect on 59877, the Yomitan API on
 # 59878 (150 entries for any lookup, matching MOCK_MATCH_LENGTH characters, 2 by default) and an audio server on 59879
-# (logs each request's time, answers with 0.1 s of silence). Each request goes to <log>, which GET /__log on 59879
+# (logs each request's time, answers with 0.1 s of silence; /list/<path> with a Custom URL (JSON) list of three, "NHK",
+# "Forvo (a)" and "Forvo (b)" at /second/<path>/<n>). Each request goes to <log>, which GET /__log on 59879
 # answers with. A test's "// mock:" line sets the MOCK_* switches below (images, notes, an Anki editor, a Yomitan
 # profile, tokenizing, an added note's id, the run folder's files, WebSocket lines, WebSocket servers that stay connected,
 # a screenshot field, a note that has sentence audio already).
@@ -170,6 +171,11 @@ class H(BaseHTTPRequestHandler):
             except OSError:
                 data = b''
             return self.reply(data, 'text/plain')
+        if self.path.startswith('/list/'):
+            log(f'audio-list {time.time() * 1000:.0f} {self.path}')
+            rest = self.path[len('/list/'):]
+            sources = [{'name': name, 'url': f'http://127.0.0.1:59879/second/{rest}/{n}'} for n, name in enumerate(['NHK', 'Forvo (a)', 'Forvo (b)'])]
+            return self.reply(json.dumps({'type': 'audioSourceList', 'audioSources': sources}).encode())
         log(f'audio {time.time() * 1000:.0f} {self.path}')
         self.reply(silence, 'audio/wav')
     def do_POST(self):
