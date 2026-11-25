@@ -1567,7 +1567,7 @@ final class OCRController {
                 if debugReading == self.debugReadings { self.saveForDebugging(items, area: 0, engine: "-\(engine.rawValue)") }
                 // Both engines' boxes are where the words are: Google Lens' are the reference the local engines' are
                 // measured against, and Bing's are a cloud version of OneOCR's.
-                let cloud = self.lines(from: items, in: crop, area: 0, bounds: bounds, ordered: false, exactBoxes: true)
+                let cloud = self.lines(from: items, in: crop, area: 0, bounds: bounds, exactBoxes: true)
                 // It may miss text the local engine read, but not all of it.
                 if !cloud.lines.isEmpty {
                     // Marked for the overlay's outlines (shown with Settings → General → Debug on).
@@ -1738,10 +1738,7 @@ final class OCRController {
             }
             saveForDebugging(items, area: index)
             let layoutStarted = OCRClock.now
-            // Screen AI's lines come in its own layout analysis' reading order (paragraphs and columns included).
-            (areaLines[index], areaRemoved[index]) = lines(
-                from: items, in: crop, area: index, bounds: bounds, ordered: engine == .screenAI, exactBoxes: engine.hasExactBoxes
-            )
+            (areaLines[index], areaRemoved[index]) = lines(from: items, in: crop, area: index, bounds: bounds, exactBoxes: engine.hasExactBoxes)
             if index == 0 { noteTail(areaLines[0]) }
             log("layout: \(String(format: "%.2f", OCRClock.now.timeIntervalSince(layoutStarted)))s")
         }
@@ -1757,13 +1754,11 @@ final class OCRController {
         try? JSONSerialization.data(withJSONObject: raw).write(to: url)
     }
 
-    /// The lines an engine read in an area's picture (`crop`), as the page gets them, and the lines left out (by the
-    /// language or as furigana) for its debug log.
-    /// - Parameters:
-    ///   - ordered: The engine gives the lines in reading order; otherwise they're put in it.
-    ///   - exactBoxes: The engine's boxes for words are where they are (see OCRLayout.layOut).
+    /// The lines an engine read in an area's picture (`crop`), as the page gets them (in reading order, see
+    /// OCRLayout.inParagraphs), and the lines left out (by the language or as furigana) for its debug log.
+    /// - Parameter exactBoxes: The engine's boxes for words are where they are (see OCRLayout.layOut).
     private func lines(
-        from items: [RecognizedLine], in crop: CGImage, area index: Int, bounds: CGRect, ordered: Bool, exactBoxes: Bool = false
+        from items: [RecognizedLine], in crop: CGImage, area index: Int, bounds: CGRect, exactBoxes: Bool = false
     ) -> (lines: [[String: Any]], removed: [[String: Any]]) {
         let area = areas[index]
         // The boxes are normalized to the crop; convert them to window points.
@@ -1799,7 +1794,7 @@ final class OCRController {
             }
             lines = lines.indices.filter { bases[$0] == nil }.map { lines[$0] }
         }
-        let encoded = (ordered ? OCRLayout.keepingRowsTogether(lines) : OCRLayout.inReadingOrder(lines)).map {
+        let encoded = OCRLayout.inReadingOrder(lines).map {
             var line = Self.encode($0)
             line["area"] = index
             return line

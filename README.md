@@ -212,8 +212,7 @@ Choose the engine in **Settings → OCR → Text recognition engine**. Lines wit
   vertical text in speech bubbles, and sound effects (Japanese and Chinese).
 - **mida + VOCR6**: Built-in Core ML models: rtr46's mida finds the lines and vita-vn-ocr's VOCR6 reads them, as in
   meikipop. Faster than meikiocr, for Japanese game text, horizontal and vertical.
-- **Screen AI**: Google Chrome's own OCR engine, running on Core ML. Reads most scripts, and works out the layout and
-  reading order by itself.
+- **Screen AI**: Google Chrome's own OCR engine, running on Core ML. Reads most scripts.
   - *Setup*: Make sure Chrome has downloaded its Screen AI component (`~/Library/Application
     Support/Google/Chrome/screen_ai`), run `scripts/convert-screenai.py` to make a `.zip` file, and load it with
     **Screen AI models → Load…**.

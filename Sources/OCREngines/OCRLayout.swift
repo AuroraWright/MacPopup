@@ -128,52 +128,92 @@ public enum OCRLayout {
         }
     }
 
-    /// The lines in reading order: rows from the top, each from the left, or in vertical text (most of the lines)
-    /// columns from the right, each from the top. Live Text and OneOCR don't always give them so (OneOCR lists
-    /// vertical columns from the left), and the page matches WebSocket lines through them in this order. Screen AI's
-    /// lines keep the order its layout analysis gives them.
+    /// The lines in reading order, a paragraph at a time (see inParagraphs).
     public static func inReadingOrder(_ lines: [Line]) -> [Line] {
         inReadingOrder(lines) { $0 }
     }
 
     /// Items in the reading order of their lines (see above).
     public static func inReadingOrder<Item>(_ items: [Item], line: (Item) -> Line) -> [Item] {
-        let lines = items.map { (item: $0, box: line($0).box) }
-        let vertical = items.filter { line($0).vertical }.count * 2 > items.count
+        inParagraphs(items, line: line).flatMap { $0 }
+    }
+
+    /// Items by the paragraphs their lines make, in reading order: rows from the top, each from the left, or in
+    /// vertical text columns from the right, each from the top. A paragraph is the lines that go on from one another
+    /// (see joins), in that order among themselves; the paragraphs are put in it by their bounds, as rows or columns
+    /// as most of the lines run. Ordering paragraphs rather than lines keeps each together: sorting all the columns of
+    /// a manga page from the right interleaved the columns of speech bubbles one above the other (about half the
+    /// bubbles of Manga109-s pages). The page matches WebSocket lines through the lines in this order. Every engine's
+    /// lines are put in it: Live Text and OneOCR don't give them in reading order (OneOCR lists vertical columns from
+    /// the left), and the order of those that do (Screen AI's layout analysis, Google Lens' and Bing's paragraphs) kept
+    /// manga speech bubbles and game sentences together less often than this one (2026-11-25).
+    public static func inParagraphs<Item>(_ items: [Item], line: (Item) -> Line) -> [[Item]] {
+        let lines = items.map(line)
+        var parent = Array(lines.indices)
+        func root(_ index: Int) -> Int {
+            var index = index
+            while parent[index] != index {
+                parent[index] = parent[parent[index]]
+                index = parent[index]
+            }
+            return index
+        }
+        for i in lines.indices {
+            for j in lines.indices where j > i && joins(lines[i], lines[j]) {
+                parent[root(j)] = root(i)
+            }
+        }
+        var members: [Int: [Int]] = [:]
+        for index in lines.indices { members[root(index), default: []].append(index) }
+        let paragraphs = members.keys.sorted().map { key -> (indices: [Int], box: CGRect) in
+            let indices = members[key]!
+            let vertical = indices.filter { lines[$0].vertical }.count * 2 > indices.count
+            return (inRows(indices, box: { lines[$0].box }, vertical: vertical), indices.reduce(CGRect.null) { $0.union(lines[$1].box) })
+        }
+        let vertical = lines.filter(\.vertical).count * 2 > lines.count
+        return inRows(paragraphs, box: \.box, vertical: vertical).map { $0.indices.map { items[$0] } }
+    }
+
+    /// Items by their boxes in rows from the top, each from the left, or when `vertical` in columns from the right,
+    /// each from the top.
+    private static func inRows<Item>(_ items: [Item], box: (Item) -> CGRect, vertical: Bool) -> [Item] {
         // Across the rows (top to bottom, or right to left), and along them.
         let across = { (box: CGRect) in vertical ? (start: -box.maxX, end: -box.minX) : (start: box.minY, end: box.maxY) }
         let along = { (box: CGRect) in vertical ? box.minY : box.minX }
-        var rows: [(start: CGFloat, end: CGFloat, lines: [(item: Item, box: CGRect)])] = []
-        for line in lines.sorted(by: { across($0.box).start < across($1.box).start }) {
-            let extent = across(line.box)
+        var rows: [(start: CGFloat, end: CGFloat, items: [(item: Item, box: CGRect)])] = []
+        for item in items.map({ (item: $0, box: box($0)) }).sorted(by: { across($0.box).start < across($1.box).start }) {
+            let extent = across(item.box)
             // In the last row when they cover at least half of each other across (a much taller line, e.g. a large
             // label beside the text, is a row of its own rather than joining the rows beside it into one).
             if let row = rows.last,
                min(extent.end, row.end) - max(extent.start, row.start) >= max(extent.end - extent.start, row.end - row.start) / 2 {
-                rows[rows.count - 1].lines.append(line)
+                rows[rows.count - 1].items.append(item)
                 rows[rows.count - 1].end = max(row.end, extent.end)
             } else {
-                rows.append((extent.start, extent.end, [line]))
+                rows.append((extent.start, extent.end, [item]))
             }
         }
-        return rows.flatMap { row in row.lines.sorted { along($0.box) < along($1.box) }.map(\.item) }
+        return rows.flatMap { row in row.items.sorted { along($0.box) < along($1.box) }.map(\.item) }
     }
 
-    /// Screen AI's lines in its reading order, except that a line the engine split where it goes on along its row (e.g.
-    /// "…分厚い、" and "絆創", whose furigana made it a block of its own) is kept together: the layout analysis sometimes
-    /// puts the second part after the lines below it, and the page matches WebSocket lines through the lines in order.
-    public static func keepingRowsTogether(_ lines: [Line]) -> [Line] {
-        var rest = lines
-        var ordered: [Line] = []
-        while !rest.isEmpty {
-            var line = rest.removeFirst()
-            ordered.append(line)
-            while let next = rest.firstIndex(where: { continues($0, line) }) {
-                line = rest.remove(at: next)
-                ordered.append(line)
-            }
-        }
-        return ordered
+    /// Whether two lines are in one paragraph: one goes on along the other's row (see continues), or they're
+    /// consecutive rows or columns (see isNextRow).
+    static func joins(_ a: Line, _ b: Line) -> Bool {
+        continues(b, a) || continues(a, b) || isNextRow(b, after: a) || isNextRow(a, after: b)
+    }
+
+    /// Whether `next` is the row after `line` (the column to its left in vertical text) in a paragraph: about as thick,
+    /// at most a little over a row's thickness from it, and overlapping it along the row. As continuesParagraph in
+    /// web/src/lib/ocr-layer.js.
+    private static func isNextRow(_ next: Line, after line: Line) -> Bool {
+        guard next.vertical == line.vertical else { return false }
+        let (a, b) = (line.box, next.box)
+        let (sizeA, sizeB) = line.vertical ? (a.width, b.width) : (a.height, b.height)
+        let size = max(sizeA, sizeB)
+        guard min(sizeA, sizeB) >= size * 0.6 else { return false }
+        let gap = line.vertical ? a.minX - b.maxX : b.minY - a.maxY
+        let overlaps = line.vertical ? b.minY < a.maxY && a.minY < b.maxY : b.minX < a.maxX && a.minX < b.maxX
+        return gap > -size * 0.5 && gap < size * 1.2 && overlaps
     }
 
     /// Whether `next` continues `line` on the same row, at about the same size, with a gap of at most two characters.
