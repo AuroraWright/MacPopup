@@ -715,7 +715,7 @@ class Popup {
 	/**
 	 * Updates the headword's play buttons as Yomitan does after playing: the title says where the audio came from, and
 	 * the badge is a cross when no audio may play, and a plus when there's more than one to choose from (in the menu).
-	 * @param {?string} title Appended to the button's own title, or null for just that.
+	 * @param {?string} [title] Appended to the button's own title, null for just that, or undefined to leave the title.
 	 */
 	updateAudioButtons(entryIndex, headwordIndex, potentialCount, title) {
 		const node = this.entryNodes[entryIndex];
@@ -727,7 +727,7 @@ class Popup {
 		for (const button of buttons) {
 			if (!button) continue;
 			const titleDefault = button.dataset.titleDefault || '';
-			button.title = title === null ? titleDefault : `${titleDefault}\n${title}`;
+			if (title !== undefined) button.title = title === null ? titleDefault : `${titleDefault}\n${title}`;
 			const badge = button.querySelector('.action-button-badge');
 			if (!badge) continue;
 			badge.hidden = potentialCount === null || potentialCount === 1;
@@ -867,9 +867,9 @@ class Popup {
 		}
 		this.updateAudioMenus(term, reading);
 		if (content !== this.content) return;
-		// (Yomitan plays it as a list of one source, so it's source 1.)
-		this.updateAudioButtons(entryIndex, headwordIndex, this.getPotentialAudioCount(term, reading),
-			result !== null ? `From source 1: ${source.name}` : 'Could not find audio');
+		// The title stays: in Yomitan it still names the source the button plays from, not the menu's (its code would
+		// say "From source 1: <the menu's>", but the extension doesn't, 2026-11-25).
+		this.updateAudioButtons(entryIndex, headwordIndex, this.getPotentialAudioCount(term, reading), undefined);
 		if (result === null) {
 			this.playFallbackSound();
 			return;

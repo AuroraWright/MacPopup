@@ -1,7 +1,8 @@
 // The play button's audio menu, as Yomitan's DisplayAudio: with two Custom URL sources on the mock's audio server,
 // autoplay asks the first source only and plays it (the button's title says "From source 1"); opening the menu (a
 // right-click) asks no source by itself, and lists the first as working and the second as not tried yet; playing the
-// second from the menu asks it, uses it for Anki cards, and the menu then shows both working, with a plus on the button.
+// second from the menu asks it, uses it for Anki cards, and the menu then shows both working, with a plus on the button
+// and the button's title as it was (as in Yomitan).
 // clipboard: 明日も晴れるといいね
 // settings: {"clipboardMonitor": true, "audioEnabled": true, "audioAutoPlay": true, "audioVolume": 0, "audioFallbackSound": "none", "audioDefaultSources": false, "audioSources": [{"type": "custom", "url": "http://127.0.0.1:59879/first/{term}"}, {"type": "custom", "url": "http://127.0.0.1:59879/second/{term}"}]}
 
@@ -41,6 +42,9 @@ test('overlay', async () => {
 	equal(items(), ['Custom URL 1 [true]', 'Custom URL 2 [null]'], 'the menu\'s items 2 s later');
 	equal((await audioRequests()).length, 1, 'audio requests after opening the menu');
 
+	// Marked, to see that playing from the menu leaves it (both sources are called Custom URL).
+	button.title += ' (marked)';
+	const markedTitle = button.title;
 	await pointAtButton();
 	groups().at(-1).querySelector('.popup-menu-item-audio-button').click();
 	await wait(2000);
@@ -53,5 +57,5 @@ test('overlay', async () => {
 	equal(items(), ['Custom URL 1 [true]', 'Custom URL 2 [true]'], 'the menu\'s items after playing');
 	equal(groups().map((group) => group.dataset.isPrimaryCardAudio), ['false', 'true'], 'the audio used for Anki cards');
 	expect(!badge.hidden && badge.dataset.icon === 'plus-thick', `the badge with two audio known: ${badge.hidden ? 'hidden' : badge.dataset.icon}`);
-	expect(button.title.endsWith('\nFrom source 1: Custom URL'), `the button's title after playing: ${JSON.stringify(button.title)}`);
+	equal(button.title, markedTitle, 'the button\'s title after playing from the menu');
 });
