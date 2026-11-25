@@ -105,6 +105,11 @@ final class AudioTap {
             }
         }
 
+        /// Drops the buffers still to come.
+        func retire() {
+            isLive = false
+        }
+
         func destroy() {
             isLive = false
             if let ioProcID {
@@ -139,6 +144,8 @@ final class AudioTap {
     /// Whether processesChanged is due: changes come in bursts (each sound that starts or ends is one), so they're
     /// checked at most every quarter second rather than each time.
     private var checkDue = false
+    /// Recorders replaced in the last second, still to be destroyed (see processesChanged).
+    private var retired: [Recorder] = []
     private var silenceTimer: DispatchSourceTimer?
     private var startTime = DispatchTime.now()
     private var lastBufferTime = DispatchTime.now()
@@ -198,6 +205,8 @@ final class AudioTap {
         silenceTimer = nil
         recorder?.destroy()
         recorder = nil
+        retired.forEach { $0.destroy() }
+        retired = []
     }
 
     private func makeRecorder(exclusive: Bool, objects: [AudioObjectID]) throws -> Recorder {
@@ -278,7 +287,15 @@ final class AudioTap {
         guard exclusive != current.exclusive || Set(objects) != Set(current.objects)
             || current.outputDevice != Self.defaultOutputDevice() else { return }
         sentenceAudioLog(summary)
-        current.destroy()
+        // A process comes to Core Audio as it starts its sound, which takes 0.1-0.6 s, and stopping a tap that records
+        // it before its start was through once kept the start from ever ending (its AudioDeviceStart waited for
+        // coreaudiod for good). So the replaced tap gives no more buffers but is only stopped a second later.
+        current.retire()
+        retired.append(current)
+        queue.asyncAfter(deadline: .now() + 1) { [weak self] in
+            current.destroy()
+            self?.retired.removeAll { $0 === current }
+        }
         do {
             recorder = try makeRecorder(exclusive: exclusive, objects: objects)
         } catch {

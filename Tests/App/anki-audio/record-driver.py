@@ -21,6 +21,20 @@ def app_log():
         return ''
 
 
+def watch_play(pid):
+    """audiowin's play() returning within 3 s: once (2026-11-25, a cold first start) it didn't, and nothing was recorded.
+    If it hasn't, its threads are sampled (audiowin-sample.txt) to see where it waits."""
+    def played():
+        try:
+            return 'playing' in open(f'{RUN}/beside.log', errors='replace').read()
+        except OSError:
+            return False
+    if until(played, timeout=3, interval=0.1):
+        return
+    subprocess.run(['sample', str(pid), '2', '-file', f'{RUN}/audiowin-sample.txt'], capture_output=True)
+    check(False, 'the captured app\'s play() returned within 3 s (it stalled: audiowin-sample.txt has its threads)')
+
+
 def game():
     found = subprocess.run(['pgrep', '-f', f'^{re.escape(target)}( |$)'], capture_output=True, text=True).stdout.split()
     return int(found[0]) if found else None
@@ -41,6 +55,9 @@ if ready:
             log(f'{int(time.time() * 1000)} the captured app speaks')
         except ProcessLookupError:
             check(False, 'the captured app still running when told to speak')
+        else:
+            if mode == 'app':
+                watch_play(pid)
 else:
     check(False, 'the page never got ready')
 while running() and 'TEST done' not in app_log():

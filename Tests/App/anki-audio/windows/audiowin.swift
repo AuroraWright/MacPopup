@@ -29,6 +29,8 @@ if args.count < 5 {
 signal(SIGUSR1, SIG_IGN)
 let play = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
 play.setEventHandler {
+    // (Logged before too: a cold first start once didn't return for seconds, see record-driver.py.)
+    log("told to play")
     player.play()
     log("playing \(String(format: "%.2f", player.duration)) s")
 }
