@@ -1,5 +1,7 @@
+import Accelerate
 import CoreGraphics
 import Foundation
+import os
 
 /// A line of recognized text. Boxes are normalized to the image (0–1, origin at the top left).
 public struct RecognizedLine {
@@ -52,6 +54,10 @@ public struct GrayImage {
         let (width, height) = (image.width, image.height)
         self.width = width
         self.height = height
+        if let pixels = Self.converted(image) {
+            self.pixels = pixels
+            return
+        }
         var pixels = [UInt8](repeating: 0, count: width * height)
         let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(
@@ -64,6 +70,44 @@ public struct GrayImage {
         guard drawn else { return nil }
         self.pixels = pixels
     }
+
+    /// A capture's gray (8-bit BGRA in an RGB color space, as ScreenCaptureKit's) through vImage's converter, which
+    /// gives the bytes drawing it does (ColorSync's conversion to device gray; the same on 600 game and manga captures,
+    /// sRGB and Display P3) in about a seventh of the time: 1.3 ms for 1080p, against 9.3. Nil for other images, which
+    /// are drawn.
+    private static func converted(_ image: CGImage) -> [UInt8]? {
+        guard image.bitsPerComponent == 8, image.bitsPerPixel == 32, image.colorSpace?.model == .rgb,
+              image.alphaInfo == .premultipliedFirst || image.alphaInfo == .noneSkipFirst,
+              image.bitmapInfo.intersection(.byteOrderMask) == .byteOrder32Little,
+              let converter = grayConverter(image), let data = image.dataProvider?.data, let source = CFDataGetBytePtr(data),
+              CFDataGetLength(data) >= image.bytesPerRow * (image.height - 1) + 4 * image.width else { return nil }
+        let (width, height) = (image.width, image.height)
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        let error = pixels.withUnsafeMutableBytes { out -> vImage_Error in
+            var src = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: source), height: vImagePixelCount(height),
+                                    width: vImagePixelCount(width), rowBytes: image.bytesPerRow)
+            var dst = vImage_Buffer(data: out.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width)
+            return vImageConvert_AnyToAny(converter, &src, &dst, nil, vImage_Flags(kvImageNoFlags))
+        }
+        return error == kvImageNoError ? pixels : nil
+    }
+
+    /// The converter from `image`'s format to 8-bit device gray, made once per format (they can be used from any thread).
+    private static func grayConverter(_ image: CGImage) -> vImageConverter? {
+        guard var source = vImage_CGImageFormat(cgImage: image),
+              var target = vImage_CGImageFormat(bitsPerComponent: 8, bitsPerPixel: 8, colorSpace: CGColorSpaceCreateDeviceGray(),
+                                                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue)) else { return nil }
+        let space = image.colorSpace.map { $0.name as String? ?? "\(($0.copyICCData() as Data?)?.hashValue ?? 0)" } ?? ""
+        let key = "\(image.bitmapInfo.rawValue) \(space)"
+        return grayConverters.withLockUnchecked { converters in
+            if let converter = converters[key] { return converter }
+            let converter = vImageConverter_CreateWithCGImageFormat(&source, &target, nil, vImage_Flags(kvImageNoFlags), nil)?.takeRetainedValue()
+            converters[key] = converter
+            return converter
+        }
+    }
+
+    private static let grayConverters = OSAllocatedUnfairLock(uncheckedState: [String: vImageConverter]())
 
     /// Whether the picture has detail that a copy at half the resolution loses, i.e. it was drawn at
     /// this resolution rather than enlarged (like a window drawn at 1x on a Retina display). Nil when
