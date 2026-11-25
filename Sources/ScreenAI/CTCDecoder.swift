@@ -178,16 +178,32 @@ private func parseFloatTensor(_ b: [UInt8]) -> [Float]? {
     return r.ok && dtype == 1 ? out : nil
 }
 
-/// ocr::photo::SparseDequantizeBatch for one frame of uint8 logits: entries with q >= clamp(int(0.01 / scale +
-/// zero_point), 0, 255), packed as (q << 16 | class); the k largest (libc++ nth_element, greater) as (class,
-/// (q - zero_point) * scale); missing entries stay (0, 0).
-func sparseDequantizeFrame(_ logits: UnsafePointer<UInt8>, _ numClasses: Int, _ zeroPoint: Int, _ scale: Float,
+/// ocr::photo::SparseDequantizeBatch for one frame of logits, as the model's uint8 output q (the Core ML model's float
+/// output requantized as TFLite does, see requantize): entries with q >= clamp(int(0.01 / scale + zero_point), 0,
+/// 255), packed as (q << 16 | class); the k largest (libc++ nth_element, greater) as (class, (q - zero_point) * scale);
+/// missing entries stay (0, 0).
+func sparseDequantizeFrame(_ logits: UnsafePointer<Float>, _ numClasses: Int, _ zeroPoint: Int, _ scale: Float,
                            _ k: Int) -> [(id: Float, value: Float)] {
     var threshold = Int(0.01 / scale + Float(zeroPoint))
     threshold = min(max(threshold, 0), 255)
     var out = [(id: Float, value: Float)](repeating: (0, 0), count: k)
     var packed: [Int32] = []
-    for c in 0..<numClasses where Int(logits[c]) >= threshold { packed.append(Int32(c) + (Int32(logits[c]) << 16)) }
+    let zp = Float(zeroPoint)
+    func add(_ c: Int) {
+        let q = Int(min(max((logits[c] / scale).rounded(.toNearestOrEven) + zp, 0), 255))
+        if q >= threshold { packed.append(Int32(c) + (Int32(q) << 16)) }
+    }
+    // Only values from the threshold's lower rounding edge up can reach it (less a margin for the division's
+    // rounding): blocks of 16 classes with none are skipped (most are), the others requantized one by one.
+    let atLeast = SIMD16<Float>(repeating: threshold == 0 ? -.infinity : (Float(threshold) - zp - 0.5 - 0.01) * scale)
+    var start = 0
+    while start + 16 <= numClasses {
+        if any(UnsafeRawPointer(logits + start).loadUnaligned(as: SIMD16<Float>.self) .>= atLeast) {
+            for c in start..<start + 16 { add(c) }
+        }
+        start += 16
+    }
+    for c in start..<numClasses { add(c) }
     if k < packed.count { libcxxNthElement(&packed, 0, k - 1, packed.count, >) }
     for i in 0..<min(k, packed.count) {
         out[i] = (Float(packed[i] & 0xFFFF), Float(((Int(packed[i]) >> 16) & 0xFF) - zeroPoint) * scale)

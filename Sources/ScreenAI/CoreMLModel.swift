@@ -103,19 +103,34 @@ func withContiguousFloats<R>(_ a: MLMultiArray, _ body: (UnsafePointer<Float>) -
     return out.withUnsafeBufferPointer { body($0.baseAddress!) }
 }
 
+/// Calls body with the array's values as 32-bit floats and the strides to index them by: in place when they're 32-bit
+/// floats with contiguous rows (the GPU's outputs have padded rows: 1293 classes 1296 apart), else a row-major copy.
+func withFloatRows<R>(_ a: MLMultiArray, _ body: (UnsafePointer<Float>, [Int]) -> R) -> R {
+    let strides = a.strides.map(\.intValue)
+    if a.dataType == .float32, strides.last == 1 {
+        return a.withUnsafeBytes { body($0.bindMemory(to: Float.self).baseAddress!, strides) }
+    }
+    let shape = a.shape.map(\.intValue)
+    var rowMajor = [Int](repeating: 1, count: shape.count)
+    for d in stride(from: shape.count - 2, through: 0, by: -1) { rowMajor[d] = rowMajor[d + 1] * shape[d + 1] }
+    return withContiguousFloats(a) { body($0, rowMajor) }
+}
+
 /// TFLite's requantization of a float output: clamp(rint(v / scale) + zero point, 0, 255), in row-major order.
 func requantize(_ a: MLMultiArray, scale: Float, zeroPoint: Float) -> [UInt8] {
     var data = [UInt8](repeating: 0, count: a.count)
     data.withUnsafeMutableBufferPointer { dst in
-        forEachFloatRow(a) { row, n, offset in
-            let d = dst.baseAddress! + offset
-            for k in 0..<n {
-                let q = min(max((row[k] / scale).rounded(.toNearestOrEven) + zeroPoint, 0), 255)
-                // q is a whole number in 0...255, so 2^23 + q holds it in the low mantissa bits: an unchecked
-                // conversion, which lets the loop vectorize.
-                d[k] = UInt8(truncatingIfNeeded: (q + 8_388_608).bitPattern)
-            }
-        }
+        forEachFloatRow(a) { row, n, offset in requantize(row, n, scale: scale, zeroPoint: zeroPoint, into: dst.baseAddress! + offset) }
     }
     return data
+}
+
+/// requantize for `n` floats.
+func requantize(_ row: UnsafePointer<Float>, _ n: Int, scale: Float, zeroPoint: Float, into d: UnsafeMutablePointer<UInt8>) {
+    for k in 0..<n {
+        let q = min(max((row[k] / scale).rounded(.toNearestOrEven) + zeroPoint, 0), 255)
+        // q is a whole number in 0...255, so 2^23 + q holds it in the low mantissa bits: an unchecked
+        // conversion, which lets the loop vectorize.
+        d[k] = UInt8(truncatingIfNeeded: (q + 8_388_608).bitPattern)
+    }
 }

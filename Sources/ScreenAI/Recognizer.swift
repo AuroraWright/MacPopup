@@ -384,8 +384,13 @@ private final class ScriptRecognizer {
         let numBatches = (chunkData.count + batchSize - 1) / batchSize
         let chunkBytes = lineHeight * chunkInput
 
-        // The batches run concurrently; each output is quantized back to uint8.
+        // The batches run concurrently; each output is quantized back to uint8, except the logits: only the frames
+        // of the batch's chunks (padding and empty slots left out), each reduced to its top classes right away.
+        guard let logitsQ = quantization["decode_logits"] else {
+            throw ScreenAIError("The recognizer has no decode_logits output")
+        }
         var outputs = [[String: [UInt8]]](repeating: [:], count: numBatches)
+        var sparseLogits = [[(id: Float, value: Float)]](repeating: [], count: chunkData.count)
         var shapes: [String: [Int]] = [:]
         var failure: Error?
         let lock = NSLock()
@@ -405,11 +410,27 @@ private final class ScriptRecognizer {
             var batchShapes: [String: [Int]] = [:]
             for (name, q) in quantization {
                 guard let a = result[name] else { continue }
-                batchOut[name] = requantize(a, scale: q.scale, zeroPoint: Float(q.zeroPoint))
                 batchShapes[name] = a.shape.map(\.intValue)
+                if name != "decode_logits" { batchOut[name] = requantize(a, scale: q.scale, zeroPoint: Float(q.zeroPoint)) }
+            }
+            guard let logits = result["decode_logits"], let C = batchShapes["decode_logits"]?.last,
+                  logits.count == batchSize * framesPerChunk * C else { throw ScreenAIError("Missing decode_logits") }
+            var batchSparse: [[(id: Float, value: Float)]] = []
+            withFloatRows(logits) { values, strides in
+                for j in 0..<batchSize where b * batchSize + j < chunkData.count {
+                    let nf = (refs[missing[b * batchSize + j]].width + frameWidth - 1) / frameWidth
+                    var frames: [(id: Float, value: Float)] = []
+                    frames.reserveCapacity(nf * 5)
+                    for f in 0..<nf {
+                        frames += sparseDequantizeFrame(values + j * strides[0] + (firstFrame + f) * strides[1], C,
+                                                        logitsQ.zeroPoint, logitsQ.scale, 5)
+                    }
+                    batchSparse.append(frames)
+                }
             }
             lock.withLock {
                 outputs[b] = batchOut
+                for (j, frames) in batchSparse.enumerated() { sparseLogits[b * batchSize + j] = frames }
                 shapes.merge(batchShapes) { a, _ in a }
             }
         }
@@ -439,9 +460,7 @@ private final class ScriptRecognizer {
         let denseNames = ["symbol_left_offset", "symbol_right_offset", "symbol_top", "symbol_height",
                           "script_activations", "script_gates", "content_type_activations", "content_type_gates",
                           "direction_activations", "direction_gates"]
-        guard let logitsQ = quantization["decode_logits"], let C = shapes["decode_logits"]?.last else {
-            throw ScreenAIError("The recognizer has no decode_logits output")
-        }
+        guard let C = shapes["decode_logits"]?.last else { throw ScreenAIError("The recognizer has no decode_logits output") }
         guard labels.count == C - 1 else { throw ScreenAIError("Label map \(config.labelMapPath) doesn't match the model") }
         var b0 = 0
         while b0 < chunkData.count {
@@ -455,26 +474,22 @@ private final class ScriptRecognizer {
                 }
                 d.append((dequantizeDense(data, q.scale, q.zeroPoint), data.count / (batchSize * framesPerChunk)))
             }
-            guard let lt = batchOut["decode_logits"] else { throw ScreenAIError("Missing decode_logits") }
             for j in 0..<batchSize where b0 + j < chunkData.count {
                 let c = missing[b0 + j]
                 let nf = (refs[c].width + frameWidth - 1) / frameWidth
                 var share = LineTensors()
-                lt.withUnsafeBufferPointer { logits in
-                    for f in 0..<nf {
-                        let src = j * framesPerChunk + firstFrame + f
-                        let sp = sparseDequantizeFrame(logits.baseAddress! + src * C, C, logitsQ.zeroPoint,
-                                                       logitsQ.scale, 5)
-                        for e in sp {
-                            share.logits.append(e.id)
-                            share.logits.append(e.value)
-                        }
-                        if !d[0].v.isEmpty { share.left.append(d[0].v[src]) }
-                        if !d[1].v.isEmpty { share.right.append(d[1].v[src]) }
-                        if !d[2].v.isEmpty { share.top.append(d[2].v[src]) }
-                        if !d[3].v.isEmpty { share.height.append(d[3].v[src]) }
-                        share.frames += 1
-                    }
+                share.logits.reserveCapacity(nf * 10)
+                for e in sparseLogits[b0 + j] {
+                    share.logits.append(e.id)
+                    share.logits.append(e.value)
+                }
+                for f in 0..<nf {
+                    let src = j * framesPerChunk + firstFrame + f
+                    if !d[0].v.isEmpty { share.left.append(d[0].v[src]) }
+                    if !d[1].v.isEmpty { share.right.append(d[1].v[src]) }
+                    if !d[2].v.isEmpty { share.top.append(d[2].v[src]) }
+                    if !d[3].v.isEmpty { share.height.append(d[3].v[src]) }
+                    share.frames += 1
                 }
                 // The gated heads keep their raw per-frame activations until all the chunks of the line are merged.
                 for h in 0..<3 {
