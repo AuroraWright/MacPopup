@@ -17,18 +17,22 @@ struct GrayImage {
     /// visionkit ImageConversion: gray = (77 R + 150 G + 29 B + 128) >> 8; alpha is ignored. `rgba` rows are
     /// `bytesPerRow` apart.
     init(rgba: UnsafePointer<UInt8>, width: Int, height: Int, bytesPerRow: Int) {
+        self.init(rgba, width: width, height: height, bytesPerRow: bytesPerRow, weights: [77, 150, 29, 0])
+    }
+
+    /// The gray of 32-bit pixels whose bytes have these `weights` (77, 150 and 29 for red, green and blue).
+    init(_ pixels: UnsafePointer<UInt8>, width: Int, height: Int, bytesPerRow: Int, weights: [Int16]) {
         self.width = width
         self.height = height
         guard width > 0 && height > 0 else { return }
         // Every byte is written below.
         data = [UInt8](unsafeUninitializedCapacity: width * height) { _, count in count = width * height }
         data.withUnsafeMutableBytes { out in
-            var src = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: rgba), height: vImagePixelCount(height),
+            var src = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: pixels), height: vImagePixelCount(height),
                                     width: vImagePixelCount(width), rowBytes: bytesPerRow)
             var dst = vImage_Buffer(data: out.baseAddress, height: vImagePixelCount(height),
                                     width: vImagePixelCount(width), rowBytes: width)
             // Integer weights over a divisor of 256, with the rounding term before the shift: the same bytes.
-            let weights: [Int16] = [77, 150, 29, 0]
             vImageMatrixMultiply_ARGB8888ToPlanar8(&src, &dst, weights, 256, nil, 128, vImage_Flags(kvImageNoFlags))
         }
     }

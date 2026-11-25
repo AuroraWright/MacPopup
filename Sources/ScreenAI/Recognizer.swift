@@ -936,7 +936,10 @@ final class LineRecognizer {
     /// - Parameter keys: The recognizers the second pass may use, besides the default one (nil: all of them, as the
     ///   original). A line whose language selects another one keeps the default one's reading, and that recognizer
     ///   isn't loaded (each takes seconds the first time, while the GPU code is compiled, and memory from then on).
-    func recognize(_ gray: GrayImage, _ input: PageLayout, pyramid: [PyramidLevel], keys: Set<String>? = nil) throws -> PageLayout {
+    /// - Parameter colors: Whether words get their colors, as in the original. Only the layout's protos have them
+    ///   (stage dumps), so OCR leaves them out.
+    func recognize(_ gray: GrayImage, _ input: PageLayout, pyramid: [PyramidLevel], keys: Set<String>? = nil,
+                   colors: Bool = false) throws -> PageLayout {
         defer { recognizers.values.forEach { $0.endReading() } }
         var layout = input
         let lineIdx = layout.entities.indices.filter { layout.entities[$0].type == .line }
@@ -1048,7 +1051,7 @@ final class LineRecognizer {
                 var words = buildWords(decode.symbols, decode.text)
                 if !rtl {
                     recomputeSpaceWordBreakBoxes(decode.symbols, vertical: e.writingDirection == 2, &words)
-                    estimateWordColors(images[k], decode.symbols, &words)
+                    if colors { estimateWordColors(images[k], decode.symbols, &words) }
                 }
                 if state[w].boxScale != 1 { scaleLineBoxes(state[w].boxScale, &decode.symbols, &words) }
                 state[w].decode = decode
