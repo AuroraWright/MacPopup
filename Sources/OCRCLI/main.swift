@@ -1,4 +1,4 @@
-// ocr-cli read <engine> <list> <pictures folder> <output folder> [--limit count] [--cpu] [--language code]:
+// ocr-cli read <engine> <list> <pictures folder> <output folder> [--limit count] [--cpu] [--language code] [--capture]:
 // reads each picture in <list> (paths relative to <pictures folder>, one per line) with one of the app's OCR engines
 // (liveText, screenAI, oneOCR, meikiocr, ppocrManga, midaVOCR6) and writes what it read, before OCR mode's layout, to
 // <output folder>/<engine>/<path>.json: the app's read-N-areaK.json format, [{"text", "box": [x, y, width, height],
@@ -9,6 +9,8 @@
 //   --cpu runs the Core ML models on the CPU only (OCRCompute.cpuOnly, as the app's crash guard does).
 //   --language gives Screen AI OCR mode's language (an ISO code of Yomitan's), as the app does: it then only uses the
 //   script recognizers that language needs (OCRLanguage.screenAIRecognizers). Without it, all of them.
+//   --capture reads copies of the pictures laid out as the app's captures are (BGRA in sRGB), which the engines take
+//   their pixels from without drawing them, for timing them as in the app.
 // Pictures that already have a reading are skipped, so a run can be stopped and started again. Failures go to
 // <output folder>/<engine>/failures.txt.
 //
@@ -27,7 +29,7 @@ DevelopmentEnvironment.enabled = true
 
 func usage() -> Never {
     FileHandle.standardError.write(Data("""
-    usage: ocr-cli read liveText|screenAI|oneOCR|meikiocr|ppocrManga|midaVOCR6 <list> <pictures folder> <output folder> [--limit count] [--cpu] [--language code]
+    usage: ocr-cli read liveText|screenAI|oneOCR|meikiocr|ppocrManga|midaVOCR6 <list> <pictures folder> <output folder> [--limit count] [--cpu] [--language code] [--capture]
            ocr-cli screenai-stages <models dir> <out dir> <image>...
            ocr-cli oneocr crt <function> <in> <out>
            ocr-cli oneocr detect <models> <out.json> <image.bgr>...

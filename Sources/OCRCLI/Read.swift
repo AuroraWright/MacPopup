@@ -21,6 +21,8 @@ import OCREngines
         OCRCompute.cpuOnly = true
         arguments.remove(at: index)
     }
+    let asCaptures = arguments.contains("--capture")
+    arguments.removeAll { $0 == "--capture" }
     guard arguments.count == 4, let engine = Engine(rawValue: arguments[0]) else { usage() }
     let paths = try String(contentsOfFile: arguments[1], encoding: .utf8).split(separator: "\n").map(String.init).filter { !$0.isEmpty }
     let picturesFolder = URL(fileURLWithPath: arguments[2])
@@ -65,7 +67,8 @@ import OCREngines
     var recognizing: TimeInterval = 0
     let started = Date()
     for path in todo.prefix(limit) {
-        guard let picture = loadPicture(picturesFolder.appendingPathComponent(path)) else {
+        guard let loaded = loadPicture(picturesFolder.appendingPathComponent(path)),
+              let picture = asCaptures ? captureCopy(loaded) : loaded else {
             print("failed \(path): can't read the picture")
             appendLine("\(path)\tcan't read the picture", to: failures)
             continue
@@ -108,6 +111,16 @@ private func loadPicture(_ url: URL) -> CGImage? {
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
     let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary
     return CGImageSourceCreateThumbnailAtIndex(source, 0, options) ?? CGImageSourceCreateImageAtIndex(source, 0, nil)
+}
+
+/// The picture as ScreenCaptureKit's captures are (8-bit BGRA, premultiplied, little-endian, sRGB), which the engines
+/// read faster.
+private func captureCopy(_ image: CGImage) -> CGImage? {
+    let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 4 * image.width,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+    context?.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    return context?.makeImage()
 }
 
 /// Appends a line to a log file (failures.txt), making it if needed.
