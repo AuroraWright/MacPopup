@@ -138,22 +138,14 @@ public final class MeikiOCR: @unchecked Sendable {
                    width: rect.width / CGFloat(width), height: rect.height / CGFloat(height))
         }
         var lines = [RecognizedLine?](repeating: nil, count: boxes.count)
-        var failure: Error?
         let lock = NSLock()
-        // The longest (to read: columns in the most parts) first, so that the others share the time it takes.
-        let order = boxes.indices.sorted { boxes[$0].height / max(boxes[$0].width, 1) > boxes[$1].height / max(boxes[$1].width, 1) }
-        DispatchQueue.concurrentForEach(order, workers: concurrentLines) { [boxes] index in
+        try DispatchQueue.concurrentForEach(boxes.count, workers: concurrentLines, longestFirst: { [boxes] in boxes[$0].size }) {
+            [boxes] index in
             let box = boxes[index]
             let vertical = box.height > box.width
-            let characters: [Candidate]
-            do {
-                characters = vertical
-                    ? try recognizeColumn(image, box: box, model: models.vertical, cache: cache)
-                    : try recognizeLine(image, box: box, model: models.horizontal, cache: cache)
-            } catch {
-                lock.withLock { failure = error }
-                return
-            }
+            let characters = vertical
+                ? try recognizeColumn(image, box: box, model: models.vertical, cache: cache)
+                : try recognizeLine(image, box: box, model: models.horizontal, cache: cache)
             guard !characters.isEmpty else { return }
             let line = RecognizedLine(
                 text: String(characters.map(\.character)),
@@ -162,7 +154,6 @@ public final class MeikiOCR: @unchecked Sendable {
             )
             lock.withLock { lines[index] = line }
         }
-        if let failure { throw failure }
         cache.endReading()
         return lines.compactMap { $0 }
     }

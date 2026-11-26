@@ -19,7 +19,8 @@ let package = Package(
             path: "Sources/LiveText",
             linkerSettings: [.linkedFramework("VisionKit")]
         ),
-        // What the engines recognized lines of recent readings as (see LineCache), shared by ScreenAI, OneOCR and OCREngines.
+        // What the engines recognized lines of recent readings as (see LineCache) and reading captures' bytes, shared by
+        // ScreenAI, OneOCR and OCREngines.
         .target(
             name: "OCRLineCache",
             path: "Sources/OCRLineCache"

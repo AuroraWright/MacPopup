@@ -190,7 +190,8 @@ func sparseDequantizeFrame(_ logits: UnsafePointer<Float>, _ numClasses: Int, _ 
     var packed: [Int32] = []
     let zp = Float(zeroPoint)
     func add(_ c: Int) {
-        let q = Int(min(max((logits[c] / scale).rounded(.toNearestOrEven) + zp, 0), 255))
+        // As requantize converts it (a NaN gives 0 rather than trapping).
+        let q = Int(UInt8(truncatingIfNeeded: (min(max((logits[c] / scale).rounded(.toNearestOrEven) + zp, 0), 255) + 8_388_608).bitPattern))
         if q >= threshold { packed.append(Int32(c) + (Int32(q) << 16)) }
     }
     // Only values from the threshold's lower rounding edge up can reach it (less a margin for the division's

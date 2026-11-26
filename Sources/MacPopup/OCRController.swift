@@ -2026,7 +2026,6 @@ final class OCRController {
         }
     }
 
-    /// A line as the page gets it.
     /// Items for the page in reading order (see OCRLayout.paragraphs), encoded by `encode`, each with its paragraph's
     /// number and, when it's turned, how (see OCRLayout.Line.turn): the page draws a turned line turned, and groups
     /// turned lines by their paragraphs, since their upright boxes don't show which rows go on from one another.

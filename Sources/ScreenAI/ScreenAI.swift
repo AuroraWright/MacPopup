@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import OCRLineCache
 
 /// Screen AI OCR: Chrome's OCR models (text line detector, line recognizers per script, language identifier),
 /// converted to Core ML by scripts/convert-screenai.py, with the original's pre- and post-processing.
@@ -174,9 +175,9 @@ public final class ScreenAIEngine: @unchecked Sendable {
     /// about 0.3 ms instead of 2.8 (the same bytes on 1200 pictures in several layouts and crops).
     static func gray(_ image: CGImage) throws -> GrayImage {
         let w = image.width, h = image.height
-        if let weights = grayWeights(image), let data = image.dataProvider?.data, let pixels = CFDataGetBytePtr(data),
-           CFDataGetLength(data) >= image.bytesPerRow * (h - 1) + 4 * w {
-            return GrayImage(pixels, width: w, height: h, bytesPerRow: image.bytesPerRow, weights: weights)
+        if let weights = grayWeights(image),
+           let gray = image.withPixelBytes({ GrayImage($0, width: w, height: h, bytesPerRow: $1, weights: weights) }) {
+            return gray
         }
         let space = image.colorSpace?.model == .rgb ? image.colorSpace! : CGColorSpace(name: CGColorSpace.sRGB)!
         // Drawn over without blending, so every byte is written.

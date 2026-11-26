@@ -413,7 +413,7 @@ private final class ScriptRecognizer {
                 batchShapes[name] = a.shape.map(\.intValue)
                 if name != "decode_logits" { batchOut[name] = requantize(a, scale: q.scale, zeroPoint: Float(q.zeroPoint)) }
             }
-            guard let logits = result["decode_logits"], let C = batchShapes["decode_logits"]?.last,
+            guard let logits = result["decode_logits"], logits.shape.count == 3, let C = batchShapes["decode_logits"]?.last,
                   logits.count == batchSize * framesPerChunk * C else { throw ScreenAIError("Missing decode_logits") }
             var batchSparse: [[(id: Float, value: Float)]] = []
             withFloatRows(logits) { values, strides in

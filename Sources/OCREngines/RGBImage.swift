@@ -1,6 +1,7 @@
 import Accelerate
 import CoreGraphics
 import CoreML
+import OCRLineCache
 
 /// An image's pixels as 8-bit RGB(A), for the models' inputs (meikiocr's and PP-OCRv6_manga's).
 struct RGBImage {
@@ -33,21 +34,19 @@ struct RGBImage {
     /// gives (its colors as they are, premultiplied over black where it's see-through, the fourth byte 255; the same
     /// on 600 game and manga captures): 0.7 ms for 1080p, against 2.4. Nil for other images, which are drawn.
     private static func reordered(_ image: CGImage) -> [UInt8]? {
-        guard image.bitsPerComponent == 8, image.bitsPerPixel == 32, image.colorSpace?.name == CGColorSpace.sRGB,
-              image.alphaInfo == .premultipliedFirst || image.alphaInfo == .noneSkipFirst,
-              image.bitmapInfo.intersection(.byteOrderMask) == .byteOrder32Little,
-              let data = image.dataProvider?.data, let source = CFDataGetBytePtr(data),
-              CFDataGetLength(data) >= image.bytesPerRow * (image.height - 1) + 4 * image.width else { return nil }
-        let (width, height) = (image.width, image.height)
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let error = pixels.withUnsafeMutableBytes { out -> vImage_Error in
-            var src = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: source), height: vImagePixelCount(height),
-                                    width: vImagePixelCount(width), rowBytes: image.bytesPerRow)
-            var dst = vImage_Buffer(data: out.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: 4 * width)
-            // B, G, R, A to R, G, B, and 255 in the fourth (mask 0x1).
-            return vImagePermuteChannelsWithMaskedInsert_ARGB8888(&src, &dst, [2, 1, 0, 3], 0x1, [0, 0, 0, 255], vImage_Flags(kvImageNoFlags))
-        }
-        return error == kvImageNoError ? pixels : nil
+        guard image.colorSpace?.name == CGColorSpace.sRGB else { return nil }
+        return image.withCaptureBytes { source, bytesPerRow -> [UInt8]? in
+            let (width, height) = (image.width, image.height)
+            var pixels = [UInt8](repeating: 0, count: width * height * 4)
+            let error = pixels.withUnsafeMutableBytes { out -> vImage_Error in
+                var src = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: source), height: vImagePixelCount(height),
+                                        width: vImagePixelCount(width), rowBytes: bytesPerRow)
+                var dst = vImage_Buffer(data: out.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: 4 * width)
+                // B, G, R, A to R, G, B, and 255 in the fourth (mask 0x1).
+                return vImagePermuteChannelsWithMaskedInsert_ARGB8888(&src, &dst, [2, 1, 0, 3], 0x1, [0, 0, 0, 255], vImage_Flags(kvImageNoFlags))
+            }
+            return error == kvImageNoError ? pixels : nil
+        } ?? nil
     }
 
     private init(width: Int, height: Int, pixels: [UInt8]) {

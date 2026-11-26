@@ -150,29 +150,20 @@ public final class MidaVOCR6: @unchecked Sendable {
             crop($0, settings: $0.vertical ? verticalCrop : horizontalCrop, width: image.width, height: image.height)
         }
         var lines = [RecognizedLine?](repeating: nil, count: crops.count)
-        var failure: Error?
         let lock = NSLock()
-        // The longest (to read) first, so that the others share the time it takes.
-        let order = crops.indices.sorted { Double(max(crops[$0].width, crops[$0].height)) / Double(min(crops[$0].width, crops[$0].height))
-            > Double(max(crops[$1].width, crops[$1].height)) / Double(min(crops[$1].width, crops[$1].height)) }
-        DispatchQueue.concurrentForEach(order, workers: concurrentLines) { index in
+        try DispatchQueue.concurrentForEach(crops.count, workers: concurrentLines,
+                                            longestFirst: { CGSize(width: crops[$0].width, height: crops[$0].height) }) { index in
             let crop = crops[index]
-            let characters: [LineCharacter]
-            do {
-                var grey = image.grey(x: crop.x, y: crop.y, width: crop.width, height: crop.height)
-                var (lineWidth, lineHeight) = (crop.width, crop.height)
-                if crop.vertical {
-                    grey = turnedAnticlockwise(grey, width: crop.width, height: crop.height)
-                    (lineWidth, lineHeight) = (crop.height, crop.width)
-                }
-                let recognizer = crop.vertical ? models.vertical : models.horizontal
-                let key = grey.withUnsafeBytes { LineCache<[LineCharacter]>.Key($0, [lineWidth, lineHeight, crop.vertical ? 1 : 0]) }
-                characters = try cache.value(key) {
-                    try read(grey, width: lineWidth, height: lineHeight, recognizer: recognizer)
-                }
-            } catch {
-                lock.withLock { failure = error }
-                return
+            var grey = image.grey(x: crop.x, y: crop.y, width: crop.width, height: crop.height)
+            var (lineWidth, lineHeight) = (crop.width, crop.height)
+            if crop.vertical {
+                grey = turnedAnticlockwise(grey, width: crop.width, height: crop.height)
+                (lineWidth, lineHeight) = (crop.height, crop.width)
+            }
+            let recognizer = crop.vertical ? models.vertical : models.horizontal
+            let key = grey.withUnsafeBytes { LineCache<[LineCharacter]>.Key($0, [lineWidth, lineHeight, crop.vertical ? 1 : 0]) }
+            let characters = try cache.value(key) {
+                try read(grey, width: lineWidth, height: lineHeight, recognizer: recognizer)
             }
             guard !characters.isEmpty else { return }
             let (x0, y0) = (Double(crop.x), Double(crop.y))
@@ -185,7 +176,6 @@ public final class MidaVOCR6: @unchecked Sendable {
             let line = RecognizedLine(text: characters.map(\.text).joined(), box: normalize(x0, y0, x1, y1), words: words)
             lock.withLock { lines[index] = line }
         }
-        if let failure { throw failure }
         cache.endReading()
         return lines.compactMap { $0 }
     }

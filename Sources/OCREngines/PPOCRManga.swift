@@ -123,24 +123,14 @@ public final class PPOCRManga: @unchecked Sendable {
         }
         let boxes = try detectLines(image, model: models.detection)
         var lines = [RecognizedLine?](repeating: nil, count: boxes.count)
-        var failure: Error?
         let lock = NSLock()
-        // The longest (to read: the most steps) first, so that the others share the time it takes.
-        let order = boxes.indices.sorted { max(boxes[$0].width, boxes[$0].height) / max(min(boxes[$0].width, boxes[$0].height), 1)
-            > max(boxes[$1].width, boxes[$1].height) / max(min(boxes[$1].width, boxes[$1].height), 1) }
-        DispatchQueue.concurrentForEach(order, workers: concurrentLines) { index in
+        try DispatchQueue.concurrentForEach(boxes.count, workers: concurrentLines, longestFirst: { boxes[$0].size }) { index in
             let box = boxes[index]
             // Columns (taller than wide) are turned to read across.
             let vertical = box.height > box.width
-            let characters: [(text: String, steps: Range<Int>)], steps: Int
-            do {
-                let line = image.cropped(box, rotated: vertical)
-                let key = line.pixels.withUnsafeBytes { LineCache<Reading>.Key($0, [line.width, line.height]) }
-                (characters, steps) = try cache.value(key) { try read(line, models: models) }
-            } catch {
-                lock.withLock { failure = error }
-                return
-            }
+            let cropped = image.cropped(box, rotated: vertical)
+            let key = cropped.pixels.withUnsafeBytes { LineCache<Reading>.Key($0, [cropped.width, cropped.height]) }
+            let (characters, steps) = try cache.value(key) { try read(cropped, models: models) }
             guard !characters.isEmpty else { return }
             // Each character where its steps are along the line, a quarter of a step earlier: a step's character
             // is recognized toward the end of what the step sees (closest to Google Lens' boxes on games and
@@ -157,7 +147,6 @@ public final class PPOCRManga: @unchecked Sendable {
             let line = RecognizedLine(text: characters.map(\.text).joined(), box: normalize(box), words: words)
             lock.withLock { lines[index] = line }
         }
-        if let failure { throw failure }
         cache.endReading()
         return lines.compactMap { $0 }
     }

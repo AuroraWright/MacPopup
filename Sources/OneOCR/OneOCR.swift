@@ -74,21 +74,18 @@ public final class OneOCREngine: @unchecked Sendable {
     /// on 600 game and manga captures, sRGB and Display P3; 0.7 ms for 1080p, against 1.4).
     static func bgr(_ image: CGImage) throws -> ImageU8 {
         let w = image.width, h = image.height
-        if image.bitsPerComponent == 8, image.bitsPerPixel == 32, image.colorSpace?.model == .rgb,
-           image.alphaInfo == .premultipliedFirst || image.alphaInfo == .noneSkipFirst,
-           image.bitmapInfo.intersection(.byteOrderMask) == .byteOrder32Little,
-           let data = image.dataProvider?.data, let pixels = CFDataGetBytePtr(data),
-           CFDataGetLength(data) >= image.bytesPerRow * (h - 1) + 4 * w {
+        let captured = image.withCaptureBytes { pixels, bytesPerRow -> ImageU8? in
             var out = ImageU8(width: w, height: h, channels: 3)
             let error = out.data.withUnsafeMutableBytes { bgr -> vImage_Error in
                 var source = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: pixels), height: vImagePixelCount(h),
-                                           width: vImagePixelCount(w), rowBytes: image.bytesPerRow)
+                                           width: vImagePixelCount(w), rowBytes: bytesPerRow)
                 var destination = vImage_Buffer(data: bgr.baseAddress, height: vImagePixelCount(h), width: vImagePixelCount(w), rowBytes: 3 * w)
                 // B, G, R, A in memory: the first three kept.
                 return vImageConvert_RGBA8888toRGB888(&source, &destination, vImage_Flags(kvImageNoFlags))
             }
-            if error == kvImageNoError { return out }
+            return error == kvImageNoError ? out : nil
         }
+        if let captured = captured ?? nil { return captured }
         let space = image.colorSpace?.model == .rgb ? image.colorSpace! : CGColorSpace(name: CGColorSpace.sRGB)!
         var rgba = [UInt8](repeating: 0, count: w * h * 4)
         let drawn = rgba.withUnsafeMutableBytes { buf -> Bool in
