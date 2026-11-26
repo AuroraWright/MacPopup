@@ -140,27 +140,27 @@ public final class MeikiOCR: @unchecked Sendable {
         var lines = [RecognizedLine?](repeating: nil, count: boxes.count)
         var failure: Error?
         let lock = NSLock()
-        DispatchQueue.concurrentPerform(iterations: min(concurrentLines, boxes.count)) { [boxes] worker in
-            for index in stride(from: worker, to: boxes.count, by: concurrentLines) {
-                let box = boxes[index]
-                let vertical = box.height > box.width
-                let characters: [Candidate]
-                do {
-                    characters = vertical
-                        ? try recognizeColumn(image, box: box, model: models.vertical, cache: cache)
-                        : try recognizeLine(image, box: box, model: models.horizontal, cache: cache)
-                } catch {
-                    lock.withLock { failure = error }
-                    return
-                }
-                guard !characters.isEmpty else { continue }
-                let line = RecognizedLine(
-                    text: String(characters.map(\.character)),
-                    box: normalize(box),
-                    words: characters.map { (String($0.character), normalize($0.box)) }
-                )
-                lock.withLock { lines[index] = line }
+        // The longest (to read: columns in the most parts) first, so that the others share the time it takes.
+        let order = boxes.indices.sorted { boxes[$0].height / max(boxes[$0].width, 1) > boxes[$1].height / max(boxes[$1].width, 1) }
+        DispatchQueue.concurrentForEach(order, workers: concurrentLines) { [boxes] index in
+            let box = boxes[index]
+            let vertical = box.height > box.width
+            let characters: [Candidate]
+            do {
+                characters = vertical
+                    ? try recognizeColumn(image, box: box, model: models.vertical, cache: cache)
+                    : try recognizeLine(image, box: box, model: models.horizontal, cache: cache)
+            } catch {
+                lock.withLock { failure = error }
+                return
             }
+            guard !characters.isEmpty else { return }
+            let line = RecognizedLine(
+                text: String(characters.map(\.character)),
+                box: normalize(box),
+                words: characters.map { (String($0.character), normalize($0.box)) }
+            )
+            lock.withLock { lines[index] = line }
         }
         if let failure { throw failure }
         cache.endReading()
@@ -174,7 +174,7 @@ public final class MeikiOCR: @unchecked Sendable {
         let resizedWidth = Int(Double(image.width) * scale), resizedHeight = Int(Double(image.height) * scale)
         let input = try MLMultiArray(shape: [1, 3, inputHeight, inputWidth] as [NSNumber], dataType: .float32)
         image.write(CGRect(x: 0, y: 0, width: image.width, height: image.height), into: input,
-                    width: resizedWidth, height: resizedHeight)
+                    width: resizedWidth, height: resizedHeight, concurrently: true)
         let output = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["images": input]))
         guard let boxes = output.featureValue(for: "boxes")?.multiArrayValue,
               let scores = output.featureValue(for: "scores")?.multiArrayValue else {

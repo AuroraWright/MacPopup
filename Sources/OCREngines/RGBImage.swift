@@ -81,10 +81,11 @@ struct RGBImage {
     /// Resizes the part `source` (in pixels) to `width` x `height` (bilinear, like OpenCV's INTER_LINEAR) into the top
     /// left of `array` ([1, 3, H, W] floats, channels in OpenCV's order: blue, green, red); the rest is zero. Each value
     /// is (pixel / 255 - mean) / deviation, with the channel's `mean` and `deviation` (in that order too), the resized
-    /// pixel rounded first if `rounded` (as OpenCV's resizing of 8-bit images has them).
+    /// pixel rounded first if `rounded` (as OpenCV's resizing of 8-bit images has them). With `concurrently`, rows are
+    /// written on several threads (for a whole picture, not lines already read several at once).
     func write(
         _ source: CGRect, into array: MLMultiArray, width: Int, height: Int,
-        mean: [Float] = [0, 0, 0], deviation: [Float] = [1, 1, 1], rounded: Bool = false
+        mean: [Float] = [0, 0, 0], deviation: [Float] = [1, 1, 1], rounded: Bool = false, concurrently: Bool = false
     ) {
         let arrayHeight = array.shape[2].intValue, arrayWidth = array.shape[3].intValue
         let plane = arrayHeight * arrayWidth
@@ -97,23 +98,30 @@ struct RGBImage {
             let left = min(Int(position), sourceWidth - 1)
             return (sourceX + left, sourceX + min(left + 1, sourceWidth - 1), Float(position - Double(left)))
         }
+        let rows = min(height, arrayHeight)
         array.withUnsafeMutableBufferPointer(ofType: Float.self) { output, _ in
             output.initialize(repeating: 0)
+            // Each band of rows writes its own.
+            nonisolated(unsafe) let output = output
             pixels.withUnsafeBufferPointer { pixels in
-                for y in 0..<min(height, arrayHeight) {
-                    let position = max((Double(y) + 0.5) * scaleY - 0.5, 0)
-                    let top = min(Int(position), sourceHeight - 1)
-                    let row0 = (sourceY + top) * self.width * 4
-                    let row1 = (sourceY + min(top + 1, sourceHeight - 1)) * self.width * 4
-                    let wy = Float(position - Double(top))
-                    for (x, (left, right, wx)) in columns.enumerated() {
-                        for channel in 0..<3 {
-                            // RGBA in, BGR out.
-                            let p00 = Float(pixels[row0 + left * 4 + channel]), p01 = Float(pixels[row0 + right * 4 + channel])
-                            let p10 = Float(pixels[row1 + left * 4 + channel]), p11 = Float(pixels[row1 + right * 4 + channel])
-                            var value = (p00 * (1 - wx) + p01 * wx) * (1 - wy) + (p10 * (1 - wx) + p11 * wx) * wy
-                            if rounded { value = value.rounded() }
-                            output[(2 - channel) * plane + y * arrayWidth + x] = (value / 255 - mean[2 - channel]) / deviation[2 - channel]
+                nonisolated(unsafe) let pixels = pixels
+                let bands = concurrently ? min(rows, 8) : 1
+                DispatchQueue.concurrentPerform(iterations: bands) { band in
+                    for y in rows * band / bands..<rows * (band + 1) / bands {
+                        let position = max((Double(y) + 0.5) * scaleY - 0.5, 0)
+                        let top = min(Int(position), sourceHeight - 1)
+                        let row0 = (sourceY + top) * self.width * 4
+                        let row1 = (sourceY + min(top + 1, sourceHeight - 1)) * self.width * 4
+                        let wy = Float(position - Double(top))
+                        for (x, (left, right, wx)) in columns.enumerated() {
+                            for channel in 0..<3 {
+                                // RGBA in, BGR out.
+                                let p00 = Float(pixels[row0 + left * 4 + channel]), p01 = Float(pixels[row0 + right * 4 + channel])
+                                let p10 = Float(pixels[row1 + left * 4 + channel]), p11 = Float(pixels[row1 + right * 4 + channel])
+                                var value = (p00 * (1 - wx) + p01 * wx) * (1 - wy) + (p10 * (1 - wx) + p11 * wx) * wy
+                                if rounded { value = value.rounded() }
+                                output[(2 - channel) * plane + y * arrayWidth + x] = (value / 255 - mean[2 - channel]) / deviation[2 - channel]
+                            }
                         }
                     }
                 }

@@ -152,37 +152,38 @@ public final class MidaVOCR6: @unchecked Sendable {
         var lines = [RecognizedLine?](repeating: nil, count: crops.count)
         var failure: Error?
         let lock = NSLock()
-        DispatchQueue.concurrentPerform(iterations: min(concurrentLines, crops.count)) { worker in
-            for index in stride(from: worker, to: crops.count, by: concurrentLines) {
-                let crop = crops[index]
-                let characters: [LineCharacter]
-                do {
-                    var grey = image.grey(x: crop.x, y: crop.y, width: crop.width, height: crop.height)
-                    var (lineWidth, lineHeight) = (crop.width, crop.height)
-                    if crop.vertical {
-                        grey = turnedAnticlockwise(grey, width: crop.width, height: crop.height)
-                        (lineWidth, lineHeight) = (crop.height, crop.width)
-                    }
-                    let recognizer = crop.vertical ? models.vertical : models.horizontal
-                    let key = grey.withUnsafeBytes { LineCache<[LineCharacter]>.Key($0, [lineWidth, lineHeight, crop.vertical ? 1 : 0]) }
-                    characters = try cache.value(key) {
-                        try read(grey, width: lineWidth, height: lineHeight, recognizer: recognizer)
-                    }
-                } catch {
-                    lock.withLock { failure = error }
-                    return
+        // The longest (to read) first, so that the others share the time it takes.
+        let order = crops.indices.sorted { Double(max(crops[$0].width, crops[$0].height)) / Double(min(crops[$0].width, crops[$0].height))
+            > Double(max(crops[$1].width, crops[$1].height)) / Double(min(crops[$1].width, crops[$1].height)) }
+        DispatchQueue.concurrentForEach(order, workers: concurrentLines) { index in
+            let crop = crops[index]
+            let characters: [LineCharacter]
+            do {
+                var grey = image.grey(x: crop.x, y: crop.y, width: crop.width, height: crop.height)
+                var (lineWidth, lineHeight) = (crop.width, crop.height)
+                if crop.vertical {
+                    grey = turnedAnticlockwise(grey, width: crop.width, height: crop.height)
+                    (lineWidth, lineHeight) = (crop.height, crop.width)
                 }
-                guard !characters.isEmpty else { continue }
-                let (x0, y0) = (Double(crop.x), Double(crop.y))
-                let (x1, y1) = (x0 + Double(crop.width), y0 + Double(crop.height))
-                // At least a pixel long.
-                let words = characters.map { character in
-                    let (start, end) = (character.x0, max(character.x1, character.x0 + 1))
-                    return (character.text, crop.vertical ? normalize(x0, y0 + start, x1, y0 + end) : normalize(x0 + start, y0, x0 + end, y1))
+                let recognizer = crop.vertical ? models.vertical : models.horizontal
+                let key = grey.withUnsafeBytes { LineCache<[LineCharacter]>.Key($0, [lineWidth, lineHeight, crop.vertical ? 1 : 0]) }
+                characters = try cache.value(key) {
+                    try read(grey, width: lineWidth, height: lineHeight, recognizer: recognizer)
                 }
-                let line = RecognizedLine(text: characters.map(\.text).joined(), box: normalize(x0, y0, x1, y1), words: words)
-                lock.withLock { lines[index] = line }
+            } catch {
+                lock.withLock { failure = error }
+                return
             }
+            guard !characters.isEmpty else { return }
+            let (x0, y0) = (Double(crop.x), Double(crop.y))
+            let (x1, y1) = (x0 + Double(crop.width), y0 + Double(crop.height))
+            // At least a pixel long.
+            let words = characters.map { character in
+                let (start, end) = (character.x0, max(character.x1, character.x0 + 1))
+                return (character.text, crop.vertical ? normalize(x0, y0 + start, x1, y0 + end) : normalize(x0 + start, y0, x0 + end, y1))
+            }
+            let line = RecognizedLine(text: characters.map(\.text).joined(), box: normalize(x0, y0, x1, y1), words: words)
+            lock.withLock { lines[index] = line }
         }
         if let failure { throw failure }
         cache.endReading()
@@ -267,11 +268,16 @@ public final class MidaVOCR6: @unchecked Sendable {
         input.withUnsafeMutableBufferPointer(ofType: Float.self) { output, strides in
             resized.withUnsafeBufferPointer { resized in
                 let (channelStride, rowStride) = (strides[1], strides[2])
-                for channel in 0..<3 {
-                    for y in 0..<inputHeight {
-                        let source = resized.baseAddress! + y * inputWidth * pixelSize + channel
-                        let target = output.baseAddress! + channel * channelStride + y * rowStride
-                        for x in 0..<inputWidth { target[x] = levels[Int(source[x * pixelSize])] }
+                // In bands of rows, each writing its own.
+                nonisolated(unsafe) let (output, resized) = (output, resized)
+                let bands = min(inputHeight, 8)
+                DispatchQueue.concurrentPerform(iterations: bands) { band in
+                    for channel in 0..<3 {
+                        for y in inputHeight * band / bands..<inputHeight * (band + 1) / bands {
+                            let source = resized.baseAddress! + y * inputWidth * pixelSize + channel
+                            let target = output.baseAddress! + channel * channelStride + y * rowStride
+                            for x in 0..<inputWidth { target[x] = levels[Int(source[x * pixelSize])] }
+                        }
                     }
                 }
             }
@@ -753,9 +759,27 @@ enum OpenCVResize {
                                 acrossRow = entry.input
                                 let source = pixels.baseAddress! + entry.input * rowSize
                                 across.initialize(repeating: 0, count: outRowSize)
-                                for column in columns {
-                                    let (s, d) = (source + column.input * pixelSize, across + column.output * channels)
-                                    for c in 0..<channels { d[c] = d[c] + Float(s[c]) * column.alpha }
+                                if channels == 3 {
+                                    // Each output pixel's sums kept in registers, not added up through memory (half the
+                                    // time), its source pixels in the same order.
+                                    var k = 0
+                                    while k < columns.count {
+                                        let output = columns[k].output
+                                        var (r, g, b): (Float, Float, Float) = (0, 0, 0)
+                                        repeat {
+                                            let (s, alpha) = (source + columns[k].input * pixelSize, columns[k].alpha)
+                                            r = r + Float(s[0]) * alpha
+                                            g = g + Float(s[1]) * alpha
+                                            b = b + Float(s[2]) * alpha
+                                            k += 1
+                                        } while k < columns.count && columns[k].output == output
+                                        (across[output * 3], across[output * 3 + 1], across[output * 3 + 2]) = (r, g, b)
+                                    }
+                                } else {
+                                    for column in columns {
+                                        let (s, d) = (source + column.input * pixelSize, across + column.output * channels)
+                                        for c in 0..<channels { d[c] = d[c] + Float(s[c]) * column.alpha }
+                                    }
                                 }
                             }
                             if entry.output != outputRow {

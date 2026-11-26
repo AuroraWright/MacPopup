@@ -125,36 +125,37 @@ public final class PPOCRManga: @unchecked Sendable {
         var lines = [RecognizedLine?](repeating: nil, count: boxes.count)
         var failure: Error?
         let lock = NSLock()
-        DispatchQueue.concurrentPerform(iterations: min(concurrentLines, boxes.count)) { worker in
-            for index in stride(from: worker, to: boxes.count, by: concurrentLines) {
-                let box = boxes[index]
-                // Columns (taller than wide) are turned to read across.
-                let vertical = box.height > box.width
-                let characters: [(text: String, steps: Range<Int>)], steps: Int
-                do {
-                    let line = image.cropped(box, rotated: vertical)
-                    let key = line.pixels.withUnsafeBytes { LineCache<Reading>.Key($0, [line.width, line.height]) }
-                    (characters, steps) = try cache.value(key) { try read(line, models: models) }
-                } catch {
-                    lock.withLock { failure = error }
-                    return
-                }
-                guard !characters.isEmpty else { continue }
-                // Each character where its steps are along the line, a quarter of a step earlier: a step's character
-                // is recognized toward the end of what the step sees (closest to Google Lens' boxes on games and
-                // manga).
-                let length = vertical ? box.height : box.width
-                let words = characters.map { character -> (text: String, box: CGRect) in
-                    let start = length * max(0, CGFloat(character.steps.lowerBound) - 0.25) / CGFloat(steps)
-                    let end = length * (CGFloat(character.steps.upperBound) - 0.25) / CGFloat(steps)
-                    let rect = vertical
-                        ? CGRect(x: box.minX, y: box.minY + start, width: box.width, height: end - start)
-                        : CGRect(x: box.minX + start, y: box.minY, width: end - start, height: box.height)
-                    return (character.text, normalize(rect))
-                }
-                let line = RecognizedLine(text: characters.map(\.text).joined(), box: normalize(box), words: words)
-                lock.withLock { lines[index] = line }
+        // The longest (to read: the most steps) first, so that the others share the time it takes.
+        let order = boxes.indices.sorted { max(boxes[$0].width, boxes[$0].height) / max(min(boxes[$0].width, boxes[$0].height), 1)
+            > max(boxes[$1].width, boxes[$1].height) / max(min(boxes[$1].width, boxes[$1].height), 1) }
+        DispatchQueue.concurrentForEach(order, workers: concurrentLines) { index in
+            let box = boxes[index]
+            // Columns (taller than wide) are turned to read across.
+            let vertical = box.height > box.width
+            let characters: [(text: String, steps: Range<Int>)], steps: Int
+            do {
+                let line = image.cropped(box, rotated: vertical)
+                let key = line.pixels.withUnsafeBytes { LineCache<Reading>.Key($0, [line.width, line.height]) }
+                (characters, steps) = try cache.value(key) { try read(line, models: models) }
+            } catch {
+                lock.withLock { failure = error }
+                return
             }
+            guard !characters.isEmpty else { return }
+            // Each character where its steps are along the line, a quarter of a step earlier: a step's character
+            // is recognized toward the end of what the step sees (closest to Google Lens' boxes on games and
+            // manga).
+            let length = vertical ? box.height : box.width
+            let words = characters.map { character -> (text: String, box: CGRect) in
+                let start = length * max(0, CGFloat(character.steps.lowerBound) - 0.25) / CGFloat(steps)
+                let end = length * (CGFloat(character.steps.upperBound) - 0.25) / CGFloat(steps)
+                let rect = vertical
+                    ? CGRect(x: box.minX, y: box.minY + start, width: box.width, height: end - start)
+                    : CGRect(x: box.minX + start, y: box.minY, width: end - start, height: box.height)
+                return (character.text, normalize(rect))
+            }
+            let line = RecognizedLine(text: characters.map(\.text).joined(), box: normalize(box), words: words)
+            lock.withLock { lines[index] = line }
         }
         if let failure { throw failure }
         cache.endReading()
@@ -172,7 +173,7 @@ public final class PPOCRManga: @unchecked Sendable {
         let (inputWidth, inputHeight) = (side(width), side(height))
         let input = try MLMultiArray(shape: [1, 3, inputHeight, inputWidth] as [NSNumber], dataType: .float32)
         image.write(CGRect(x: 0, y: 0, width: image.width, height: image.height), into: input, width: inputWidth,
-                    height: inputHeight, mean: detectionMean, deviation: detectionDeviation, rounded: true)
+                    height: inputHeight, mean: detectionMean, deviation: detectionDeviation, rounded: true, concurrently: true)
         let output = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["image": input]))
         guard let probabilities = output.featureValue(for: "probabilities")?.multiArrayValue else {
             throw Failure(errorDescription: "Unexpected detection output")
