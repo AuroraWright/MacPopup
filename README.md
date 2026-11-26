@@ -130,7 +130,7 @@ model, make its `.zip` file with its script in `scripts/`, and click **Load**:
 | Model | Script | Languages and notes |
 | --- | --- | --- |
 | **Live Caption** *(default)* | `scripts/convert-soda.py` | 16 languages: Chrome's speech recognition. Fast, with punctuation |
-| **Kitsune** | `scripts/convert-kitsune.py` | Japanese. Very fast and accurate; non-commercial use only |
+| **Kitsune** | `scripts/convert-kitsune.py` | Japanese. Very fast and accurate |
 | **SenseVoice** | `scripts/convert-sensevoice.py` | Chinese, Cantonese, Japanese, Korean and English. The fastest |
 | **Parakeet** | `scripts/convert-parakeet.py` | 25 European languages. Very fast, and finds the language itself |
 | **Whisper** | `scripts/convert-whisper.py` | 99 languages. About a second per line; `--full` makes the full 1.6 GB build (slightly more accurate) |
