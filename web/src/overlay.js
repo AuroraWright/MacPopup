@@ -370,11 +370,15 @@ function removeLine(line) {
 	countLine(line.text, -1);
 	line.element?.remove();
 	line.tokenizing.abort();
+	linesInView.delete(line);
+	unwatchLine(line.element);
 	sendLines();
 }
 
 function clearLines() {
 	for (const line of state.lines) line.tokenizing.abort();
+	nearView.disconnect();
+	linesInView.clear();
 	state.lines = [];
 	state.ocrLine = null;
 	state.lineTextCounts.clear();
@@ -407,7 +411,7 @@ function sendLines() {
  */
 function prependLines(saved) {
 	const lines = saved.filter((line) => typeof line?.text === 'string' && line.text).map(({ text, time }) => (
-		{ id: `${state.nextId++}`, shown: null, text, time: time ?? Date.now(), tokens: null, element: null, tokenizing: new AbortController() }
+		{ id: `${state.nextId++}`, shown: null, text, time: time ?? Date.now(), tokens: null, element: null, tokenizing: new AbortController(), waitsForView: true }
 	));
 	if (lines.length === 0) return;
 	state.lines.unshift(...lines);
@@ -417,12 +421,48 @@ function prependLines(saved) {
 	rerenderLines();
 	scrollToEnd();
 	sendLines();
-	// One at a time, newest first, so that a new line's furigana doesn't wait for all of them.
-	void (async () => {
-		for (const line of [...lines].reverse()) {
-			if (!line.tokenizing.signal.aborted) await tokenizeLine(line);
-		}
-	})();
+}
+
+// Lines prepended (see prependLines) are tokenized once they come near the box's view (within a box's size of it), one
+// at a time, newest first: thousands of them would keep Yomitan busy for minutes, for furigana on lines nobody scrolls
+// back to, and a new line's would wait behind them. Lookups don't need the tokens.
+const waitingLines = new WeakMap();
+const linesInView = new Set();
+let tokenizingInView = false;
+const nearView = new IntersectionObserver((entries) => {
+	for (const { target, isIntersecting } of entries) {
+		const line = waitingLines.get(target);
+		if (line && isIntersecting) linesInView.add(line);
+		else if (line) linesInView.delete(line);
+	}
+	void tokenizeInView();
+}, { root: linesElement, rootMargin: '100%' });
+
+/** Watches the element of a line waiting for the view (see nearView). */
+function watchLine(line) {
+	if (!line.waitsForView || !line.element) return;
+	waitingLines.set(line.element, line);
+	nearView.observe(line.element);
+}
+
+/** Stops watching a line's element (it's gone, replaced, or the line's tokenized). */
+function unwatchLine(element) {
+	if (!element) return;
+	nearView.unobserve(element);
+	waitingLines.delete(element);
+}
+
+async function tokenizeInView() {
+	if (tokenizingInView) return;
+	tokenizingInView = true;
+	while (linesInView.size > 0) {
+		const line = [...linesInView].reduce((a, b) => (Number(b.id) > Number(a.id) ? b : a));
+		linesInView.delete(line);
+		line.waitsForView = false;
+		unwatchLine(line.element);
+		if (!line.tokenizing.signal.aborted) await tokenizeLine(line);
+	}
+	tokenizingInView = false;
 }
 
 // From the host: the box's lines replaced by imported ones (Settings → Import), or cleared (Reset All).
@@ -440,9 +480,12 @@ async function tokenizeLine(line, retry = true) {
 		if (tokens.flat().map((segment) => segment.text).join('') !== displayText) return;
 		line.tokens = tokens;
 		if (!line.element?.isConnected) return;
+		// Furigana make the line taller: a box at its end stays there, to keep showing new lines.
+		const atEnd = isScrolledToEnd();
 		const element = createLineElement(line, false);
 		line.element.replaceWith(element);
 		line.element = element;
+		if (atEnd) scrollToEnd();
 	} catch (e) {
 		if (line.tokenizing.signal.aborted) return;
 		// Yomitan keeps working on a request it didn't answer in time, and keeps what it found in its parse cache, so
@@ -534,8 +577,11 @@ function rerenderLines() {
 	clearChildren(linesElement);
 	const ordered = settings.reverseLineOrder ? [...state.lines].reverse() : state.lines;
 	for (const line of ordered) {
+		const previous = line.element;
 		line.element = createLineElement(line, false);
 		linesElement.append(line.element);
+		unwatchLine(previous);
+		watchLine(line);
 	}
 	// The live lines (see live) after them, kept as they are.
 	for (const { element } of live.lines.values()) {
