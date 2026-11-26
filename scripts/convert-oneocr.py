@@ -285,7 +285,7 @@ class Converter:
             xs, xz, ys, yz = (self.const(i) for i in I[1:5])
             table = sigmoid_table(f32(xs), int(xz), f32(ys), int(yz)) - f32(int(yz))
             return [Centered(mb.gather(x=table, indices=mb.cast(x=self.minus(I[0], 0), dtype="int32"), axis=0), int(yz))]
-        raise NotImplementedError(op)
+        raise NotImplementedError(f"unsupported ONNX op {op}")
 
     def qlinear_conv(self, n, a):
         x, xs, xz, w, ws, wz, ys, yz = n.input[:8]

@@ -114,7 +114,7 @@ class Converter:
             return np.take(ins[0], ins[1], axis=attrs.get("axis", 0))
         if op == "Pow":
             return np.power(ins[0], ins[1])
-        raise NotImplementedError(f"folding {op}")
+        raise NotImplementedError(f"can't fold {op} into a constant")
 
     def ints(self, x):
         """A shape-like value as int32, for MIL."""
@@ -217,7 +217,7 @@ class Converter:
             else:
                 begin, end = np.concatenate(begin), np.concatenate(end)
             return mb.slice_by_index(x=x, begin=begin, end=end, begin_mask=begin_mask, end_mask=end_mask)
-        raise NotImplementedError(op)
+        raise NotImplementedError(f"unsupported ONNX op {op}")
 
 
 def convert(onnx_model, input_name, shape, output_names, renamed, biases_after=False):

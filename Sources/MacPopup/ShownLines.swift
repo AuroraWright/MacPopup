@@ -28,7 +28,7 @@ struct ShownLines<Info>: RandomAccessCollection, MutableCollection {
     }
 
     /// When a line sent after another sent one (see Line.sent) is still that line, as the text box decides it
-    /// (Settings → Text Box): the same text again (`repeats`), or the line with more text (`grows`), or whatever its
+    /// (Settings → Floating Window): the same text again (`repeats`), or the line with more text (`grows`), or whatever its
     /// text when it replaces the line with the id `replaces` (a transcribed line heard again) and that's still the last
     /// one. Otherwise it's a new line, however much it looks like the one before.
     struct SentLines {

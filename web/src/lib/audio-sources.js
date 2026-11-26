@@ -1,4 +1,4 @@
-// The audio sources copied from Yomitan (Settings → Import), for the menu on the play buttons, as in
+// The audio sources copied from Yomitan (Import → Yomitan Settings), for the menu on the play buttons, as in
 // Yomitan's DisplayAudio: each source lists the audio it has for a word, and any of them can be played
 // and used for Anki cards. Plain clicks on the play buttons still go through the Yomitan API.
 

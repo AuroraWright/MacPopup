@@ -98,7 +98,7 @@ def activation(x, kind):
         return mb.relu6(x=x)
     if kind == S.ActivationFunctionType.RELU_N1_TO_1:
         return mb.clip(x=x, alpha=-1.0, beta=1.0)
-    raise NotImplementedError(f"fused activation {kind}")
+    raise NotImplementedError(f"unsupported fused activation {kind}")
 
 
 class Converter:

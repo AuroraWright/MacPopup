@@ -812,7 +812,7 @@ final class TextDetector: @unchecked Sendable {
             var groups: [[Seg]] = []
             for (orient, hori) in [("hori", true), ("vert", false)] {
                 guard let sc = outs["scores_\(orient)_fpn\(level)"], let de = outs["bbox_deltas_\(orient)_fpn\(level)"],
-                      let lk = outs["link_scores_\(orient)_fpn\(level)"] else { throw OneOCRError("Detector output missing") }
+                      let lk = outs["link_scores_\(orient)_fpn\(level)"] else { throw OneOCRError("The detector has no \(orient) outputs for level \(level)") }
                 let s = floats(sc), d = floats(de), l = floats(lk)
                 let fh = s.shape[2], fw = s.shape[3]
                 groups += try Proposals.decode(score: s.data, deltas: d.data, links: l.data, fh: fh, fw: fw,
@@ -941,7 +941,7 @@ final class TextDetector: @unchecked Sendable {
         let nmsD = Double(nms)
         for i in 0..<n where !sup[i] {
             let pi = polys[i]
-            guard let lt = levelThr[pi.level] else { throw OneOCRError("invalid map<K, T> key") }
+            guard let lt = levelThr[pi.level] else { throw OneOCRError("No score threshold for detector level \(pi.level)") }
             var ok = pi.score >= lt
             if ok {
                 var a = Self.polyAngle(pi)

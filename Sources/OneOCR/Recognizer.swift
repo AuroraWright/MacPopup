@@ -90,7 +90,7 @@ struct CharacterMapper {
         if let u = char2inschar, let p = Self.readPairs(u) { for (c, r) in p { ins[c] = r } }
         var comp: [String: String] = [:]
         if let u = composite, let p = Self.readPairs(u) { for (m, o) in p { comp[m] = o } }
-        guard let b = index["<blank>"] else { throw OneOCRError("Invalid CM char table, <blank> token not found.") }
+        guard let b = index["<blank>"] else { throw OneOCRError("\(char2ind.lastPathComponent) has no <blank> token") }
         blank = b
         space = index["<space>"] ?? -1
         trash = index["<trash_as_space>"] ?? -1

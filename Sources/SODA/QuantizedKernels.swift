@@ -242,7 +242,7 @@ extension Context {
                 out[i] = UInt8(min(high, max(low, result)))
             }
         default:
-            throw SODAError("uint8 op \(op.code)")
+            throw SODAError("unsupported uint8 op \(op.code)")
         }
         set(op, 0, Tensor(shape: shape, data: .uint8(out)))
     }

@@ -76,7 +76,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
 cp "$BIN_DIR/MacPopup" "$APP/Contents/MacOS/MacPopup"
 # The Yomitan API's native messaging host, which Settings → Scanning → Install copies next to a browser's manifest.
 cp "$BIN_DIR/yomitan-api" "$APP/Contents/Helpers/yomitan_api"
-# The pause helper (Sources/PauseHelper), a launchd daemon that Settings → Yomitan Popup registers with SMAppService.
+# The pause helper (Sources/PauseHelper), a launchd daemon that Settings → Permissions registers with SMAppService.
 # Not in a development copy built elsewhere (test runs): macOS keeps one record of the app the helper belongs to, and
 # launching a copy that has it moves that record to the copy, after which launchd can't start the helper (exit 78,
 # EX_CONFIG) until it's reset. Such a copy uses the helper of the MacPopup that registered it (GamePause.helperAllowed).

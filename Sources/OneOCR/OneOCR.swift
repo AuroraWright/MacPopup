@@ -97,7 +97,7 @@ public final class OneOCREngine: @unchecked Sendable {
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
             return true
         }
-        guard drawn else { throw OneOCRError("Can't read the image") }
+        guard drawn else { throw OneOCRError("Couldn’t read the image") }
         var out = ImageU8(width: w, height: h, channels: 3)
         rgba.withUnsafeMutableBytes { rgba in
             out.data.withUnsafeMutableBytes { bgr in

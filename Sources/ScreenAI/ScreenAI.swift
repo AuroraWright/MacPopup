@@ -191,7 +191,7 @@ public final class ScreenAIEngine: @unchecked Sendable {
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
             return true
         }
-        guard drawn else { throw ScreenAIError("Can't read the image") }
+        guard drawn else { throw ScreenAIError("Couldn’t read the image") }
         return rgba.withUnsafeBufferPointer { GrayImage(rgba: $0.baseAddress!, width: w, height: h, bytesPerRow: 4 * w) }
     }
 
