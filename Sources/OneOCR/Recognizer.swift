@@ -313,10 +313,20 @@ final class TextRecognizer: @unchecked Sendable {
             (0..<T).map { t in
                 var col = Col()
                 let row = logp.baseAddress! + t * C, threshold = cfg.logMinProb
-                for i in 0..<C where row[i] > threshold {
-                    col.keys.append(i)
-                    col.vals.append(row[i])
+                func add(_ range: Range<Int>) {
+                    for i in range where row[i] > threshold {
+                        col.keys.append(i)
+                        col.vals.append(row[i])
+                    }
                 }
+                // 16 at a time, looking closer only where one is over: few are (32,632 classes a frame for CJK).
+                let over = SIMD16<Float>(repeating: threshold)
+                var start = 0
+                while start + 16 <= C {
+                    if any(UnsafeRawPointer(row + start).loadUnaligned(as: SIMD16<Float>.self) .> over) { add(start..<start + 16) }
+                    start += 16
+                }
+                add(start..<C)
                 if col.isEmpty { col.set(blank, cfg.logMinProb) }
                 return col
             }

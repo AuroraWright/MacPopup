@@ -132,9 +132,19 @@ enum CV {
     /// cv::resize(INTER_LINEAR) of a float image, unfused: (src[x0] a0 + src[x1] a1) per row, then the same down. Only
     /// the source rows used are resized across.
     static func resizeLinear(_ src: ImageF32, _ width: Int, _ height: Int) -> ImageF32 {
-        let (x0, a0, a1) = linearCoeffs(src.width, width, clamp: true)
-        let (y0, b0, b1) = linearCoeffs(src.height, height, clamp: true)
-        let c = src.channels, w = src.width, h = src.height, length = width * c
+        src.data.withUnsafeBufferPointer { resizeLinear($0.baseAddress!, src.width, src.height, src.channels, width, height) { $0 } }
+    }
+
+    /// The same of an 8-bit image made float, without a float copy of it.
+    static func resizeLinearToFloat(_ src: ImageU8, _ width: Int, _ height: Int) -> ImageF32 {
+        src.data.withUnsafeBufferPointer { resizeLinear($0.baseAddress!, src.width, src.height, src.channels, width, height) { Float($0) } }
+    }
+
+    @inline(__always) private static func resizeLinear<T>(_ s: UnsafePointer<T>, _ w: Int, _ h: Int, _ c: Int, _ width: Int,
+                                                         _ height: Int, _ value: (T) -> Float) -> ImageF32 {
+        let (x0, a0, a1) = linearCoeffs(w, width, clamp: true)
+        let (y0, b0, b1) = linearCoeffs(h, height, clamp: true)
+        let length = width * c
         // Per value of a row: the offsets of its two source values in their row, and their weights.
         var offsets0 = [Int](repeating: 0, count: length), offsets1 = [Int](repeating: 0, count: length)
         var weights0 = [Float](repeating: 0, count: length), weights1 = [Float](repeating: 0, count: length)
@@ -153,27 +163,25 @@ enum CV {
         }
         var rows = [Float](repeating: 0, count: h * length)
         var out = ImageF32(width: width, height: height, channels: c)
-        src.data.withUnsafeBufferPointer { s in
-            rows.withUnsafeMutableBufferPointer { r in
-                let (s, r) = (s.baseAddress!, r.baseAddress!)
-                offsets0.withUnsafeBufferPointer { o0 in offsets1.withUnsafeBufferPointer { o1 in
-                    weights0.withUnsafeBufferPointer { w0 in weights1.withUnsafeBufferPointer { w1 in
-                        forEachRange(h, size: length) { ys in
-                            for y in ys where used[y] {
-                                let line = s + y * w * c, row = r + y * length
-                                for i in 0..<length { row[i] = line[o0[i]] * w0[i] + line[o1[i]] * w1[i] }
-                            }
+        rows.withUnsafeMutableBufferPointer { r in
+            let r = r.baseAddress!
+            offsets0.withUnsafeBufferPointer { o0 in offsets1.withUnsafeBufferPointer { o1 in
+                weights0.withUnsafeBufferPointer { w0 in weights1.withUnsafeBufferPointer { w1 in
+                    forEachRange(h, size: length) { ys in
+                        for y in ys where used[y] {
+                            let line = s + y * w * c, row = r + y * length
+                            for i in 0..<length { row[i] = value(line[o0[i]]) * w0[i] + value(line[o1[i]]) * w1[i] }
                         }
-                    } }
+                    }
                 } }
-                out.data.withUnsafeMutableBufferPointer { o in
-                    let o = o.baseAddress!
-                    forEachRange(height, size: length) { ys in
-                        for y in ys {
-                            let row0 = r + y0[y] * length, row1 = r + min(y0[y] + 1, h - 1) * length, row = o + y * length
-                            let (wt0, wt1) = (b0[y], b1[y])
-                            for i in 0..<length { row[i] = row0[i] * wt0 + row1[i] * wt1 }
-                        }
+            } }
+            out.data.withUnsafeMutableBufferPointer { o in
+                let o = o.baseAddress!
+                forEachRange(height, size: length) { ys in
+                    for y in ys {
+                        let row0 = r + y0[y] * length, row1 = r + min(y0[y] + 1, h - 1) * length, row = o + y * length
+                        let (wt0, wt1) = (b0[y], b1[y])
+                        for i in 0..<length { row[i] = row0[i] * wt0 + row1[i] * wt1 }
                     }
                 }
             }

@@ -775,13 +775,13 @@ final class TextDetector: @unchecked Sendable {
     func preprocess(_ bgr: ImageU8, resolution: (Int, Int)) throws -> (MLMultiArray, Int, Int) {
         let (nh, nw) = Self.computeResize(bgr.height, bgr.width, resolution: resolution, align: cfg.imageResizeFactor,
                                           useFloor: cfg.useFloorResize, scale: Self.upscale)
-        var img = ImageF32(bgr)
-        if nh != bgr.height || nw != bgr.width {
-            if Double(nh * nw) / Double(bgr.height * bgr.width) <= 0.04 {
-                img = CV.resizeArea(img, nw, nh)
-            } else {
-                img = CV.resizeLinear(img, nw, nh)
-            }
+        let img: ImageF32
+        if nh == bgr.height && nw == bgr.width {
+            img = ImageF32(bgr)
+        } else if Double(nh * nw) / Double(bgr.height * bgr.width) <= 0.04 {
+            img = CV.resizeArea(ImageF32(bgr), nw, nh)
+        } else {
+            img = CV.resizeLinearToFloat(bgr, nw, nh)
         }
         let input = try makeInput(nh, nw) { dst in
             let plane = nh * nw
