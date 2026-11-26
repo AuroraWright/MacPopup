@@ -30,7 +30,7 @@ async function press(id) {
 	await native('debugSentenceAudio');
 	const outcome = await until('Anki Audio', async () => (await sentenceAudioNotes()).slice(before).find((n) =>
 		/^[\d.]+s, macpopup-sentence-/.test(n)
-		|| (/^message: /.test(n) && !/^message: Waiting for the voice/.test(n)) // (shown while it waits, not an outcome)
+		|| (/^message: /.test(n) && !/^message: Waiting for speech to finish/.test(n)) // (shown while it waits, not an outcome)
 		|| (/^history: /.test(n) && !/^history: (line \d|voice |waiting |no voice in )/.test(n))), 25000).catch(() => '');
 	await wait(1500);
 	return { outcome, clip: clips + 1 };

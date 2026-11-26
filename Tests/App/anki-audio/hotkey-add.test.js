@@ -30,7 +30,7 @@ test('overlay', async () => {
 	expect(/^card 444 added, line \d+: its line.s voice asked for$/.test(added), `the card added: "${added}"`);
 	const outcome = await until('Anki Audio', async () => (await sentenceAudioNotes()).slice(before).find((n) =>
 		/^[\d.]+s, macpopup-sentence-/.test(n)
-		|| (/^message: /.test(n) && !/^message: Waiting for the voice/.test(n)) // (shown while it waits, not an outcome)
+		|| (/^message: /.test(n) && !/^message: Waiting for speech to finish/.test(n)) // (shown while it waits, not an outcome)
 		|| (/^history: /.test(n) && !/^history: (line \d|voice |waiting |no voice in )/.test(n))), 20000).catch(() => '');
 	expect(/^[\d.]+s, macpopup-sentence-/.test(outcome), `a clip from the kept audio: "${outcome}"`);
 	await wait(1500);
