@@ -179,3 +179,15 @@ private let gamePage = Page(width: 560, height: 200, dark: true, lines: [
     ])
     #expect(OCRLayout.furigana(in: try page.laidOut()).isEmpty)
 }
+
+@Test func lowResolutionRubyIsTheirRows() throws {
+    // A PSP game's text box: 18 px rows with readings in 10 px kana right above them, whose ink is 0.55–0.58 of the
+    // row's (small kana stay legible at that size). Vertical kana that small beside kanji are text as often as
+    // readings (manga lettering), so there the limit stays lower.
+    let page = Page(width: 400, height: 80, dark: true, lines: [
+        [Run(text: "貫祿たっぷりな刑事像だ。", x: 16, y: 30, size: 18)],
+        [Run(text: "かんろく", x: 16, y: 19, size: 10)],
+    ])
+    let lines = try page.laidOut()
+    #expect(OCRLayout.furigana(in: lines) == [1: 0])
+}

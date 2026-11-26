@@ -47,8 +47,12 @@ extension OCRLayout {
               // their strokes take, and a slice of it can look small.
               rubyBox.1 - rubyBox.0 <= baseBox.1 - baseBox.0,
               // Smaller: furigana are usually about half the size (measured on the ink in Manga109-s: mostly
-              // 0.3–0.5 of their base line, text beside one mostly from 0.6; on boxes: at most 0.65).
-              rubyFar - rubyNear <= (inked == nil ? 0.75 : 0.55) * baseSize,
+              // 0.3–0.5 of their base line, text beside one mostly from 0.6; on boxes: at most 0.65). In horizontal
+              // text up to 0.58: at low resolutions (PSP games, 18-pixel lines) furigana take 0.55–0.58 of their line,
+              // while kana-only text measuring that little beside a line with kanji is mostly vertical (manga lettering
+              // sets kana smaller than kanji; on Manga109-s, the horizontal lines from 0.55 to 0.58 were 40 readings
+              // and 4 lines of text over five engines, 2026-11-26).
+              rubyFar - rubyNear <= (inked == nil ? 0.75 : vertical ? 0.55 : 0.58) * baseSize,
               // Close to the base line (measured on boxes: furigana 0.12, a speaker's name above the text from 0.35;
               // on the ink, without the boxes' padding, up to 0.32 in games that space them widely), and mostly
               // beyond its middle (OCR boxes often overlap).
