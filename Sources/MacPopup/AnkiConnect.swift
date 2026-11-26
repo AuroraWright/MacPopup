@@ -12,7 +12,7 @@ enum AnkiConnect {
         } catch {
             throw AppError("Anki not connected")
         }
-        guard let response = response as? [String: Any] else { throw AppError("Unexpected AnkiConnect response") }
+        guard let response = response as? [String: Any] else { throw AppError("Unexpected response from AnkiConnect") }
         if let error = response["error"] as? String { throw AppError("Anki: \(error)") }
         return response["result"]
     }

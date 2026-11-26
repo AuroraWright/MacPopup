@@ -17,7 +17,7 @@ enum MediaClip {
         init(_ body: [String: Any], socket: String?) throws {
             let stream = (body["stream"] as? NSNumber)?.intValue
             if let file = body["file"] as? String, let stream {
-                guard (0...999).contains(stream) else { throw AppError("Invalid stream") }
+                guard (0...999).contains(stream) else { throw AppError("Invalid media stream") }
                 self = .file(file, stream: stream)
             } else if let string = body["url"] as? String, let stream {
                 guard let url = URL(string: string), ["http", "https"].contains(url.scheme?.lowercased()),
@@ -29,7 +29,7 @@ enum MediaClip {
             } else if let key = body["cache"] as? String {
                 self = .cache(key: key, socket: try Self.localSocket(socket))
             } else {
-                throw AppError("Invalid source")
+                throw AppError("Invalid media source")
             }
         }
 
@@ -50,7 +50,7 @@ enum MediaClip {
         static func localSocket(_ socket: String?) throws -> URL {
             guard let socket = socket.flatMap(URL.init(string:)), socket.scheme == "ws",
                   ["127.0.0.1", "localhost", "::1"].contains(socket.host ?? "")
-            else { throw AppError("No local WebSocket to ask the player for the line") }
+            else { throw AppError("No local WebSocket to ask IINA for the line") }
             return socket
         }
     }
@@ -75,7 +75,7 @@ enum MediaClip {
     /// The frame shown at `time`, without subtitles, at the video's size (non-square pixels made square).
     /// - Parameter quality: JPEG quality, 0–100.
     static func frame(_ source: Source, time seconds: Double, png: Bool, quality: Double) async throws -> Data {
-        guard seconds.isFinite, seconds >= 0 else { throw AppError("Invalid time") }
+        guard seconds.isFinite, seconds >= 0 else { throw AppError("Invalid timestamp") }
         // ffmpeg's JPEG quality scale goes from 2 (best) to 31.
         let scale = Int((2 + (100 - min(100, max(0, quality))) * 29 / 100).rounded())
         let output = ["-an", "-sn", "-dn", "-frames:v", "1", "-vf", "scale=trunc(iw*sar/2)*2:ih"]
@@ -96,7 +96,7 @@ enum MediaClip {
     /// at a time until it returns false. Returns whether it got to the end. Blocks: run it on a thread of its own.
     /// DASH fragments are asked for two minutes at a time; a source only in the player's cache can't be read ahead.
     static func decodeAudio(_ source: Source, from start: Double, handler: ([Float]) -> Bool) throws -> Bool {
-        guard start.isFinite, start >= 0 else { throw AppError("Invalid time") }
+        guard start.isFinite, start >= 0 else { throw AppError("Invalid timestamp") }
         let output = ["-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-f", "f32le", "pipe:1"]
         switch source {
         case .file, .url:
@@ -118,7 +118,7 @@ enum MediaClip {
                 from += length
             }
         case .cache:
-            throw AppError("The video can only be read from IINA’s cache")
+            throw AppError("This video can only be read from IINA’s cache, so it can’t be transcribed")
         }
     }
 
@@ -213,7 +213,7 @@ enum MediaClip {
         case .file(let file, let stream):
             var isDirectory: ObjCBool = false
             guard file.hasPrefix("/"), FileManager.default.fileExists(atPath: file, isDirectory: &isDirectory), !isDirectory.boolValue else {
-                throw AppError("No video file at \(file)")
+                throw AppError("Video file not found at \(file)")
             }
             // "file:" so that a name with a colon isn't taken for a protocol.
             return ["-i", "file:" + file, "-map", "0:\(stream)"]
@@ -239,7 +239,7 @@ enum MediaClip {
             guard line.hasPrefix("out_time_us=") else { return nil }
             return Double(line.dropFirst("out_time_us=".count)).map { $0 / 1_000_000 }
         }.last
-        guard let length, length > 0 else { throw AppError("The player’s cache had no audio to place the line by") }
+        guard let length, length > 0 else { throw AppError("IINA’s cache had no audio to place the line by") }
         return end - length
     }
 
@@ -284,7 +284,7 @@ enum MediaClip {
     private static func ffmpegProcess(_ arguments: [String]) throws -> Process {
         let ffmpeg = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/ffmpeg")
         guard FileManager.default.isExecutableFile(atPath: ffmpeg.path) else {
-            throw AppError("This build of MacPopup has no ffmpeg (see scripts/build.sh)")
+            throw AppError("This build of MacPopup doesn’t include ffmpeg (see scripts/build.sh)")
         }
         let process = Process()
         process.executableURL = ffmpeg
@@ -313,14 +313,14 @@ enum Player {
         guard let initSegment = (reply["init"] as? String).flatMap(URL.init(string:)), http(initSegment),
               !parts.isEmpty, parts.count <= 500, urls.count == parts.count, urls.allSatisfy(http),
               let first = (parts[0]["start"] as? NSNumber)?.doubleValue
-        else { throw AppError("IINA sent no fragments") }
+        else { throw AppError("IINA returned no video fragments") }
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
         // The player's own Cookie header.
         configuration.httpShouldSetCookies = false
         if let proxy = MediaClip.Source.proxy(reply["proxy"]), let host = proxy.host {
-            guard proxy.user == nil else { throw AppError("A proxy with a password isn’t supported for DASH") }
+            guard proxy.user == nil else { throw AppError("Proxies with a password aren’t supported for DASH streams") }
             let port = proxy.port ?? 80
             configuration.connectionProxyDictionary = [
                 kCFNetworkProxiesHTTPEnable as String: true, kCFNetworkProxiesHTTPProxy as String: host,
@@ -338,7 +338,7 @@ enum Player {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("macpopup-fragments-\(id).mp4")
         guard FileManager.default.createFile(atPath: file.path, contents: nil),
               let handle = try? FileHandle(forWritingTo: file)
-        else { throw AppError("Couldn’t save the video’s fragments") }
+        else { throw AppError("Couldn’t save the video fragments") }
         defer { try? handle.close() }
         do {
             for url in [initSegment] + urls {
@@ -346,7 +346,7 @@ enum Player {
                 for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
                 let (data, response) = try await session.data(for: request)
                 guard let status = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(status) else {
-                    throw AppError("The video’s server refused a fragment")
+                    throw AppError("The video server refused a fragment")
                 }
                 try handle.write(contentsOf: data)
             }
@@ -362,10 +362,10 @@ enum Player {
         let id = UUID().uuidString
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("macpopup-dump-\(id).mkv")
         let reply = try await ask(["dump": ["id": id, "key": key, "start": start, "end": end, "file": file.path]], id: id, socket: socket)
-        guard reply["file"] as? String == file.path else { throw AppError("IINA sent another file") }
+        guard reply["file"] as? String == file.path else { throw AppError("IINA returned an unexpected file") }
         guard let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0 else {
             try? FileManager.default.removeItem(at: file)
-            throw AppError("IINA couldn’t dump the line from its cache")
+            throw AppError("IINA couldn’t export the line from its cache")
         }
         return file
     }
@@ -395,7 +395,7 @@ enum Player {
             }
             group.addTask {
                 try await Task.sleep(for: .seconds(20))
-                throw AppError("IINA didn’t answer (is the player window still open?)")
+                throw AppError("IINA didn’t respond (is the player window still open?)")
             }
             defer { group.cancelAll() }
             return try await group.next()!

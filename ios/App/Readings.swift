@@ -151,10 +151,10 @@ final class ReadingStore: @unchecked Sendable {
         } else {
             let url = directory.appendingPathComponent("image.png")
             guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
-                throw AppError("Couldn’t save the picture.")
+                throw AppError("Couldn’t save the image.")
             }
             CGImageDestinationAddImage(destination, picture.image, nil)
-            guard CGImageDestinationFinalize(destination) else { throw AppError("Couldn’t save the picture.") }
+            guard CGImageDestinationFinalize(destination) else { throw AppError("Couldn’t save the image.") }
         }
         try JSONSerialization.data(withJSONObject: reading).write(to: directory.appendingPathComponent("reading.json"))
         guard let saved = load(id) else { throw AppError("Couldn’t save the reading.") }

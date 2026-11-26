@@ -35,7 +35,7 @@ enum Inbox {
     }
 
     static func put(_ data: Data) throws {
-        guard let folder else { throw AppError("MacPopup’s App Group isn’t available.") }
+        guard let folder else { throw AppError("Unable to access MacPopup’s shared storage (App Group unavailable).") }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try data.write(to: folder.appendingPathComponent("\(Int(Date().timeIntervalSince1970 * 1000)).picture"), options: .atomic)
     }

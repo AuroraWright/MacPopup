@@ -130,7 +130,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             if let image = try await host?.ocrWindowScreenshot(fullResolution: fullResolution) {
                 return try ScreenCapture.encode(image, format: format, quality: quality).base64EncodedString()
             }
-            guard let displayID = host?.overlayDisplayID() else { throw AppError("No display") }
+            guard let displayID = host?.overlayDisplayID() else { throw AppError("No display to capture") }
             let data = try await ScreenCapture.capture(displayID: displayID, fullResolution: fullResolution, format: format, quality: quality)
             return data.base64EncodedString()
         case "mediaClip":

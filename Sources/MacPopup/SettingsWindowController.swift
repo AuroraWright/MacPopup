@@ -105,7 +105,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private static let backupFormat = "macpopup-settings"
 
     private func importBackup() {
-        guard let json = chooseFile(message: "Select a MacPopup settings file to import") else { return }
+        guard let json = chooseFile(message: "Choose a MacPopup settings file to import.") else { return }
         guard let data = json.data(using: .utf8),
               let backup = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               backup["format"] as? String == Self.backupFormat,
@@ -163,7 +163,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func loadModels(_ kind: ConvertedModelsKind) {
         let panel = NSOpenPanel()
-        panel.message = "Choose the zip made by \(kind.script)."
+        panel.message = "Choose the .zip file made by \(kind.script)."
         panel.allowedContentTypes = [.zip]
         panel.canChooseDirectories = false
         guard runModal(panel) == .OK, let url = panel.url else { return }
@@ -183,7 +183,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private func removeModels(_ kind: ConvertedModelsKind) {
         let alert = NSAlert()
         alert.messageText = "Remove \(kind.name)’s models?"
-        alert.informativeText = "\(kind.name) can’t read text until they’re loaded again."
+        alert.informativeText = "\(kind.name) won’t work until its models are loaded again."
         alert.addButton(withTitle: "Remove")
         alert.addButton(withTitle: "Cancel")
         alert.buttons[0].hasDestructiveAction = true
@@ -204,7 +204,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private func clearTranscripts() {
         let alert = NSAlert()
         alert.messageText = "Clear saved transcriptions?"
-        alert.informativeText = "Videos will be transcribed again."
+        alert.informativeText = "Previously transcribed videos will need to be transcribed again."
         alert.addButton(withTitle: "Clear")
         alert.addButton(withTitle: "Cancel")
         alert.buttons[0].hasDestructiveAction = true

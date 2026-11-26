@@ -34,7 +34,7 @@ async function record() {
 
 test('overlay', async () => {
 	const { notes, end } = await record();
-	expect(notes.includes('history: Game audio isn’t being kept. Turn it on in Settings → Anki Audio.'),
+	expect(notes.includes('history: Game audio isn’t being kept. Turn on “Keep game audio for the last” in Settings → Anki Audio.'),
 		'the kept audio is off: recorded instead');
 	expect(notes.some((n) => /^recording (audiowin|process \d+)$/.test(n)), 'recording the captured app (audiowin) only');
 	equal(end, 'voiceEnded', 'the recording ended with the voice');

@@ -37,7 +37,7 @@ enum ScreenCapture {
             let once = Once(continuation)
             let timer = Task {
                 do { try await Task.sleep(for: .seconds(seconds)) } catch { return }
-                once.resume(with: .failure(AppError("Screen capture didn't respond within \(Int(seconds)) seconds")))
+                once.resume(with: .failure(AppError("Screen capture timed out after \(Int(seconds)) seconds")))
             }
             let run = { @Sendable in
                 let result: Result<T, Error>
@@ -105,7 +105,7 @@ enum ScreenCapture {
         } else {
             data = rep.representation(using: .jpeg, properties: [.compressionFactor: max(0, min(1, quality / 100))])
         }
-        guard let data else { throw AppError("Failed to encode screenshot") }
+        guard let data else { throw AppError("Couldn’t encode the screenshot") }
         return data
     }
 }

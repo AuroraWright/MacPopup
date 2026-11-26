@@ -295,7 +295,7 @@ global.onMessage('dump', (request) => {
 			setTimeout(attempt, 250);
 			return;
 		} else {
-			reply = { id: request.id, error: from || ahead ? 'The line didn’t reach IINA’s cache' : 'The line is no longer in IINA’s cache' };
+			reply = { id: request.id, error: from || ahead ? 'The line hasn’t been buffered in IINA’s cache yet' : 'The line is no longer in IINA’s cache' };
 		}
 		global.postMessage('reply', reply);
 	};

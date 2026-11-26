@@ -117,7 +117,7 @@ public final class MeikiOCR: @unchecked Sendable {
     // MARK: Pipeline
 
     private static func recognize(_ cgImage: CGImage, models: Models, cache: LineCache<[Found]>) throws -> [RecognizedLine] {
-        guard let image = RGBImage(cgImage) else { throw Failure(errorDescription: "Couldn't read the image") }
+        guard let image = RGBImage(cgImage) else { throw Failure(errorDescription: "Couldn’t read the image") }
         let (width, height) = (image.width, image.height)
         var boxes = try detectLines(image, model: models.detection)
         // A line cut off by the image's edge (e.g. the top half of one below the area read) reads as garbage.

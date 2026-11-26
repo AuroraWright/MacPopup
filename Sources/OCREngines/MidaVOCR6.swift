@@ -141,7 +141,7 @@ public final class MidaVOCR6: @unchecked Sendable {
     }
 
     private static func recognize(_ cgImage: CGImage, models: Models, cache: LineCache<[LineCharacter]>) throws -> [RecognizedLine] {
-        guard let image = RGBImage(cgImage) else { throw Failure(errorDescription: "Couldn't read the image") }
+        guard let image = RGBImage(cgImage) else { throw Failure(errorDescription: "Couldn’t read the image") }
         let (width, height) = (Double(image.width), Double(image.height))
         let normalize = { (x0: Double, y0: Double, x1: Double, y1: Double) in
             CGRect(x: x0 / width, y: y0 / height, width: (x1 - x0) / width, height: (y1 - y0) / height)
@@ -489,7 +489,7 @@ public final class MidaVOCR6: @unchecked Sendable {
             classCount = info.vocabulary.count
             guard weightData.count == (Self.featureCount + 1) * classCount * 4, info.calibration.count == 9,
                   info.gate.map({ $0.weights.count == Self.featureCount }) ?? true else {
-                throw Failure(errorDescription: "The VOCR6 head \(weights.lastPathComponent) doesn't fit its characters")
+                throw Failure(errorDescription: "The VOCR6 head \(weights.lastPathComponent) doesn’t match its character table")
             }
             let floats = weightData.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
             (height, stride, minWidth, maxWidth) = (info.height, info.stride, info.minWidth, info.maxWidth)

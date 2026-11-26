@@ -17,7 +17,7 @@ test('overlay', async () => {
 	});
 	equal(button.title, 'Add Mock note', 'the add button\'s title');
 	const added = async () => (await mockLog()).filter((l) => /^anki \d+ addNote /.test(l)).length;
-	const kept = 'Game audio isn’t being kept. Turn it on in Settings → Anki Audio.';
+	const kept = 'Game audio isn’t being kept. Turn on “Keep game audio for the last” in Settings → Anki Audio.';
 	const perNote = ['[sentence audio] card 444 added, line 0: its line\'s voice asked for', `[sentence audio] history: ${kept}`, `[sentence audio] message: ${kept}`];
 	const sentenceAudio = async () => (await runFile('app.log')).split('\n').filter((l) => l.startsWith('[sentence audio]'));
 

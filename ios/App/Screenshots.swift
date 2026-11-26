@@ -44,10 +44,10 @@ final class Screenshots: ObservableObject {
     nonisolated static func newest() async throws -> Data {
         switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
         case .authorized: break
-        case .limited: throw AppError("MacPopup can only see the photos you picked. Allow full access to Photos in Settings → Apps → MacPopup.")
-        default: throw AppError("MacPopup can’t see your screenshots. Allow full access to Photos in the app, or in Settings → Apps → MacPopup.")
+        case .limited: throw AppError("MacPopup only has access to selected photos. Allow Full Access to Photos in Settings → Apps → MacPopup.")
+        default: throw AppError("MacPopup doesn’t have permission to view your screenshots. Allow Full Access to Photos in the app or in Settings → Apps → MacPopup.")
         }
-        guard let asset = latest(1).first else { throw AppError("There are no screenshots in Photos.") }
+        guard let asset = latest(1).first else { throw AppError("No screenshots were found in Photos.") }
         return try await data(asset)
     }
 
@@ -95,14 +95,14 @@ struct ScreenshotsSection: View {
         Section {
             switch screenshots.status {
             case .notDetermined:
-                Text("MacPopup can show your latest screenshots here, and read the newest one from a Shortcut (Back Tap, the Action button) or Control Center. For that it needs to see your photos: choose “Allow Full Access” when iOS asks, since with limited access new screenshots stay hidden. Photos never leave your iPhone.")
+                Text("MacPopup can display your latest screenshots here and read the newest one from Shortcuts (Back Tap or the Action button) or Control Center. Choose “Allow Full Access” when iOS prompts for Photos access so new screenshots appear automatically—limited access hides newly taken screenshots. Photos never leave your device.")
                     .font(.callout)
                 Button("Continue") {
                     Task { await screenshots.requestAccess() }
                 }
             case .authorized, .limited:
                 if screenshots.status == .limited {
-                    Text("MacPopup can only see the photos you picked, so new screenshots don’t appear. Allow full access to Photos in Settings.")
+                    Text("MacPopup only has access to selected photos, so new screenshots won’t appear. Allow Full Access to Photos in Settings.")
                         .font(.callout)
                     settingsButton
                 }
@@ -122,7 +122,7 @@ struct ScreenshotsSection: View {
                     .padding(.vertical, 4)
                 }
             default:
-                Text("MacPopup can’t see your photos. To read your latest screenshots, allow full access to Photos in Settings.")
+                Text("MacPopup doesn’t have access to your photos. Allow Full Access to Photos in Settings to read your latest screenshots.")
                     .font(.callout)
                 settingsButton
             }

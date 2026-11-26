@@ -27,7 +27,7 @@ final class ImpersonatedSession: @unchecked Sendable {
 
     init() throws {
         try Self.loadLibrary()
-        guard let session = MPCurlSessionCreate() else { throw CloudOCR.Failure("Couldn’t start libcurl-impersonate") }
+        guard let session = MPCurlSessionCreate() else { throw CloudOCR.Failure("Couldn’t initialize libcurl-impersonate") }
         self.session = session
     }
 

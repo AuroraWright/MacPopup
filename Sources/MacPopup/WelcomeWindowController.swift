@@ -82,7 +82,7 @@ private struct WelcomeView: View {
                 } header: {
                     WelcomeHeader(
                         title: "Yomitan API",
-                        description: "MacPopup looks up words with Yomitan’s dictionaries, through the Yomitan API."
+                        description: "MacPopup looks up words using your Yomitan dictionaries via the Yomitan API."
                     )
                 }
                 if let permissions {
@@ -140,7 +140,7 @@ private struct YomitanAPIRow: View {
         VStack(alignment: .leading, spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Yomitan API")
-                Text("If it’s not detected, install it in Settings → Scanning (Install button, next to the Yomitan API URL), then enable Advanced settings in Yomitan and turn on Enable Yomitan API (no need to follow the other steps Yomitan mentions: Install takes care of them).")
+                Text("If it isn’t detected, click Install next to Yomitan API URL in Settings → Scanning. Then turn on Advanced in Yomitan’s settings, and turn on Enable Yomitan API (Install takes care of the other steps Yomitan mentions).")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {

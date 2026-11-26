@@ -102,7 +102,7 @@ enum Engine: String, CaseIterable, Identifiable, Sendable {
                 if let lines {
                     continuation.resume(returning: lines)
                 } else {
-                    continuation.resume(throwing: error ?? AppError("Live Text failed."))
+                    continuation.resume(throwing: error ?? AppError("Live Text recognition failed."))
                 }
             }
         }

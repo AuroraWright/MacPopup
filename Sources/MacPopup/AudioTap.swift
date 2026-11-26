@@ -74,7 +74,7 @@ final class AudioTap {
                   let tapFormat = AVAudioFormat(streamDescription: &streamDescription),
                   let format = AVAudioFormat(standardFormatWithSampleRate: tapFormat.sampleRate, channels: tapFormat.channelCount) else {
                 AudioHardwareDestroyProcessTap(tapID)
-                throw AppError("Couldn’t read the audio tap’s format")
+                throw AppError("Couldn’t read the audio format")
             }
             self.tapID = tapID
             self.format = format

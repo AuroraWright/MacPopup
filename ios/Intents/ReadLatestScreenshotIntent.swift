@@ -8,7 +8,7 @@ import UIKit
 struct ReadLatestScreenshotIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Read Latest Screenshot"
     static let description = IntentDescription(
-        "Reads the text in your newest screenshot with MacPopup and opens the reading in Safari, where your dictionary extension looks it up."
+        "Recognizes text in your newest screenshot with MacPopup and opens it in Safari for dictionary lookups."
     )
 
     @MainActor

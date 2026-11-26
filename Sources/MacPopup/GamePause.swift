@@ -48,7 +48,7 @@ final class GamePause {
     private func applyShortcut() {
         let combination = settings["gamePause"] as? Bool == true ? KeyCombination(setting: settings["gamePauseShortcut"]) : nil
         shortcut.set(combination) { [weak self] taken in
-            self?.onToast?("The pause and scan shortcut \(taken.displayName) is used by another app or shortcut")
+            self?.onToast?("The pause and scan shortcut \(taken.displayName) is already in use by another app or shortcut")
         }
     }
 
@@ -101,7 +101,7 @@ final class GamePause {
                 DebugLog.note("game not paused: the pause helper isn't allowed")
                 if !toldAboutHelper {
                     toldAboutHelper = true
-                    onToast?("Pausing the game needs MacPopup’s helper: allow it in Settings → Permissions")
+                    onToast?("To pause the game, allow Pause Helper in Settings → Permissions")
                 }
                 return
             }

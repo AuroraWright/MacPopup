@@ -127,7 +127,7 @@ final class AppModel: ObservableObject {
     func choose(_ data: Data) async {
         guard defaults.bool(forKey: SettingsKey.cropsPictures) else { return await read(data) }
         guard let picture = await Self.picture(data) else {
-            error = "This file isn’t a picture that can be read."
+            error = "This file isn’t a readable image."
             return
         }
         cropping = CropRequest(picture: picture)
@@ -140,7 +140,7 @@ final class AppModel: ObservableObject {
 
     func read(_ data: Data) async {
         guard let picture = await Self.picture(data) else {
-            error = "This file isn’t a picture that can be read."
+            error = "This file isn’t a readable image."
             return
         }
         await read(picture)
@@ -167,7 +167,7 @@ final class AppModel: ObservableObject {
         var last: Reading?
         for data in pictures {
             do {
-                guard let picture = await Self.picture(data) else { throw AppError("The shared file isn’t a picture that can be read.") }
+                guard let picture = await Self.picture(data) else { throw AppError("The shared file isn’t a readable image.") }
                 last = try await reading(picture)
             } catch {
                 self.error = error.localizedDescription

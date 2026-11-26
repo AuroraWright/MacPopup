@@ -26,7 +26,7 @@ public enum CloudOCR: String, Sendable {
             case .bing: return try await Bing.recognize(image)
             }
         } catch let error as URLError where error.code == .timedOut {
-            throw Failure("\(name): the request timed out")
+            throw Failure("\(name): Request timed out")
         } catch let error as CancellationError {
             throw error
         } catch let error as Failure {
@@ -66,7 +66,7 @@ public enum CloudOCR: String, Sendable {
 
     /// A response other than the expected one.
     fileprivate func failure(_ response: ImpersonatedSession.Response, expected: Int) -> Failure {
-        Failure(response.status == expected ? "unexpected response" : "the server answered \(response.status)")
+        Failure(response.status == expected ? "unexpected response" : "Server returned HTTP \(response.status)")
     }
 }
 
@@ -132,7 +132,7 @@ private enum GoogleLens {
 
     /// The text layout of a LensOverlayServerResponse: its paragraphs' lines, with their words.
     static func lines(_ response: ProtoMessage, width: Int, height: Int) throws -> [RecognizedLine] {
-        if response.message(1) != nil, response.message(2) == nil { throw CloudOCR.Failure("the server returned an error") }
+        if response.message(1) != nil, response.message(2) == nil { throw CloudOCR.Failure("Server returned an error") }
         let layout = response.message(2)?.message(3)?.message(1)  // objects_response.text.text_layout
         var lines: [RecognizedLine] = []
         for paragraph in layout?.messages(1) ?? [] {
@@ -187,7 +187,7 @@ private enum Bing {
     static func recognize(_ image: CGImage) async throws -> [RecognizedLine] {
         let (upload, host) = try await uploaded(try encodedForUpload(image))
         guard let token = URLComponents(string: upload)?.queryItems?.first(where: { $0.name == "insightsToken" })?.value else {
-            throw CloudOCR.Failure("no token for the image")
+            throw CloudOCR.Failure("Missing image insights token in response")
         }
         let knowledge: [String: Any] = [
             "imageInfo": ["imageInsightsToken": token, "source": "Url"],
@@ -218,7 +218,7 @@ private enum Bing {
             guard location.hasPrefix("https://"), let next = URL(string: location) else { return (location, url.host ?? "www.bing.com") }
             url = next
         }
-        throw CloudOCR.Failure("too many redirects")
+        throw CloudOCR.Failure("Too many redirects")
     }
 
     /// PNG (or JPEG when that's too big), at most `maxBytes`, `minSide` to `maxSide` pixels a side.
@@ -245,7 +245,7 @@ private enum Bing {
                 if jpeg.count <= maxBytes { return jpeg }
             }
         }
-        throw CloudOCR.Failure("the image is too big")
+        throw CloudOCR.Failure("Image exceeds maximum upload size")
     }
 
     /// The text recognition action's regions' lines (boxes are normalized to the image).
@@ -367,10 +367,10 @@ private struct ProtoMessage {
                 if byte < 0x80 { return value }
                 shift += 7
             }
-            throw CloudOCR.Failure("malformed response")
+            throw CloudOCR.Failure("Malformed response from server")
         }
         func take(_ count: Int) throws -> ArraySlice<UInt8> {
-            guard count >= 0, data.endIndex - index >= count else { throw CloudOCR.Failure("malformed response") }
+            guard count >= 0, data.endIndex - index >= count else { throw CloudOCR.Failure("Malformed response from server") }
             defer { index += count }
             return data[index..<(index + count)]
         }
@@ -385,7 +385,7 @@ private struct ProtoMessage {
             case 1: value = .number(littleEndian(try take(8)))
             case 2: value = .bytes(try take(Int(try varint())))
             case 5: value = .number(littleEndian(try take(4)))
-            default: throw CloudOCR.Failure("malformed response")
+            default: throw CloudOCR.Failure("Malformed response from server")
             }
             fields[Int(key >> 3), default: []].append(value)
         }

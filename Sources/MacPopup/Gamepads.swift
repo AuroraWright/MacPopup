@@ -290,7 +290,7 @@ final class GamepadController: ObservableObject {
             }
             // Another app holds it: until it lets go, it can't be held or read. That isn't announced, so it's tried again.
             let heldElsewhere = status == kIOReturnExclusiveAccess
-            if heldElsewhere, !pad.heldElsewhere { onToast?("Can’t use \(pad.name) while it’s held by another app") }
+            if heldElsewhere, !pad.heldElsewhere { onToast?("Can’t use \(pad.name) while another app has exclusive access to it") }
             pad.heldElsewhere = heldElsewhere
             if heldElsewhere, !retryScheduled {
                 retryScheduled = true

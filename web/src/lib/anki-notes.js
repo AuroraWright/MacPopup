@@ -458,7 +458,7 @@ function getOverwrittenField(existingValue, newValue, overwriteMode) {
  */
 export async function overwriteNote(noteId, note, cardFormat) {
 	const [info] = await ankiInvoke('notesInfo', { notes: [noteId] });
-	if (!info) throw new Error('Could not find the note to overwrite');
+	if (!info) throw new Error('Couldn’t find the Anki note to overwrite');
 	const settings = getSettings();
 	const audioField = settings.sentenceAudioField?.trim();
 	const fields = {};

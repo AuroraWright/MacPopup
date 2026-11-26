@@ -62,12 +62,12 @@ struct GamepadsControl: View {
         let state = if let layout = row.layout {
             !row.isConnected ? "Ready · Not connected"
                 : row.reportIDs.isEmpty || row.reportIDs.contains(where: layout.reads) ? "Ready"
-                : "Connected differently than when it was set up (e.g. by USB instead of Bluetooth, or a Joy-Con on its own). Set it up again to use it this way too."
+                : "Connected using a different mode than when it was set up (for example, over USB instead of Bluetooth, or as a single Joy-Con). Set it up again to support this mode."
         } else {
-            "Not set up yet, so MacPopup won’t use it"
+            "Not set up yet — MacPopup won’t use this controller until it is configured"
         }
         // Their reports can't be told apart while learning.
-        return row.count > 1 ? "\(state) · \(row.count) connected: keep only one connected to set it up" : state
+        return row.count > 1 ? "\(state) · \(row.count) connected — connect only one at a time to set it up" : state
     }
 }
 
@@ -81,9 +81,9 @@ private struct GamepadLearningPanel: View {
             Text("Setting Up \(learning.name)").font(.headline)
             Text(
                 learning.hasGameController
-                    ? "Press each button, D-pad direction and trigger once or twice, one at a time, then push each stick all the way in every direction. A check mark appears next to each control MacPopup has picked up. If one stays unchecked, click its Learn button and press it once."
+                    ? "Press each button, D-pad direction, and trigger once or twice, one at a time, then move each thumbstick fully in every direction. A checkmark appears next to each control MacPopup recognizes. If any control stays unchecked, click Learn beside it and press it once."
                     : learning.sharesName
-                    ? "Another connected controller has the same name, and macOS doesn’t say which is which, so set this one up one control at a time: click Learn next to a control, then press it on this controller. Or disconnect the other one and click Set Up again."
+                    ? "Another connected controller has the same name, and macOS cannot distinguish between them. Set up this controller one control at a time by clicking Learn beside each control and pressing it, or disconnect the other controller and click Set Up again."
                     : "macOS doesn’t report this controller’s buttons, so set them up one at a time: click Learn next to a control, then press it on the controller."
             )
             .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

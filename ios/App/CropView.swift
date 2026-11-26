@@ -79,7 +79,7 @@ struct CropView: View {
                 }
             }
             ToolbarItem(placement: .bottomBar) {
-                Button("Whole Picture") { crop = CGRect(x: 0, y: 0, width: 1, height: 1) }
+                Button("Full Image") { crop = CGRect(x: 0, y: 0, width: 1, height: 1) }
                     .disabled(crop == CGRect(x: 0, y: 0, width: 1, height: 1))
             }
         }

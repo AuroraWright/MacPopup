@@ -22,9 +22,9 @@ struct ImportedModelsSection: View {
                 ImportedModelsRow(status: ConvertedModelsStatus.shared(kind))
             }
         } header: {
-            Text("Imported engines")
+            Text("Imported Engines")
         } footer: {
-            Text("Screen AI (Chrome’s OCR) and OneOCR (the Windows Snipping Tool’s) recognize most languages automatically. Their models can’t come with MacPopup: make the .zip on a Mac with scripts/convert-screenai.py or scripts/convert-oneocr.py (the same file MacPopup for Mac loads), put it in Files (iCloud Drive, AirDrop), then load it here.")
+            Text("Screen AI (Chrome’s OCR) and OneOCR (Windows Snipping Tool’s OCR) recognize most languages automatically. Because their models can’t be bundled with MacPopup, package them on a Mac using scripts/convert-screenai.py or scripts/convert-oneocr.py, transfer the .zip archive via Files (iCloud Drive or AirDrop), and load it here.")
         }
     }
 }
@@ -52,7 +52,7 @@ private struct ImportedModelsRow: View {
                 }
             }
             if status.busy {
-                Text("Loading and compiling the models… This takes a minute.")
+                Text("Loading and compiling models… This may take a minute.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -67,7 +67,7 @@ private struct ImportedModelsRow: View {
         .confirmationDialog("Remove \(kind.name)’s models?", isPresented: $confirmsRemoval, titleVisibility: .visible) {
             Button("Remove", role: .destructive) { Task { await remove() } }
         } message: {
-            Text("You can load them again from the .zip.")
+            Text("You can reload them later from the .zip archive.")
         }
     }
 

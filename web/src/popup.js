@@ -819,7 +819,7 @@ class Popup {
 			const node = this.generator.instantiateTemplate('audio-button-popup-menu-item');
 			const button = node.querySelector('.popup-menu-item-audio-button');
 			button.disabled = true;
-			button.querySelector('.popup-menu-item-label').textContent = 'No audio sources. Copy them with Settings → Import → Yomitan Settings.';
+			button.querySelector('.popup-menu-item-label').textContent = 'No audio sources. Add them in Settings → Yomitan Popup, or copy them with Import → Yomitan Settings.';
 			node.querySelector('.popup-menu-item-set-primary-audio-button').hidden = true;
 			body.append(node);
 		}

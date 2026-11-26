@@ -154,10 +154,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private func applyShortcuts() {
         let settings = SettingsStore.shared.dictionary
         hideShortcut.set(KeyCombination(setting: settings["overlayHideShortcut"])) { [weak self] taken in
-            self?.overlay.showToast("The overlay hide shortcut \(taken.displayName) is used by another app or shortcut")
+            self?.overlay.showToast("The overlay hide shortcut \(taken.displayName) is already in use by another app or shortcut")
         }
         selectWindowShortcut.set(KeyCombination(setting: settings["selectWindowShortcut"])) { [weak self] taken in
-            self?.overlay.showToast("The select captured window key \(taken.displayName) is used by another app or shortcut")
+            self?.overlay.showToast("The select captured window key \(taken.displayName) is already in use by another app or shortcut")
         }
     }
 
@@ -225,7 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         let image = try await overlay.webView.takeSnapshot(configuration: nil)
         guard let tiff = image.tiffRepresentation,
               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
-            throw AppError("Snapshot failed")
+            throw AppError("Couldn’t take a snapshot of the overlay")
         }
         return png
     }
@@ -236,7 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         let image = try await overlay.webView.takeSnapshot(configuration: configuration)
         // At the display's scale, or else in points.
         let size = fullResolution ? nil : NSRect(origin: .zero, size: rect.size)
-        guard let full = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { throw AppError("Snapshot failed") }
+        guard let full = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { throw AppError("Couldn’t take a snapshot of the overlay") }
         guard let size, full.width != Int(size.width),
               let context = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)

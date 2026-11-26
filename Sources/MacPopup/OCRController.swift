@@ -295,7 +295,7 @@ final class OCRController {
 
     private func applySettings() {
         switchShortcut.set(KeyCombination(setting: settings["overlaySwitchShortcut"])) { [weak self] taken in
-            self?.overlay.showToast("The overlay switch shortcut \(taken.displayName) is used by another app or shortcut")
+            self?.overlay.showToast("The overlay switch shortcut \(taken.displayName) is already in use by another app or shortcut")
         }
         let overlayMode = settings["ocrMode"] as? Bool ?? false
         let enabled = overlayMode || settings["floatingWindowOCR"] as? Bool ?? false
@@ -768,7 +768,7 @@ final class OCRController {
 
     nonisolated private static func screenshotSeeThrough(windowID: CGWindowID) async throws -> Bool {
         let content = try await ScreenCapture.shareableContent(onScreenWindowsOnly: false)
-        guard let scWindow = content.windows.first(where: { $0.windowID == windowID }) else { throw AppError("Window gone") }
+        guard let scWindow = content.windows.first(where: { $0.windowID == windowID }) else { throw AppError("The captured window is no longer available") }
         let configuration = SCStreamConfiguration()
         // The whole window in 64×40, whatever its shape (not letterboxed with the clear background).
         configuration.width = 64
@@ -1154,7 +1154,7 @@ final class OCRController {
             } else {
                 keptCues = 0
                 // The page waits for it.
-                if roundCue == .now { send(["type": "error", "message": "The window couldn't be captured"]) }
+                if roundCue == .now { send(["type": "error", "message": "Couldn’t capture the window"]) }
             }
         }
         // How the round waited before the next reading (see waitForChange), for the page's debug log.
@@ -2020,7 +2020,7 @@ final class OCRController {
                 if let lines {
                     continuation.resume(returning: lines)
                 } else {
-                    continuation.resume(throwing: error ?? AppError("Live Text failed"))
+                    continuation.resume(throwing: error ?? AppError("Live Text recognition failed"))
                 }
             }
         }

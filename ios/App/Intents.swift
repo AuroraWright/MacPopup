@@ -7,7 +7,7 @@ import UIKit
 struct ReadImageIntent: AppIntent {
     static let title: LocalizedStringResource = "Read Image"
     static let description = IntentDescription(
-        "Reads the text in an image with MacPopup and opens the reading in Safari, where your dictionary extension looks it up. Put it after Take Screenshot to read what’s on the screen."
+        "Recognizes text in an image with MacPopup and opens it in Safari for dictionary lookups. Place this action after Take Screenshot to capture and read your screen."
     )
 
     @Parameter(title: "Image", supportedContentTypes: [.image], inputConnectionBehavior: .connectToPreviousIntentResult)
@@ -47,7 +47,7 @@ struct MacPopupShortcuts: AppShortcutsProvider {
 extension AppModel {
     /// Reads a picture for a Shortcuts action or the control: the page's URL, served while Safari opens it.
     func pageForIntent(_ data: Data) async throws -> URL {
-        guard let picture = await Self.picture(data) else { throw AppError("This file isn’t a picture that can be read.") }
+        guard let picture = await Self.picture(data) else { throw AppError("This file isn’t a readable image.") }
         let url = PageServer.url(try await reading(picture))
         serve()
         return url

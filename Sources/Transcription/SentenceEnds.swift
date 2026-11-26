@@ -31,7 +31,7 @@ public actor SentenceEnds: ConvertedModelsStore {
     private func model() async throws -> Model {
         if let loading { return try await loading.value }
         guard FileManager.default.fileExists(atPath: directory.path) else {
-            throw ConvertedModelsKind.Failure("SaT isn’t loaded. Load it in Settings → Transcription.")
+            throw ConvertedModelsKind.Failure("SaT model isn’t loaded. Load it in Settings → Transcription.")
         }
         let directory = directory
         let task = Task.detached(priority: .userInitiated) { try await ModelsLoading.counting { try Model(directory: directory) } }

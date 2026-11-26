@@ -46,7 +46,7 @@ func detokenize(_ tokens: [FrameToken], vocabulary: [String], seconds: Double, o
 
 func loadVocabulary(_ url: URL) throws -> [String] {
     guard let vocabulary = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String] else {
-        throw ConvertedModelsKind.Failure("\(url.lastPathComponent) isn’t a list of tokens: make the model’s .zip file again.")
+        throw ConvertedModelsKind.Failure("\(url.lastPathComponent) isn’t a valid token list. Regenerate the model’s .zip archive.")
     }
     return vocabulary
 }
@@ -55,7 +55,7 @@ func loadVocabulary(_ url: URL) throws -> [String] {
 func withOutput<T>(_ provider: MLFeatureProvider, _ name: String, _ body: (UnsafePointer<Float>, [Int], [Int]) throws -> T) throws -> T {
     guard let array = provider.featureValue(for: name)?.multiArrayValue,
           array.dataType == .float32 || array.dataType == .float16 else {
-        throw ConvertedModelsKind.Failure("The model has no output \(name): make its .zip file again.")
+        throw ConvertedModelsKind.Failure("The model is missing output “\(name)”. Regenerate its .zip archive.")
     }
     let shape = array.shape.map(\.intValue), strides = array.strides.map(\.intValue)
     guard array.dataType == .float16 else {

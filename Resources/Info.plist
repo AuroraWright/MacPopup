@@ -27,7 +27,7 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>MacPopup records your game’s voice lines for the sentence audio of Anki cards (Settings → Anki Audio).</string>
+    <string>MacPopup records your game’s audio for “Read text from audio” in the Floating Window and for the sentence audio of Anki cards (Settings → Anki Audio).</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>

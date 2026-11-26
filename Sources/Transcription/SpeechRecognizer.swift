@@ -70,7 +70,7 @@ public enum SpeechModel: String, CaseIterable, Sendable {
 extension ConvertedModelsKind {
     /// The loaded zip isn't what this version of MacPopup reads (files or model outputs missing).
     var unexpectedModels: Failure {
-        Failure("\(name)’s .zip file doesn’t work with this version of MacPopup. Make it again with \(script).")
+        Failure("\(name)’s .zip archive isn’t compatible with this version of MacPopup. Regenerate it with \(script).")
     }
 }
 
@@ -314,7 +314,7 @@ public actor SpeechRecognizer: ConvertedModelsStore {
 
     private var notLoaded: Error {
         let kind = model.kind
-        return ConvertedModelsKind.Failure("\(kind.name) isn’t loaded. Load it in Settings → \(kind.settingsSection).")
+        return ConvertedModelsKind.Failure("\(kind.name) model isn’t loaded. Load it in Settings → \(kind.settingsSection).")
     }
 
     private static func check(_ model: SpeechModel, _ directory: URL) throws {

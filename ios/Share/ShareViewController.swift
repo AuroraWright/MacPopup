@@ -48,7 +48,7 @@ final class ShareViewController: UIViewController {
             extensionContext?.completeRequest(returningItems: nil)
         } else {
             IntentLog.append("Share: couldn't open the app")
-            fail("Open MacPopup to read the picture.")
+            fail("Open MacPopup to finish reading the image.")
         }
     }
 
@@ -69,22 +69,22 @@ final class ShareViewController: UIViewController {
                     if let data {
                         continuation.resume(returning: data)
                     } else {
-                        continuation.resume(throwing: error ?? AppError("Couldn’t load the picture."))
+                        continuation.resume(throwing: error ?? AppError("Couldn’t load the image."))
                     }
                 }
             }
         }
         guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.url.identifier) }) else {
-            throw AppError("There’s no picture to read.")
+            throw AppError("No image was found to read.")
         }
         let item = try await provider.loadItem(forTypeIdentifier: UTType.url.identifier)
         guard let url = (item as? URL) ?? (item as? Data).flatMap({ URL(dataRepresentation: $0, relativeTo: nil) }) else {
-            throw AppError("There’s no picture to read.")
+            throw AppError("No image was found to read.")
         }
         let data = url.isFileURL ? try Data(contentsOf: url) : try await URLSession.shared.data(from: url).0
         // Checked without decoding it (the extension's memory is small).
         guard let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(source) > 0 else {
-            throw AppError("This isn’t a picture: share an image, or long-press it in Safari and share that.")
+            throw AppError("This item isn’t an image. Share a photo, or long-press an image in Safari to share it.")
         }
         return data
     }

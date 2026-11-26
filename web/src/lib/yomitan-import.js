@@ -116,7 +116,7 @@ export function parseYomitanExport(json) {
 	// Exports wrap the options in {version, date, environment, ..., options}.
 	const options = data?.options?.profiles ? data.options : data;
 	if (!Array.isArray(options?.profiles) || options.profiles.length === 0) {
-		throw new Error('Not a Yomitan settings export (no profiles found).');
+		throw new Error('Not a valid Yomitan settings export (no profiles found).');
 	}
 	const profileCurrent = Number.isInteger(options.profileCurrent) && options.profileCurrent < options.profiles.length ? options.profileCurrent : 0;
 	return { options, profiles: options.profiles.map((profile, i) => profile.name || `Profile ${i + 1}`), profileCurrent };

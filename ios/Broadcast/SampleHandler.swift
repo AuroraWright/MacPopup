@@ -71,7 +71,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     private func write(_ pixelBuffer: CVPixelBuffer, orientation: UInt32) throws {
-        guard let url = SharedFrame.url else { throw AppError("The App Group isn’t available.") }
+        guard let url = SharedFrame.url else { throw AppError("Unable to access shared app storage (App Group unavailable).") }
         let planeCount = CVPixelBufferGetPlaneCount(pixelBuffer)
         let planes: [(bytesPerRow: Int, height: Int, base: UnsafeMutableRawPointer?)] = planeCount == 0
             ? [(CVPixelBufferGetBytesPerRow(pixelBuffer), CVPixelBufferGetHeight(pixelBuffer), CVPixelBufferGetBaseAddress(pixelBuffer))]
@@ -87,7 +87,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         var data = header.data
         data.reserveCapacity(SharedFrame.headerSize + planes.reduce(0) { $0 + $1.bytesPerRow * $1.height })
         for plane in planes {
-            guard let base = plane.base else { throw AppError("The frame has no pixels.") }
+            guard let base = plane.base else { throw AppError("Captured frame contains no image data.") }
             data.append(base.assumingMemoryBound(to: UInt8.self), count: plane.bytesPerRow * plane.height)
         }
         try data.write(to: url, options: .atomic)

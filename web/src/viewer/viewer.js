@@ -115,7 +115,7 @@ function showCantDelete() {
 	const link = element('a');
 	link.href = 'macpopup://';
 	link.textContent = 'Open MacPopup';
-	$('status').replaceChildren('Couldn’t delete: MacPopup isn’t running. ', link, ', then try again.');
+	$('status').replaceChildren('Couldn’t delete while MacPopup isn’t running.  ', link, ', then try again.');
 }
 
 /** A reading: /r/<id>/reading.json and its picture. */
@@ -180,7 +180,7 @@ async function showIndex() {
 			return { id, createdAt: reading.createdAt, text: decodeLines(reading.lines).map(lineText).join(' ') };
 		}));
 		readings.sort((a, b) => b.createdAt - a.createdAt);
-		$('status').textContent = 'The app isn’t running: readings kept by Safari';
+		$('status').textContent = 'MacPopup isn’t running: showing readings kept by Safari';
 		// Back in Safari (e.g. after opening the app), the list comes from the app again if it answers now.
 		const retry = () => {
 			if (document.visibilityState !== 'visible') return;
@@ -332,7 +332,7 @@ async function showLive() {
 	}
 	const events = new EventSource('/live/events');
 	events.addEventListener('open', () => {
-		$('status').textContent = 'Reading paused while open';
+		$('status').textContent = 'Reading paused while this page is open';
 		syncLive().catch(() => {});
 	});
 	// The screen broadcast sees this page too: while it's in front, the app doesn't read the screen (it pauses for as
@@ -344,7 +344,7 @@ async function showLive() {
 	setInterval(reportVisible, 1000);
 	document.addEventListener('visibilitychange', reportVisible);
 	events.addEventListener('error', () => {
-		$('status').textContent = 'The app isn’t running: readings kept by Safari';
+		$('status').textContent = 'MacPopup isn’t running: showing readings kept by Safari';
 	});
 	events.addEventListener('message', (event) => {
 		addLive(JSON.parse(event.data).id, true).catch(() => {});

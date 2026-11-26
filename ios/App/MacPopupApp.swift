@@ -60,7 +60,7 @@ struct ContentView: View {
                 ScreenshotsSection()
                 Section {
                     if model.readings.isEmpty {
-                        Text("Readings open in Safari, where your dictionary extension looks up their text.")
+                        Text("Readings open in Safari so your dictionary extension can look up words.")
                             .foregroundStyle(.secondary)
                     }
                     ForEach(model.readings) { reading in
@@ -136,7 +136,7 @@ struct ContentView: View {
                 await model.choose(data)
             }
         }
-        .alert("Couldn’t read the picture", isPresented: Binding { model.error != nil } set: { if !$0 { model.error = nil } }) {
+        .alert("Couldn’t Read Image", isPresented: Binding { model.error != nil } set: { if !$0 { model.error = nil } }) {
             Button("OK") {}
         } message: {
             Text(model.error ?? "")
@@ -149,7 +149,7 @@ struct ContentView: View {
             provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in continuation.resume(returning: data) }
         }
         guard let data else {
-            model.error = "Couldn’t paste the picture."
+            model.error = "Couldn’t paste the image."
             return
         }
         await model.choose(data)
@@ -216,7 +216,7 @@ struct SettingsView: View {
                         ForEach(Engine.allCases.filter(\.isAvailable)) { Text($0.name).tag($0.rawValue) }
                     }
                 } header: {
-                    Text("Text recognition")
+                    Text("Text Recognition")
                 } footer: {
                     Text(engineHint)
                 }
@@ -229,18 +229,18 @@ struct SettingsView: View {
                         Toggle("Ignore furigana", isOn: $stripsFurigana)
                     }
                 } footer: {
-                    Text("Lines without the language’s characters are left out. Ignoring furigana skips small kana readings above or beside kanji.")
+                    Text("Lines containing none of the selected language’s characters are filtered out. Ignore furigana skips small kana readings above or beside kanji.")
                 }
                 Section {
                     Toggle("Crop before reading", isOn: $cropsPictures)
                 } footer: {
-                    Text("Pictures chosen in the app (not from Shortcuts, Control Center or the share sheet) open in a crop view first, to read only part of them.")
+                    Text("Images chosen in the app (excluding Shortcuts, Control Center, and the Share Sheet) open in a crop view first so you can select a specific area.")
                 }
                 Section {
                     Button("Delete All Readings…", role: .destructive) { confirmsDeletingAll = true }
                         .disabled(model.readings.isEmpty)
                 } footer: {
-                    Text("To delete one, swipe it left in the list.")
+                    Text("Swipe left on any reading in the list to delete it individually.")
                 }
             }
             .navigationTitle("Settings")
@@ -255,12 +255,12 @@ struct SettingsView: View {
         .confirmationDialog("Delete all \(model.readings.count) readings?", isPresented: $confirmsDeletingAll, titleVisibility: .visible) {
             Button("Delete All", role: .destructive) { model.delete(Set(model.readings.map(\.id))) }
         } message: {
-            Text("Their pictures are deleted too.")
+            Text("Associated images will also be deleted.")
         }
     }
 
     private var engineHint: String {
-        var hint = "Live Text is built into iOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. PP-OCRv6 Manga (by Kellenok) is specialized for Japanese and Chinese manga. mida + VOCR6 (rtr46’s line finder with vita-vn-ocr’s reader) is fast and reads horizontal Japanese game text, but not vertical text. Screen AI and OneOCR appear once their models are loaded below. Google Lens and Bing read online: the picture is sent to Google or Microsoft (not in continuous reading)."
+        var hint = "Live Text is built into iOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. PP-OCRv6 Manga (by Kellenok) is specialized for Japanese and Chinese manga. mida + VOCR6 (rtr46’s line finder with vita-vn-ocr’s reader) is fast and reads Japanese game text, horizontal and vertical. Screen AI and OneOCR appear once their models are loaded below. Google Lens and Bing read online: the picture is sent to Google or Microsoft (not in continuous reading)."
         if !OCRLanguage.isRead(language, by: engine) {
             let name = model.languages.first { $0.iso == language }?.name ?? language
             hint += "\n\n\(name) isn’t supported by this engine: "

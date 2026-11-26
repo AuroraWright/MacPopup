@@ -60,7 +60,7 @@ struct PictureResult: AppEntity {
     var displayRepresentation: DisplayRepresentation {
         DisplayRepresentation(
             title: "Read with MacPopup",
-            subtitle: "Opens the text in Safari to look it up",
+            subtitle: "Opens recognized text in Safari for dictionary lookups",
             image: thumbnail.map { .init(data: $0) }
         )
     }
@@ -101,7 +101,7 @@ struct OpenPictureResultIntent: OpenIntent {
         let start = Date()
         guard let data = try? Data(contentsOf: target.file), let picture = Picture(data: data) else {
             IntentLog.append("Visual Intelligence: \(target.id) is gone")
-            throw AppError("This picture is gone. Search with Visual Intelligence again.")
+            throw AppError("This picture is no longer available. Search with Visual Intelligence again.")
         }
         let reading = try await AppModel.shared.reading(picture)
         try? FileManager.default.removeItem(at: target.file)

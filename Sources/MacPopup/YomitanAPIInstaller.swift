@@ -79,7 +79,7 @@ enum YomitanAPIInstaller {
     static func install(_ browser: Browser, otherIDs: [String]) throws {
         let source = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/\(name)")
         guard FileManager.default.fileExists(atPath: source.path) else {
-            throw AppError("The Yomitan API host is missing from MacPopup.app")
+            throw AppError("The Yomitan API host binary is missing from MacPopup.app")
         }
         let folder = hostsFolder(browser)
         let host = folder.appendingPathComponent(name)

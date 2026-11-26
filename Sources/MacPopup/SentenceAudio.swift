@@ -100,7 +100,7 @@ final class SentenceAudioController {
     private func applySettings() {
         let shortcut = Self.isEnabled(settings) ? KeyCombination(setting: settings["sentenceAudioShortcut"]) : nil
         hotkey.set(shortcut) { [weak self] taken in
-            self?.showToast("The sentence audio shortcut \(taken.displayName) is used by another app or shortcut")
+            self?.showToast("The sentence audio shortcut \(taken.displayName) is already in use by another app or shortcut")
         }
         updateHistory()
     }
@@ -172,9 +172,9 @@ final class SentenceAudioController {
     /// Takes the voice of the cards' line from the audio history and adds it to them. Returns nil on success, or the
     /// reason the line or its whole voice wasn't there, so the caller can replay it or say why.
     private func takeFromHistory(_ cards: Cards) async -> String? {
-        guard historyMinutes > 0 else { return "Game audio isn’t being kept. Turn it on in Settings → Anki Audio." }
-        guard history.isRecording else { return "Game audio isn’t being kept because the game window isn’t open" }
-        guard let id = cards.line else { return "Couldn’t tell which line this card is from" }
+        guard historyMinutes > 0 else { return "Game audio isn’t being kept. Turn on “Keep game audio for the last” in Settings → Anki Audio." }
+        guard history.isRecording else { return "Game audio isn’t being saved because the game window isn’t open" }
+        guard let id = cards.line else { return "Couldn’t find which line this card was made from" }
         sentenceAudioLog("history: line \(id), for card\(cards.ids.count == 1 ? "" : "s") \(cards.ids.map(String.init).joined(separator: ", "))")
         let pause = number("sentenceAudioPause", 3000) / 1000
         let maxLength = number("sentenceAudioMaxLength", 60)
@@ -188,7 +188,7 @@ final class SentenceAudioController {
                 try? await Task.sleep(for: .milliseconds(200))
                 continue
             }
-            guard let index = lines.firstIndex(where: { $0.id == id }) else { return "This card’s line is older than the kept audio" }
+            guard let index = lines.firstIndex(where: { $0.id == id }) else { return "This card’s line is no longer in the saved game audio" }
             let now = GameClock.now
             let start = max(lines[index].start, index > 0 ? lines[index - 1].shown : 0)
             let shownAt = lines[index].shown - start, transcribed = lines[index].transcribed
@@ -203,7 +203,7 @@ final class SentenceAudioController {
                 continue
             }
             guard let (clip, voice) = await history.voice(from: start, to: end) else {
-                return "This card’s line is older than the kept audio"
+                return "This card’s line is no longer in the saved game audio"
             }
             let span = String(format: "%.2f s from %.2f s before it was shown", clip.duration, shownAt)
             // The clip is cut from the coarse placing, which keeps the whole voice; whether the voice ended, and was cut
@@ -225,13 +225,13 @@ final class SentenceAudioController {
             }
             if voice == nil, ended || now - start >= number("sentenceAudioVoiceWait", 10) {
                 sentenceAudioLog("history: no voice in \(span)")
-                return "Couldn’t hear a voice in this card’s line"
+                return "No speech detected for this card’s line"
             }
             speaking = voice != nil
             if !waiting {
                 waiting = true
                 sentenceAudioLog(String(format: "history: waiting for the voice to end%@ (%@)", GameClock.isFrozen ? ", once the game resumes" : "", span))
-                showToast(GameClock.isFrozen ? "The audio will be added when the game resumes" : "Waiting for the voice to end…")
+                showToast(GameClock.isFrozen ? "The audio will be added when the game resumes" : "Waiting for speech to finish…")
             }
             try? await Task.sleep(for: .milliseconds(500))
         }
@@ -317,7 +317,7 @@ final class SentenceAudioController {
         recording.record()
         state = .recording(recording)
         if testFile == nil { NSSound(named: "Tink")?.play() }
-        showToast(detectsVoice ? "Listening for the voice…" : "Recording… press the shortcut again to stop")
+        showToast(detectsVoice ? "Listening for speech…" : "Recording… Press the shortcut again to stop")
     }
 
     private func finish(_ result: AudioRecording.Result) {
@@ -329,9 +329,9 @@ final class SentenceAudioController {
             guard let clip = result.clip else {
                 sentenceAudioLog("\(result.reason)\(result.silent ? ", silent" : ""), nothing kept")
                 if result.silent {
-                    showToast("No sound was recorded. If the game played some, allow MacPopup in System Settings → Privacy & Security → Screen & System Audio Recording")
+                    showToast("No audio was recorded. If the game played sound, allow MacPopup in System Settings → Privacy & Security → Screen & System Audio Recording.")
                 } else {
-                    showToast(result.reason == .noVoice ? "No voice heard" : "Nothing was recorded")
+                    showToast(result.reason == .noVoice ? "No speech detected" : "Nothing was recorded")
                 }
                 return
             }
@@ -388,7 +388,7 @@ final class SentenceAudioController {
             try? await Task.sleep(for: .milliseconds(Int(number("sentenceAudioKeyDelay", 1000))))
         }
         guard Permission.askForAccessibility() else {
-            showToast("Allow MacPopup in System Settings → Privacy & Security → Accessibility to press keys")
+            showToast("Allow MacPopup in System Settings → Privacy & Security → Accessibility to press the backlog keys")
             return
         }
         let hold = Int(number("sentenceAudioKeyHold", 100))
@@ -422,7 +422,7 @@ final class SentenceAudioController {
         switch string("sentenceAudioApp", "captured") {
         case "captured":
             guard let saved = settings["ocrWindow"] as? [String: Any], let owner = saved["ownerName"] as? String else {
-                showToast("No captured window: choose one in Settings → General")
+                showToast("No captured window selected — choose one in Settings → General")
                 return false
             }
             return activateWindow(ownerName: owner, title: saved["title"] as? String ?? "")
@@ -471,27 +471,27 @@ final class SentenceAudioController {
     /// card's line that have no sentence audio yet.
     private func cardsForAudio() async throws -> Cards {
         let settings = settings
-        guard settings["ankiEnabled"] as? Bool ?? true else { throw AppError("Anki integration is off (Settings → Anki)") }
+        guard settings["ankiEnabled"] as? Bool ?? true else { throw AppError("Anki integration is turned off (Settings → Anki)") }
         let audioField = string("sentenceAudioField", "SentenceAudio")
-        guard !audioField.isEmpty else { throw AppError("Choose the sentence audio field in Settings → Anki Audio") }
+        guard !audioField.isEmpty else { throw AppError("Select a Sentence audio field in Settings → Anki Audio") }
         let card: AddedCard
         if let note {
             card = addedCards.last { $0.note == note } ?? AddedCard(note: note, line: nil, nested: false)
         } else {
             // Cards from a popup inside a popup don't get it.
-            guard let newest = addedCards.last(where: { !$0.nested }) else { throw AppError("No card was added from a popup yet") }
+            guard let newest = addedCards.last(where: { !$0.nested }) else { throw AppError("No card has been added from a popup yet") }
             card = newest
         }
         let ids = note != nil || card.line == nil ? [card.note] : addedCards.filter { $0.line == card.line }.map(\.note)
         let notes = try await AnkiConnect.invoke("notesInfo", ["notes": ids], settings: settings) as? [[String: Any]] ?? []
         // (A deleted card's info is empty.)
         let withField = notes.filter { ($0["fields"] as? [String: Any])?[audioField] != nil }
-        guard !withField.isEmpty else { throw AppError("The card has no \(audioField) field, or was deleted") }
+        guard !withField.isEmpty else { throw AppError("The card doesn’t have a “\(audioField)” field, or it has been deleted") }
         let targets = note != nil ? withField : withField.filter {
             let value = (($0["fields"] as? [String: Any])?[audioField] as? [String: Any])?["value"] as? String ?? ""
             return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        guard !targets.isEmpty else { throw AppError("The newest card already has sentence audio") }
+        guard !targets.isEmpty else { throw AppError("The most recent card already has sentence audio") }
         return Cards(line: card.line, ids: targets.compactMap { ($0["noteId"] as? NSNumber)?.int64Value })
     }
 

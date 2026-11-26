@@ -572,7 +572,7 @@ struct ContinuousView: View {
                     HStack {
                         VStack(alignment: .leading) {
                             Text(continuous.isBroadcasting ? "Stop Reading the Screen" : "Start Reading the Screen")
-                            Text(continuous.isBroadcasting ? "Reading" : "A screen broadcast, also in Control Center")
+                            Text(continuous.isBroadcasting ? "Reading" : "Uses screen broadcast (also available in Control Center)")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
@@ -589,9 +589,9 @@ struct ContinuousView: View {
                 Button("Open the Live Page") { model.open(PageServer.live) }
             } footer: {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("While the broadcast runs, MacPopup reads the screen each time its text changes and then stays the same, and adds it to the live page in Safari, where your dictionary extension looks it up. It uses more battery.")
+                    Text("While the broadcast runs, MacPopup reads the screen each time new text appears and settles, and adds it to the live page in Safari, where your dictionary extension looks it up. It uses more battery.")
                     if engine.isEmpty && model.engine.isCloud {
-                        Text("\(model.engine.name) would be asked to read each change of the screen, so continuous reading uses meikiocr instead.")
+                        Text("Continuous reading uses meikiocr instead, so the screen isn’t sent to \(model.engine.name) each time it changes.")
                     }
                 }
             }
@@ -605,8 +605,8 @@ struct ContinuousView: View {
                 Text("Picture in Picture")
             } footer: {
                 Text(newLinesOnly
-                    ? "A window over other apps with the latest new lines: text that stays on screen, like names and menus, is shown only the first time. Move the window out of your areas, or it’s read too."
-                    : "A window over other apps with the latest text read. Move it out of your areas, or it’s read too.")
+                    ? "Displays a floating window over other apps with newly appearing lines—repeated UI text such as names and menus is shown only once. Move the window outside your capture areas so it isn’t scanned."
+                    : "Displays a floating window over other apps with the latest recognized text. Move the window outside your capture areas so it isn’t scanned.")
             }
             Section {
                 ForEach(Array(continuous.areas.enumerated()), id: \.element.id) { index, area in
@@ -619,35 +619,35 @@ struct ContinuousView: View {
                 Text("Areas")
             } footer: {
                 Text(continuous.recentFrames.isEmpty
-                    ? "Without areas, the whole screen is read. To draw one, read the game’s screen once first: start reading the screen, then switch to the game and back."
-                    : "Only the areas are watched and read (those drawn with the screen turned the same way). Without areas, the whole screen is.")
+                    ? "Without capture areas, the entire screen is scanned. To define an area, start reading, switch briefly to your game, then return here."
+                    : "Only the areas are watched and read (those drawn with the screen turned the same way). Without areas, the whole screen is read.")
             }
             Section {
                 Picker("Engine", selection: $engine) {
-                    Text("As in Settings (\(continuous.engine.name))").tag("")
+                    Text("Match Settings (\(continuous.engine.name))").tag("")
                     ForEach(Engine.allCases.filter { $0.readsContinuously && $0.isAvailable }) { engine in
                         Text(engine.name).tag(engine.rawValue)
                     }
                 }
                 Stepper(value: $interval, in: 0.25...2, step: 0.25) {
-                    LabeledContent("Check the Screen Every", value: "\(interval.formatted()) s")
+                    LabeledContent("Check Interval", value: "\(interval.formatted()) s")
                 }
                 Stepper(value: $changeThreshold, in: 0.1...3, step: 0.1) {
-                    LabeledContent("Change Needed", value: "\(changeThreshold.formatted(.number.precision(.fractionLength(1))))%")
+                    LabeledContent("Minimum Change", value: "\(changeThreshold.formatted(.number.precision(.fractionLength(1))))%")
                 }
                 Stepper(value: $settleTime, in: 0.25...3, step: 0.25) {
-                    LabeledContent("Text Settles After", value: "\(settleTime.formatted()) s")
+                    LabeledContent("Text Settle Delay", value: "\(settleTime.formatted()) s")
                 }
                 Stepper(value: $maxWait, in: 1...15, step: 1) {
-                    LabeledContent("Changing Text Saved After", value: "\(maxWait.formatted()) s")
+                    LabeledContent("Max Wait for Changing Text", value: "\(maxWait.formatted()) s")
                 }
                 Stepper(value: $kept, in: 50...1000, step: 50) {
-                    LabeledContent("Live Page Keeps", value: "\(kept) readings")
+                    LabeledContent("Live Page History", value: "\(kept) readings")
                 }
             } header: {
                 Text("Reading")
             } footer: {
-                Text("Checking more often and needing less change finds new text sooner, with more battery. Change needed is the share of an area’s pixels that must change clearly for it to be read again. Text is saved once it reads the same for the settle time, or once the screen stops changing; text that keeps changing (e.g. over video) is saved after the longer time anyway.")
+                Text("Shorter intervals and lower change thresholds detect new text faster at the cost of battery life. Minimum Change sets how much an area must change to trigger recognition. Text is saved once it stays unchanged for the settle delay (or once the screen stops changing); text over animated backgrounds is saved after the max wait time.")
             }
             Section("Latest") {
                 Text(continuous.latest?.text ?? "Nothing read yet.")

@@ -49,7 +49,7 @@ test('overlay', async () => {
 		if (r.type === 'log' && r.message.startsWith('anki audio:')) return [{ log: r.message }];
 		return [];
 	});
-	const kept = 'Game audio isn’t being kept. Turn it on in Settings → Anki Audio.';
+	const kept = 'Game audio isn’t being kept. Turn on “Keep game audio for the last” in Settings → Anki Audio.';
 	const find = (match) => steps.findIndex((s) => Object.entries(match).every(([k, v]) => JSON.stringify(s[k]) === JSON.stringify(v)));
 	const order = [
 		{ event: 'popup shown', depth: 0, lookup: 'term', query: '晴れ', entries: 150 },

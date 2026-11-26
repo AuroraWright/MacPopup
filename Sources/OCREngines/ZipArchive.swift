@@ -24,14 +24,14 @@ enum ZipArchive {
         for entry in try entries(data) {
             let components = entry.name.split(separator: "/", omittingEmptySubsequences: true)
             guard !entry.name.hasPrefix("/"), !components.contains(where: { $0 == ".." || $0 == "." }) else {
-                throw Failure(errorDescription: "The archive has an unsafe path: \(entry.name)")
+                throw Failure(errorDescription: "The archive contains an unsafe file path: \(entry.name)")
             }
             let url = components.reduce(directory) { $0.appendingPathComponent(String($1)) }
             if entry.name.hasSuffix("/") {
                 try manager.createDirectory(at: url, withIntermediateDirectories: true)
                 continue
             }
-            guard entry.flags & 1 == 0 else { throw Failure(errorDescription: "The archive is encrypted.") }
+            guard entry.flags & 1 == 0 else { throw Failure(errorDescription: "Encrypted .zip archives aren’t supported.") }
             try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             let offset = Int(entry.localHeaderOffset)
             guard offset + 30 <= data.count, data.uint32(at: offset) == 0x0403_4B50 else { throw corrupt }
@@ -39,7 +39,7 @@ enum ZipArchive {
             guard start + Int(entry.compressedSize) <= data.count else { throw corrupt }
             let contents = data[start..<(start + Int(entry.compressedSize))]
             guard manager.createFile(atPath: url.path, contents: nil), let file = try? FileHandle(forWritingTo: url) else {
-                throw Failure(errorDescription: "Couldn’t write \(entry.name).")
+                throw Failure(errorDescription: "Couldn’t extract \(entry.name).")
             }
             defer { try? file.close() }
             var written: UInt64 = 0
@@ -69,14 +69,14 @@ enum ZipArchive {
         }
     }
 
-    private static var corrupt: Failure { Failure(errorDescription: "The archive is damaged.") }
+    private static var corrupt: Failure { Failure(errorDescription: "The archive appears to be corrupted.") }
 
     /// The central directory's entries.
     private static func entries(_ data: Data) throws -> [Entry] {
         // The end of central directory record, before a comment of up to 64 KB.
         guard data.count >= 22, let end = stride(from: data.count - 22, through: max(0, data.count - 22 - 0xFFFF), by: -1)
             .first(where: { data.uint32(at: $0) == 0x0605_4B50 })
-        else { throw Failure(errorDescription: "This isn’t a zip archive.") }
+        else { throw Failure(errorDescription: "This file isn’t a valid .zip archive.") }
         var count = UInt64(data.uint16(at: end + 10))
         var directoryOffset = UInt64(data.uint32(at: end + 16))
         if count == 0xFFFF || directoryOffset == 0xFFFF_FFFF {

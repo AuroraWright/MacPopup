@@ -131,16 +131,16 @@ public enum ConvertedModelsKind: String, CaseIterable, Sendable {
             let info = (try? Data(contentsOf: staging.appendingPathComponent(infoFileName)))
                 .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             guard let info else {
-                throw Failure("This isn’t a \(name) models archive (made by \(script)).")
+                throw Failure("This file isn’t a valid \(name) models archive (expected output from \(script)).")
             }
             guard info["format"] as? Int == 1 else {
-                throw Failure("These models were converted by a newer version of \(script) than this version of MacPopup reads.")
+                throw Failure("These models were converted by a newer version of \(script) than this version of MacPopup can load.")
             }
             guard hasCoreMLModels else { return staging }
             let coreml = staging.appendingPathComponent("coreml", isDirectory: true)
             let models = (try? manager.contentsOfDirectory(at: coreml, includingPropertiesForKeys: nil))?
                 .filter { ["mlpackage", "mlmodelc"].contains($0.pathExtension) } ?? []
-            guard !models.isEmpty else { throw Failure("The archive has no Core ML models.") }
+            guard !models.isEmpty else { throw Failure("The archive doesn’t contain any Core ML models.") }
             for package in models where package.pathExtension == "mlpackage" {
                 let compiled = try await MLModel.compileModel(at: package)
                 try manager.moveItem(at: compiled, to: coreml.appendingPathComponent(package.deletingPathExtension().lastPathComponent + ".mlmodelc"))
@@ -177,7 +177,7 @@ public enum ConvertedModelsKind: String, CaseIterable, Sendable {
                 } else {
                     let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
                         .trimmingCharacters(in: .whitespacesAndNewlines)
-                    continuation.resume(throwing: Failure("Couldn’t unpack the archive" + (message.isEmpty ? "." : ": \(message)")))
+                    continuation.resume(throwing: Failure("Couldn’t extract the archive" + (message.isEmpty ? "." : ": \(message)")))
                 }
             }
             do {
@@ -232,7 +232,7 @@ public final class ConvertedModels<Engine>: ConvertedModelsStore, @unchecked Sen
     private func loadedEngine() throws -> Engine {
         if let engine { return engine }
         guard kind.installed else {
-            throw ConvertedModelsKind.Failure("\(kind.name)’s models aren’t loaded (Settings → \(kind.settingsSection) → \(kind.name) models)")
+            throw ConvertedModelsKind.Failure("\(kind.name) models aren’t loaded — load them in Settings → \(kind.settingsSection) → \(kind.name) models")
         }
         let loaded = try make(directory)
         if let blank = Self.blankImage() { try warmUp(loaded, blank) }

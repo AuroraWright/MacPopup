@@ -77,21 +77,21 @@ public final class PPOCRManga: @unchecked Sendable {
     private func loadedModels() throws -> Models {
         if let models { return models }
         guard let directory = BundledModels.directory else {
-            throw Failure(errorDescription: "The PP-OCRv6_manga models are missing")
+            throw Failure(errorDescription: "The PP-OCRv6 Manga models are missing")
         }
         // Not the Neural Engine: with inputs of any size, it's several times slower than the GPU. The recognizer runs
         // on the CPU, where several lines are read at once (on the GPU, they'd mostly wait for each other).
         func load(_ name: String, on computeUnits: MLComputeUnits) throws -> MLModel {
             let url = directory.appendingPathComponent("\(name).mlmodelc")
             guard FileManager.default.fileExists(atPath: url.path) else {
-                throw Failure(errorDescription: "The PP-OCRv6_manga model \(name) is missing")
+                throw Failure(errorDescription: "The PP-OCRv6 Manga model \(name) is missing")
             }
             let configuration = MLModelConfiguration()
             configuration.computeUnits = computeUnits
             return try MLModel(contentsOf: url, configuration: configuration)
         }
         guard let list = try? String(contentsOf: directory.appendingPathComponent("PPOCRMangaCharacters.txt"), encoding: .utf8) else {
-            throw Failure(errorDescription: "The PP-OCRv6_manga character list is missing")
+            throw Failure(errorDescription: "The PP-OCRv6 Manga character list is missing")
         }
         var characters = list.components(separatedBy: "\n").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\r")) }
         if characters.last == "" { characters.removeLast() }
@@ -116,7 +116,7 @@ public final class PPOCRManga: @unchecked Sendable {
     private typealias Reading = (characters: [(text: String, steps: Range<Int>)], steps: Int)
 
     private static func recognize(_ cgImage: CGImage, models: Models, cache: LineCache<Reading>) throws -> [RecognizedLine] {
-        guard let image = RGBImage(cgImage) else { throw Failure(errorDescription: "Couldn't read the image") }
+        guard let image = RGBImage(cgImage) else { throw Failure(errorDescription: "Couldn’t read the image") }
         let (width, height) = (CGFloat(image.width), CGFloat(image.height))
         let normalize = { (rect: CGRect) in
             CGRect(x: rect.minX / width, y: rect.minY / height, width: rect.width / width, height: rect.height / height)

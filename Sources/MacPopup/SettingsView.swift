@@ -1439,7 +1439,7 @@ private struct InstallYomitanAPIButton: View {
             let invalid = otherIDs.filter { !YomitanAPIInstaller.isValid($0, for: browser) }
             Group {
                 if invalid.isEmpty {
-                    Text("For a Yomitan built from source, add its extension ID. The default ID stays allowed.")
+                    Text("If you use a custom build of Yomitan, add its extension ID. The default extension ID remains enabled.")
                         .foregroundStyle(.secondary)
                 } else {
                     Text("This may not be a valid extension ID (expected: \(browser.idFormat)). It will still be added.")
@@ -1454,7 +1454,7 @@ private struct InstallYomitanAPIButton: View {
                 Button("Confirm") {
                     do {
                         try YomitanAPIInstaller.install(browser, otherIDs: otherIDs)
-                        result = ("Installed.\nEnable the Yomitan API in Yomitan settings and restart \(browser.name) to start the API.", true)
+                        result = ("Installed.\nRestart \(browser.name), then enable Advanced in Yomitan’s settings and turn on Enable Yomitan API.", true)
                     } catch {
                         result = (error.localizedDescription, false)
                     }
@@ -1477,7 +1477,7 @@ private struct InstallIINAPluginButton: View {
                 return
             }
             guard let package = Bundle.main.url(forResource: "MacPopup", withExtension: "iinaplgz") else {
-                error = "This build of MacPopup has no IINA plugin (see scripts/build.sh)."
+                error = "This build of MacPopup doesn’t include the IINA plugin (see scripts/build.sh)."
                 return
             }
             NSWorkspace.shared.open([package], withApplicationAt: iina, configuration: NSWorkspace.OpenConfiguration()) { _, openError in
@@ -1949,7 +1949,7 @@ private struct AudioSourceRow: View {
                     CommitTextField(value: item["apiKey"] as? String ?? "", placeholder: "API key", monospaced: true, bordered: true) {
                         change(.set("apiKey", $0.trimmingCharacters(in: .whitespacesAndNewlines)))
                     }
-                    Text("Plays pronunciations from Forvo in the language set in General: those of speakers from countries where the language is spoken natively first, each the best rated first. When Forvo has none for the term, those of its reading are played. Forvo needs an API key, which comes with a plan from Forvo’s API site (api.forvo.com).")
+                    Text("Plays pronunciations from Forvo for the language set in Settings → General, prioritizing native-country speakers and highest-rated recordings. If no recordings exist for the term, falls back to its reading. Requires a Forvo API key (api.forvo.com).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 default:
@@ -2018,7 +2018,7 @@ enum ConnectionTester {
             do {
                 body = try await post(settings["ankiConnectUrl"] as? String ?? "", body: request).body
             } catch {
-                throw AppError("Could not connect to Anki (make sure Anki is running with AnkiConnect installed)")
+                throw AppError("Couldn’t connect to Anki (make sure Anki is running with AnkiConnect installed)")
             }
             let result = SettingsSupport.decode(body)
             if let error = result?["error"] as? String { throw AppError(error) }
@@ -2303,19 +2303,19 @@ private struct HotkeysControl: View {
         let buttons = Set(items[index]["buttons"] as? [String] ?? [])
         guard !buttons.isEmpty, items[index]["enabled"] as? Bool ?? true else { return nil }
         if Set(model["gamepadScanButtons"] as? [String] ?? []) == buttons {
-            return "These controller buttons are already used by the controller scan key, which takes priority."
+            return "These controller buttons are already assigned to Controller scan key, which takes priority."
         }
         if SentenceAudioController.isEnabled(model.values), Set(model["sentenceAudioButtons"] as? [String] ?? []) == buttons {
-            return "Anki Audio already uses these buttons, so it takes priority."
+            return "These controller buttons are already used by Anki Audio, which takes priority."
         }
         if Set(model["overlayHideButtons"] as? [String] ?? []) == buttons {
-            return "The overlay hide key/buttons already use these buttons, so they take priority."
+            return "These controller buttons are already used by the overlay hide key/buttons, which take priority."
         }
         if Set(model["overlaySwitchButtons"] as? [String] ?? []) == buttons {
-            return "The overlay switch already uses these buttons, so it takes priority."
+            return "These controller buttons are already used by the overlay switch key/buttons, which take priority."
         }
         let earlier = items[..<index].contains { ($0["enabled"] as? Bool ?? true) && Set($0["buttons"] as? [String] ?? []) == buttons }
-        return earlier ? "These controller buttons are already used by an earlier shortcut, which takes priority." : nil
+        return earlier ? "These controller buttons are already assigned to an earlier shortcut, which takes priority." : nil
     }
 }
 
@@ -2376,9 +2376,9 @@ private struct HotkeyRow: View {
                     .padding(.leading, 8)
             }
             if isDuplicate {
-                Text("These keyboard keys are already used by an earlier shortcut, which takes priority.").font(.caption).foregroundStyle(.red)
+                Text("This key combination is already used by an earlier shortcut, which takes priority.").font(.caption).foregroundStyle(.red)
             } else if let combination, combination.keyCode == nil {
-                Text("\(combination.key) isn’t a key MacPopup can use.").font(.caption).foregroundStyle(.red)
+                Text("\(combination.key) isn’t supported as a shortcut key.").font(.caption).foregroundStyle(.red)
             }
             if let buttonsNote {
                 Text(buttonsNote).font(.caption).foregroundStyle(.red)
