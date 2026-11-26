@@ -39,7 +39,7 @@ test('overlay', async () => {
 	const note = await until('Game Pause\'s note', async () => (await gamePauseNotes())[notesBefore], 5000).catch(() => '');
 	if (!note?.startsWith('game paused')) {
 		expect(false, `NOT RUN: the game wasn't paused, so nothing else is checked: ${note || 'no note from Game Pause'}` +
-			' (the pause helper needs allowing in Settings → Permissions → Pause Helper, and launchd must start it)');
+			' (the pause helper needs allowing in Settings → Permissions → Pause helper, and launchd must start it)');
 		return;
 	}
 	log(`Game Pause: ${note}`);

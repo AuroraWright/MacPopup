@@ -50,8 +50,8 @@ def shown():
     # The permissions, as in Settings → Permissions: its rows (a section's header isn't static text over Accessibility).
     # Scanning's "Pause helper" row once took their place, from the first section with any permission in it.
     shown_texts = texts()
-    equal([t for t in ('Screen Recording', 'System Audio Recording', 'Accessibility', 'Pause Helper', 'Pause helper') if t in shown_texts],
-          ['Screen Recording', 'System Audio Recording', 'Accessibility', 'Pause Helper'],
+    equal([t for t in ('Screen Recording', 'System Audio Recording', 'Accessibility', 'Pause helper') if t in shown_texts],
+          ['Screen Recording', 'System Audio Recording', 'Accessibility', 'Pause helper'],
           f"the permissions shown (the window's short texts: {[t for t in shown_texts if len(t) < 40]})")
     shot('not-detected')
 

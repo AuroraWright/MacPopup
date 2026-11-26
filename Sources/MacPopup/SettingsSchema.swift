@@ -544,7 +544,7 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "gamePause", "Pause the game while a popup is open", .checkbox,
-                    hint: "Temporarily pauses the game (the captured window’s app, or the frontmost app if none is selected) while a popup is open—stopping auto-advance, timers, and spoken dialogue until the popup closes. Requires Pause Helper, which you authorize once below and automatically resumes the game if MacPopup quits. For Windows games in Parallels, the entire virtual machine is paused."
+                    hint: "Temporarily pauses the game (the captured window’s app, or the frontmost app if none is selected) while a popup is open—stopping auto-advance, timers, and spoken dialogue until the popup closes. Requires Pause helper, which you authorize once below and automatically resumes the game if MacPopup quits. For Windows games in Parallels, the entire virtual machine is paused."
                 ),
                 SettingsField(
                     "permission.pauseHelper", "Pause helper", .permission(.pauseHelper),
@@ -1038,7 +1038,7 @@ enum SettingsSchema {
                         hint: "Required by Anki Audio’s Visual novel backlog capture to focus the game window and send replay keystrokes."
                     ),
                     SettingsField(
-                        "permission.pauseHelper", "Pause Helper", .permission(.pauseHelper),
+                        "permission.pauseHelper", "Pause helper", .permission(.pauseHelper),
                         hint: "Required to pause the game while a popup is open (Settings → Scanning). Enabled in System Settings → General → Login Items; runs with root privileges so it can pause Parallels."
                     ),
                 ]

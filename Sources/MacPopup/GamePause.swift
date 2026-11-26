@@ -7,7 +7,7 @@ import Synchronization
 /// Settings → Scanning → Pause the game while a popup is open: the game is frozen while a popup is open (or while the controller has
 /// focus), so it can't move on meanwhile, and continues when it closes. MacPopup's pause helper (Sources/PauseHelper)
 /// stops and continues it: it runs as root, for Windows games in Parallels, and continues the game if MacPopup quits or
-/// crashes. It's approved once in System Settings (Settings → Permissions → Pause Helper). Its pause and scan shortcut
+/// crashes. It's approved once in System Settings (Settings → Permissions → Pause helper). Its pause and scan shortcut
 /// pauses the game until it's pressed again or you switch to another app, to look up whatever's on screen (see
 /// togglePausedScan in web/src/overlay.js).
 @MainActor
@@ -101,7 +101,7 @@ final class GamePause {
                 DebugLog.note("game not paused: the pause helper isn't allowed")
                 if !toldAboutHelper {
                     toldAboutHelper = true
-                    onToast?("To pause the game, allow Pause Helper in Settings → Permissions")
+                    onToast?("To pause the game, allow Pause helper in Settings → Permissions")
                 }
                 return
             }

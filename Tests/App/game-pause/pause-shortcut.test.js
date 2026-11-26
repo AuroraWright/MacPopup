@@ -3,7 +3,7 @@
 // (ocr-windows/windows/typer.swift): pressed while it's typed, the game's process is stopped (by the pause helper) and the
 // part shown then is read and stays; hovering over it opens a popup on it (debugMouse, not the real pointer); pressed
 // again, the popup closes, the game goes on, and the whole line is read. The game's process state comes from
-// harness/tools/gamestate.py. Without the pause helper (allowed in Settings → Permissions → Pause Helper) it fails
+// harness/tools/gamestate.py. Without the pause helper (allowed in Settings → Permissions → Pause helper) it fails
 // first with "NOT RUN: …".
 // It pauses the test window's process (typer, with the pause helper, which runs as root).
 // interactive
@@ -49,7 +49,7 @@ test('overlay', async () => {
 	const note = await until('Game Pause\'s note', async () => (await gamePauseNotes())[before], 5000).catch(() => '');
 	if (!note?.startsWith('game paused')) {
 		expect(false, `NOT RUN: the game wasn't paused, so nothing else is checked: ${note || 'no note from Game Pause'}` +
-			' (the pause helper needs allowing in Settings → Permissions → Pause Helper, and launchd must start it)');
+			' (the pause helper needs allowing in Settings → Permissions → Pause helper, and launchd must start it)');
 		return;
 	}
 	log(`Game Pause: ${note}`);
