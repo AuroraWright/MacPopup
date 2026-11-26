@@ -46,6 +46,7 @@ export function decodeLines(lines) {
 			area: line.area ?? 0,
 			cloud: !!line.cloud,
 			...(line.paragraph !== undefined && { paragraph: line.paragraph }),
+			...(typeof line.x === 'number' && { box: { x: line.x, y: line.y, width: line.width, height: line.height } }),
 			...(line.turn && {
 				turn: {
 					angle: line.turn.angle,
@@ -517,25 +518,87 @@ function bounds(chars) {
 }
 
 /**
- * Whether `next` continues the paragraph of `previous` (the next line of a wrapped text). A turned line's (see
- * decodeLines) is the native side's paragraph, which compared the lines turned back: their upright boxes here overlap
- * the rows around them.
+ * Whether `next` continues the paragraph of `previous` (the next line of a wrapped text): about as thick, at most a
+ * little over a character's size from it, and overlapping it along the row. A character's size is the rows' thickness,
+ * or how far apart their characters are when that's more: an engine's boxes for its characters can be much thinner than
+ * the text (Live Text's in vertical text, which made columns set wide apart look like separate paragraphs). Rows whose
+ * characters' boxes differ in thickness are still about as thick when the engine's boxes for the rows are (see
+ * decodeLines): fitted to outlined text over a busy background, characters can come out much thinner than they are.
+ * The gap is measured on the characters, where a blank row between paragraphs shows. A turned
+ * line's (see decodeLines) is the native side's paragraph, which compared the lines turned back: their upright boxes
+ * here overlap the rows around them.
  */
 function continuesParagraph(previous, next) {
 	if (previous.turn || next.turn) return previous.paragraph !== undefined && previous.area === next.area && previous.paragraph === next.paragraph;
 	if (previous.vertical !== next.vertical) return false;
 	const a = bounds(previous.chars);
 	const b = bounds(next.chars);
+	const advance = (row, box) => (row.vertical ? box.height : box.width) / Math.max(1, [...lineText(row)].length);
+	const pitch = Math.max(advance(previous, a), advance(next, b));
+	const thickness = (row, box) => (row.vertical ? box.width : box.height);
+	const alike = (x, y) => Math.min(x, y) >= Math.max(x, y) * 0.6;
+	const asThick = alike(thickness(previous, a), thickness(next, b))
+		|| (!!previous.box && !!next.box && alike(thickness(previous, previous.box), thickness(next, next.box)));
+	if (!asThick) return false;
 	if (previous.vertical) {
 		const size = Math.max(a.width, b.width);
-		if (Math.min(a.width, b.width) < size * 0.6) return false;
 		const gap = a.x - (b.x + b.width);
-		return gap > -size * 0.5 && gap < size * 1.2 && b.y < a.y + a.height && a.y < b.y + b.height;
+		return gap > -size * 0.5 && gap < Math.max(size, pitch) * 1.2 && b.y < a.y + a.height && a.y < b.y + b.height;
 	}
 	const size = Math.max(a.height, b.height);
-	if (Math.min(a.height, b.height) < size * 0.6) return false;
 	const gap = b.y - (a.y + a.height);
-	return gap > -size * 0.5 && gap < size * 1.2 && b.x < a.x + a.width && a.x < b.x + b.width;
+	return gap > -size * 0.5 && gap < Math.max(size, pitch) * 1.2 && b.x < a.x + a.width && a.x < b.x + b.width;
+}
+
+/**
+ * Whether a row could be digits set sideways in a vertical column (縦中横), as OCRLayout.Line.isSideways: horizontal, a
+ * character or two long, and only digits, Latin letters, ! and ?.
+ */
+function isSideways(row, box) {
+	return !row.vertical && box.width < box.height * 2.5 && /^[0-9A-Za-z０-９Ａ-Ｚａ-ｚ!?！？]+$/.test(lineText(row));
+}
+
+/**
+ * Whether `next` goes on along the row of `previous`, at about the same size and at most two characters after it, as
+ * OCRLayout.continues: engines give some rows in pieces side by side (Live Text splits them at dashes and ellipses,
+ * others at the full-width space after ！ and ？), which the native side keeps in one paragraph. Digits set sideways
+ * in a vertical column (isSideways) go on along it, as there.
+ */
+function goesOn(previous, next) {
+	if (previous.turn || next.turn) return false;
+	const a = previous.box ?? bounds(previous.chars);
+	const b = next.box ?? bounds(next.chars);
+	if (previous.vertical !== next.vertical && !(previous.vertical && isSideways(next, b)) && !(next.vertical && isSideways(previous, a))) return false;
+	const vertical = previous.vertical || next.vertical;
+	const [near, far, nextNear, nextFar] = vertical
+		? [a.x, a.x + a.width, b.x, b.x + b.width]
+		: [a.y, a.y + a.height, b.y, b.y + b.height];
+	const size = far - near, nextSize = nextFar - nextNear;
+	if (size <= 0 || nextSize <= 0) return false;
+	const end = vertical ? a.y + a.height : a.x + a.width;
+	const nextStart = vertical ? b.y : b.x;
+	return Math.min(far, nextFar) - Math.max(near, nextNear) >= Math.min(size, nextSize) / 2
+		&& Math.max(size, nextSize) <= Math.min(size, nextSize) * 1.5
+		&& nextStart >= end - size / 2 && nextStart <= end + size * 2;
+}
+
+/**
+ * `lines` (a reading's rows, in reading order) with the pieces of each row joined (see goesOn: each piece and the one
+ * before it, as the native side compares them), each with its first piece's index.
+ */
+function wholeRows(lines) {
+	const rows = [];
+	lines.forEach((line, index) => {
+		const last = rows.at(-1);
+		if (last && goesOn(lines[index - 1], line)) {
+			const box = last.row.box && line.box ? union(last.row.box, line.box) : undefined;
+			// A column's sideways digits (see goesOn) can come first: the row is vertical if either piece is.
+			last.row = { ...last.row, vertical: last.row.vertical || line.vertical, chars: [...last.row.chars, ...line.chars], box };
+		} else {
+			rows.push({ row: line, index });
+		}
+	});
+	return rows;
 }
 
 /** Where a row starts: its left edge, or its top when it's vertical. */
@@ -564,6 +627,7 @@ function rowSize(line) {
  */
 export function wrappedReach(lines, reach = { horizontal: 0, vertical: 0 }) {
 	const result = { ...reach };
+	lines = wholeRows(lines).map(({ row }) => row);
 	lines.forEach((line, index) => {
 		const next = lines[index + 1];
 		if (!next || line.turn || next.turn || !continuesParagraph(line, next)) return;
@@ -581,19 +645,26 @@ export function wrappedReach(lines, reach = { horizontal: 0, vertical: 0 }) {
  * The indices of the rows in `lines` (a reading's rows, in reading order) that start a new paragraph (see
  * ShownLines.note). A paragraph starts at a row that doesn't continue the one before (see continuesParagraph),
  * or after a row that ends early: with room left for the next row's first word before where rows wrap (the farthest
- * row in this reading, or `reach`; see wrappedReach). In text written without spaces, the first word is one character.
+ * row in this reading, or `reach`; see wrappedReach). In a row written without spaces, the first word is one character.
  * A row that ends with a letter or digit (mid-sentence) has to end before halfway, since some games wrap rows at the
  * end of a phrase rather than where the next word wouldn't fit. ー and 一 count as dashes, which OCR reads them as (see
  * OCRText.isDash). Turned rows (see decodeLines) never end early: set at an angle, each is shifted along the window from
- * the one before (Danganronpa's staggered dialogue), so where their boxes end says nothing about the text.
+ * the one before (Danganronpa's staggered dialogue), so where their boxes end says nothing about the text. A row that's
+ * indented (see isIndented) starts one too. A row the engine gave in pieces counts as one row (see wholeRows), so that
+ * its pieces don't end early.
  */
 export function paragraphBreaks(lines, reach = { horizontal: 0, vertical: 0 }) {
+	const rows = wholeRows(lines);
+	return rowBreaks(rows.map(({ row }) => row), reach).map((index) => rows[index].index);
+}
+
+/** paragraphBreaks of whole rows (see wholeRows). */
+function rowBreaks(lines, reach) {
 	const ends = lines.map(rowEnd);
 	const farthest = {
 		horizontal: Math.max(reach.horizontal, ...ends.filter((_, index) => !lines[index].vertical)),
 		vertical: Math.max(reach.vertical, ...ends.filter((_, index) => lines[index].vertical)),
 	};
-	const spaced = lines.some((line) => /\S\s+\S/.test(lineText(line)));
 	return lines.flatMap((line, index) => {
 		const previous = lines[index - 1];
 		if (!previous) return [];
@@ -604,16 +675,59 @@ export function paragraphBreaks(lines, reach = { horizontal: 0, vertical: 0 }) {
 		// with punctuation), so it ends a paragraph only well short of the others. A long vowel mark (or the 一 it's
 		// misread as) can end an exclamation without punctuation.
 		const midSentence = /[\p{L}\p{N}]$/u.test(lineText(previous).trimEnd()) && !/[ー一]$/.test(lineText(previous).trimEnd());
-		const endsEarly = !previous.turn && !line.turn && room > firstWordSize(line, spaced) + size * 0.5 && (!midSentence || room > (far - rowStart(previous)) / 2);
-		return !continuesParagraph(previous, line) || endsEarly ? [index] : [];
+		const endsEarly = !previous.turn && !line.turn && room > firstWordSize(line) + size * 0.5 && (!midSentence || room > (far - rowStart(previous)) / 2);
+		return !continuesParagraph(previous, line) || endsEarly || isIndented(lines, index) ? [index] : [];
 	});
 }
 
-/** The length of a row's first word: up to its first space, or its first character in text written without spaces. */
-function firstWordSize(line, spaced) {
+/**
+ * Whether row `index` of `lines` (see paragraphBreaks) is a paragraph's first row set in from the others, as Japanese
+ * and many other languages start paragraphs: it starts about one to two characters after where the rows before it
+ * start (the middle of the three before it when they go on from one another, so that a row the engine read noise or a
+ * misread character into the start of doesn't decide it, and a paragraph of one row set in doesn't hide the next; else
+ * the row before), and still ends about where the row before does, which a shorter row of centred text doesn't. Ends are compared without
+ * punctuation at the end, which Japanese text can hang past where rows end. Where rows start is where the engine found
+ * them (their boxes, see decodeLines), not their first characters: an engine can leave out the first characters it
+ * found (meikiocr in vertical text). Not after a row opening with a bracket, whose next rows are often set in under
+ * its text (dialogue), nor for a row opening with one (drawn in the far half of its cell, it looks set in when it
+ * isn't), nor for turned rows (see paragraphBreaks).
+ */
+function isIndented(lines, index) {
+	const previous = lines[index - 1], line = lines[index];
+	if (previous.turn || line.turn) return false;
+	const first = (row) => row.chars.find((char) => !SPACE.test(char.text));
+	const [a, b] = [first(previous), first(line)];
+	if (!a || !b || OPENING.test([...a.text][0] ?? '') || OPENING.test([...b.text][0] ?? '')) return false;
+	const start = (row) => {
+		const box = row.box ?? bounds(row.chars.filter((char) => !SPACE.test(char.text)));
+		return line.vertical ? box.y : box.x;
+	};
+	const starts = [start(previous)];
+	for (let k = index - 2; k >= 0 && starts.length < 3 && !lines[k].turn && continuesParagraph(lines[k], lines[k + 1]); k--) {
+		starts.push(start(lines[k]));
+	}
+	starts.sort((x, y) => x - y);
+	const size = rowSize(previous);
+	const inset = start(line) - (starts.length === 3 ? starts[1] : start(previous));
+	const end = (row) => {
+		const chars = row.chars.filter((char) => !/^[\s\p{P}]+$/u.test(char.text));
+		return rowEnd(chars.length > 0 ? { ...row, chars } : row);
+	};
+	return inset >= size * 0.7 && inset <= size * 2.5 && end(line) >= end(previous) - size * 0.5;
+}
+
+/**
+ * The length of a row's first word: its first character when that's of a script written without spaces (see
+ * UNSPACED), else up to its first space or first such character (「3人で」's is 3, 「ＣＤを」's ＣＤ). Each row decides for
+ * itself: a game's date or menu with spaces in it, read beside Japanese dialogue, made every row's first word the whole
+ * row.
+ */
+function firstWordSize(line) {
 	const start = line.chars.findIndex((char) => !SPACE.test(char.text));
 	let end = start + 1;
-	if (spaced) while (end < line.chars.length && !SPACE.test(line.chars[end].text)) end++;
+	if (!UNSPACED.test(line.chars[start].text)) {
+		while (end < line.chars.length && !SPACE.test(line.chars[end].text) && !UNSPACED.test(line.chars[end].text)) end++;
+	}
 	const box = bounds(line.chars.slice(start, end));
 	return line.vertical ? box.height : box.width;
 }

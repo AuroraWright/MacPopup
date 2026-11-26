@@ -223,6 +223,14 @@ public enum OCRLayout {
             return angle - (angle / (.pi / 2)).rounded() * (.pi / 2)
         }
 
+        /// Whether it could be digits set sideways in a vertical column (縦中横): a horizontal line a character or two
+        /// long (under 2.5 times as wide as it's tall) of digits, Latin letters, ! and ?, the only text set that way. Other
+        /// short lines running the other way are mostly misreadings (a character from each of two rows read as a column).
+        var isSideways: Bool {
+            !vertical && box.width < box.height * 2.5
+                && text.range(of: "^[0-9A-Za-z０-９Ａ-Ｚａ-ｚ!?！？]+$", options: .regularExpression) != nil
+        }
+
         /// How long it is along its text (its longer side), which its tilt counts for in a mean of tilts: a character's
         /// is a poor guide to its paragraph's.
         var length: CGFloat {
@@ -396,7 +404,7 @@ public enum OCRLayout {
 
     /// Whether `next` is the row after `line` (the column to its left in vertical text) in a paragraph: about as thick,
     /// at most a little over a row's thickness from it, and overlapping it along the row. As continuesParagraph in
-    /// web/src/lib/ocr-layer.js.
+    /// web/src/lib/ocr-layer.js, which measures the characters' boxes instead (and their spacing, where those are thin).
     private static func isNextRow(_ next: Line, after line: Line) -> Bool {
         guard next.vertical == line.vertical else { return false }
         let (a, b) = (line.box, next.box)
@@ -409,10 +417,13 @@ public enum OCRLayout {
     }
 
     /// Whether `next` continues `line` on the same row, at about the same size, with a gap of at most two characters.
-    /// The gap allows for the full-width space Japanese puts after ！ and ？, where engines sometimes split a line.
+    /// The gap allows for the full-width space Japanese puts after ！ and ？, where engines sometimes split a line. Digits
+    /// set sideways in a vertical column (see Line.isSideways) go on along it: engines read them as a horizontal line of
+    /// their own (Live Text's "35" in 「合計35万人を」).
     private static func continues(_ next: Line, _ line: Line) -> Bool {
-        guard next.vertical == line.vertical else { return false }
-        let vertical = line.vertical
+        guard next.vertical == line.vertical || (line.vertical && next.isSideways) || (next.vertical && line.isSideways)
+        else { return false }
+        let vertical = line.vertical || next.vertical
         let end = vertical ? line.box.maxY : line.box.maxX
         let nextStart = vertical ? next.box.minY : next.box.minX
         let across = { (box: CGRect) in vertical ? (box.minX, box.maxX) : (box.minY, box.maxY) }

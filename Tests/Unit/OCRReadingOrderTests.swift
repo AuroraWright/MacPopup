@@ -48,6 +48,14 @@ private func line(_ text: String, _ x: CGFloat, _ y: CGFloat, _ width: CGFloat, 
     #expect(OCRLayout.inParagraphs(lines) { $0 }.map { $0.map(\.text) } == [["見出しです"], ["右の列", "左の列"]])
 }
 
+@Test func digitsSetSidewaysInAColumnStayInIt() {
+    // Live Text's 「合計35万人を」: "35" set sideways (縦中横) read as a horizontal line of its own between the column's
+    // two parts, beside the next column 「超える見込みだ」. It used to be a paragraph of its own, read last.
+    let lines = [line("合計", 118, 116, 62, 76, vertical: true), line("35", 138, 194, 42, 32),
+                 line("万人を", 144, 236, 28, 98, vertical: true), line("超える見込みだ", 84, 118, 38, 256, vertical: true)]
+    #expect(OCRLayout.inReadingOrder(lines).map(\.text) == ["合計", "35", "万人を", "超える見込みだ"])
+}
+
 /// A line of `text` turned by `degrees` (clockwise) about its center, with its corners.
 private func turned(_ text: String, centerX: CGFloat, centerY: CGFloat, width: CGFloat, height: CGFloat, degrees: CGFloat) -> OCRLayout.Line {
     let angle = degrees * .pi / 180
