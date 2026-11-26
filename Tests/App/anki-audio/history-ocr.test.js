@@ -48,11 +48,11 @@ test('overlay', async () => {
 			equal(outcome, 'history: The line’s voice was cut off by the next line', `line ${index}: refused`);
 			continue;
 		}
-		expect(/^[\d.]+s, macpopup-sentence-/.test(outcome), `line ${index}: a clip from the kept audio: "${outcome}"`);
+		expect(/^[\d.]+s, macpopup-sentence-/.test(outcome), `line ${index}: a clip from the recorded audio: "${outcome}"`);
 		const updated = (await mockLog()).filter((l) => / updateNoteFields .*\[sound:macpopup-sentence-/.test(l)).length;
 		equal(updated, index === 0 ? 1 : index, `cards given sentence audio after line ${index}`);
 		log(`clip ${clip} voice${index}`);
 	}
 	const notes = await sentenceAudioNotes();
-	expect(!notes.some((n) => /nothing kept|^recording (voicegame|every app)$/.test(n)), 'no recording made: all from the kept audio');
+	expect(!notes.some((n) => /nothing saved|^recording (voicegame|every app)$/.test(n)), 'no recording made: all from the recorded audio');
 });

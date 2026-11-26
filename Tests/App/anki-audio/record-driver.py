@@ -1,5 +1,5 @@
 # record-driver.py <app|web> [--other]: the driver of the record-*.test.js tests (Anki Audio recording the captured
-# app's audio from the shortcut on: the visual novel backlog way, the kept audio being off). Once the page is ready
+# app's audio from the shortcut on: the visual novel backlog way, game audio recording being off). Once the page is ready
 # (its trigger comes 1.5 s later), it has another app say an English line at 2.2 s (with --other: afplay, volume 0.15,
 # not recorded: it isn't the captured app) and the captured app say its Japanese line at 7.5 s (SIGUSR1: app,
 # windows/audiowin.swift from "// beside:"; web, WKAudioTest.app from wkaudio-app.sh), as sentence-audio/run.sh timed

@@ -20,7 +20,7 @@ async function record() {
 	log('trigger');
 	await native('cardAdded', { note: 333 });
 	await native('debugSentenceAudio');
-	const ended = /^(voiceEnded|noVoice|maxLength|shortcut|inputEnded)(, silent)?(, nothing kept)?$/;
+	const ended = /^(voiceEnded|noVoice|maxLength|shortcut|inputEnded)(, silent)?(, nothing saved)?$/;
 	await until('the recording\'s end', async () => (await sentenceAudioNotes()).slice(before).some((n) => ended.test(n)
 		|| (/^message: /.test(n) && !/^message: (Listening|Recording)/.test(n))), 30000).catch(() => {});
 	const ending = Date.now();
@@ -32,8 +32,8 @@ async function record() {
 
 test('overlay', async () => {
 	const { notes, end } = await record();
-	expect(notes.includes('history: Game audio isn’t being kept. Turn on “Keep game audio for the last” in Settings → Anki Audio.'),
-		'the kept audio is off: recorded instead');
+	expect(notes.includes('history: Game audio isn’t being recorded. Turn on “Record game audio for the last” in Settings → Anki Audio.'),
+		'recording game audio is off: recorded instead');
 	expect(notes.some((n) => /^recording (audiowin|process \d+)$/.test(n)), 'recording the captured app (audiowin) only');
 	const first = notes.indexOf("the app hasn't played sound yet"), then = notes.findIndex((n) => /^recording processes \d+$/.test(n));
 	expect(first >= 0 && then > first, `no process recorded until the app played, then its process: ${notes[first]}, ${notes[then]}`);

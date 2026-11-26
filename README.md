@@ -326,12 +326,12 @@ were reading:
 
 With *Settings → Anki Audio*, one shortcut after adding a card adds the character's voice line from your game:
 
-1. **From the kept audio**: MacPopup keeps the last few minutes of your game's audio in memory (**Keep game audio for
-   the last**, 5 minutes by default; without a captured window, the audio of every app except MacPopup), along with when
-   each line appeared. When you press the shortcut, it finds the line of the last card you added from a popup and cuts
-   out its voice right away, using macOS's sound classifier to leave out music and sound effects. If the line is still
-   being spoken, it waits for the voice to end.
-2. **From the backlog**: If the line isn't in the kept audio anymore (it's too old, or you moved on before the voice
+1. **From the recorded audio**: MacPopup records the last few minutes of your game's audio in memory (**Record game
+   audio for the last**, 5 minutes by default; without a captured window, the audio of every app except MacPopup), along
+   with when each line appeared. When you press the shortcut, it finds the line of the last card you added from a popup
+   and cuts out its voice right away, using macOS's sound classifier to leave out music and sound effects. If the line
+   is still being spoken, it waits for the voice to end.
+2. **From the backlog**: If the line isn't in the recorded audio anymore (it's too old, or you moved on before the voice
    finished) and **Visual novel backlog capture** is on, MacPopup replays it instead: it brings your game to the front,
    presses your **Keys to open backlog**, records the voice while it replays, then presses your **Keys to close
    backlog**. With **Automatically detect start and end of speech** on, recording stops when the voice ends, and nothing

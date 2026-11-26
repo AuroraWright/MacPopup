@@ -22,7 +22,7 @@ final class AudioHistory: @unchecked Sendable {
     private var blocks: [Block] = []
     private var keep = 0.0
 
-    /// Whether audio is currently being kept.
+    /// Whether audio is currently being recorded.
     var isRecording: Bool { tap != nil }
 
     /// Starts keeping the last `minutes` of the audio of `processes`. With nil or 0 minutes, stops and forgets what was
@@ -41,7 +41,7 @@ final class AudioHistory: @unchecked Sendable {
         do {
             try tap.start()
         } catch {
-            sentenceAudioLog("couldn't keep the audio: \(error.localizedDescription)")
+            sentenceAudioLog("couldn't record the audio: \(error.localizedDescription)")
             return
         }
         self.tap = tap

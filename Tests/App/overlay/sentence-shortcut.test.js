@@ -1,7 +1,7 @@
 // "Add note (sentence audio)" from a controller and from the keyboard: one popup shortcut with that action, on Alt+J
 // and Button X. With a popup open on 晴, pressing Button X and then the keyboard shortcut (__macpopupHotkey(0)) each
 // add a note (AnkiConnect's addNote, note 444) and reach Anki Audio, which only says why it can't take the voice (no
-// game audio kept, no backlog): the app log's "[sentence audio]" lines, for each note: the card added with its line's
+// game audio recorded, no backlog): the app log's "[sentence audio]" lines, for each note: the card added with its line's
 // voice asked for, then the history's answer and the message shown.
 // mock: MOCK_EDITOR=closed MOCK_ADD_NOTE=444 MOCK_RUN_FILES=1
 // clipboard: 明日も晴れるといいね
@@ -17,8 +17,8 @@ test('overlay', async () => {
 	});
 	equal(button.title, 'Add Mock note', 'the add button\'s title');
 	const added = async () => (await mockLog()).filter((l) => /^anki \d+ addNote /.test(l)).length;
-	const kept = 'Game audio isn’t being kept. Turn on “Keep game audio for the last” in Settings → Anki Audio.';
-	const perNote = ['[sentence audio] card 444 added, line 0: its line\'s voice asked for', `[sentence audio] history: ${kept}`, `[sentence audio] message: ${kept}`];
+	const notRecorded = 'Game audio isn’t being recorded. Turn on “Record game audio for the last” in Settings → Anki Audio.';
+	const perNote = ['[sentence audio] card 444 added, line 0: its line\'s voice asked for', `[sentence audio] history: ${notRecorded}`, `[sentence audio] message: ${notRecorded}`];
 	const sentenceAudio = async () => (await runFile('app.log')).split('\n').filter((l) => l.startsWith('[sentence audio]'));
 
 	await gamepadPress(['Button X'], { after: 0 });

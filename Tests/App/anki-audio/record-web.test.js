@@ -19,7 +19,7 @@ async function record() {
 	log('trigger');
 	await native('cardAdded', { note: 333 });
 	await native('debugSentenceAudio');
-	const ended = /^(voiceEnded|noVoice|maxLength|shortcut|inputEnded)(, silent)?(, nothing kept)?$/;
+	const ended = /^(voiceEnded|noVoice|maxLength|shortcut|inputEnded)(, silent)?(, nothing saved)?$/;
 	await until('the recording\'s end', async () => (await sentenceAudioNotes()).slice(before).some((n) => ended.test(n)
 		|| (/^message: /.test(n) && !/^message: (Listening|Recording)/.test(n))), 30000).catch(() => {});
 	const ending = Date.now();
@@ -31,8 +31,8 @@ async function record() {
 
 test('overlay', async () => {
 	const { notes, end } = await record();
-	expect(notes.includes('history: Game audio isn’t being kept. Turn on “Keep game audio for the last” in Settings → Anki Audio.'),
-		'the kept audio is off: recorded instead');
+	expect(notes.includes('history: Game audio isn’t being recorded. Turn on “Record game audio for the last” in Settings → Anki Audio.'),
+		'recording game audio is off: recorded instead');
 	expect(notes.some((n) => /^recording (WKAudioTest|process \d+)$/.test(n)), 'recording the captured app (WKAudioTest) only');
 	equal(end, 'voiceEnded', 'the recording ended with the voice');
 	expect(notes.some((n) => /^[\d.]+s, macpopup-sentence-/.test(n)), 'a clip saved');

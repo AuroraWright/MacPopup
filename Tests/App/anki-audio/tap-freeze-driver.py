@@ -1,5 +1,5 @@
 # tap-freeze-driver.py [sounds]: the driver of tap-freeze.test.js (evals/sentence-audio/verify-freeze.sh): while
-# the game (windows/freezegame.swift) starts a quiet sound every 3 s, so Anki Audio's kept audio makes its tap again as
+# the game (windows/freezegame.swift) starts a quiet sound every 3 s, so Anki Audio's recorded audio makes its tap again as
 # each starts and ends, a 1 s `sample` of the test instance after each sound (20) says whether its main thread is frozen:
 # waiting on a queue (_dispatch_sync_f_slow) or in AudioDeviceStop in 90% of the samples, and still 3 s later (the
 # deadlock of 2026-11-14: the tap stopped on its IO block's queue). Checks that it never froze, that taps were made

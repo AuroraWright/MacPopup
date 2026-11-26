@@ -172,7 +172,7 @@ final class SentenceAudioController {
     /// Takes the voice of the cards' line from the audio history and adds it to them. Returns nil on success, or the
     /// reason the line or its whole voice wasn't there, so the caller can replay it or say why.
     private func takeFromHistory(_ cards: Cards) async -> String? {
-        guard historyMinutes > 0 else { return "Game audio isn’t being kept. Turn on “Keep game audio for the last” in Settings → Anki Audio." }
+        guard historyMinutes > 0 else { return "Game audio isn’t being recorded. Turn on “Record game audio for the last” in Settings → Anki Audio." }
         guard history.isRecording else { return "Game audio isn’t being saved because the game window isn’t open" }
         guard let id = cards.line else { return "Couldn’t find which line this card was made from" }
         sentenceAudioLog("history: line \(id), for card\(cards.ids.count == 1 ? "" : "s") \(cards.ids.map(String.init).joined(separator: ", "))")
@@ -327,11 +327,11 @@ final class SentenceAudioController {
             await pressKeys(settings["sentenceAudioCloseKeys"])
             defer { state = .idle }
             guard let clip = result.clip else {
-                sentenceAudioLog("\(result.reason)\(result.silent ? ", silent" : ""), nothing kept")
+                sentenceAudioLog("\(result.reason)\(result.silent ? ", silent" : ""), nothing saved")
                 if result.silent {
-                    showToast("No audio was recorded. If the game played sound, allow MacPopup in System Settings → Privacy & Security → Screen & System Audio Recording.")
+                    showToast("No audio was saved. If the game played sound, allow MacPopup in System Settings → Privacy & Security → Screen & System Audio Recording.")
                 } else {
-                    showToast(result.reason == .noVoice ? "No speech detected" : "Nothing was recorded")
+                    showToast(result.reason == .noVoice ? "No speech detected" : "Nothing was saved")
                 }
                 return
             }

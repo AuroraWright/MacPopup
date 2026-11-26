@@ -188,7 +188,7 @@ enum SettingsSchema {
         values["sentenceAudioBacklog"] as? Bool ?? true
     }
 
-    /// Whether Anki Audio looks for the voice: in the kept audio, or in a backlog recording with speech detection on.
+    /// Whether Anki Audio looks for the voice: in the recorded audio, or in a backlog recording with speech detection on.
     nonisolated private static func detectsVoice(_ values: [String: Any]) -> Bool {
         ((values["sentenceAudioHistory"] as? NSNumber)?.doubleValue ?? 5) > 0
             || (capturesBacklog(values) && values["sentenceAudioDetectVoice"] as? Bool ?? true)
@@ -911,7 +911,7 @@ enum SettingsSchema {
             ),
             SettingsSection(
                 title: "Anki Audio", symbol: "waveform",
-                description: "Attach spoken game dialogue to your Anki cards using a shortcut after adding a card. MacPopup buffers the last few minutes of audio from the captured window’s app (or all apps if none is selected) to extract the line’s voice automatically. If the line is no longer in the buffer, Visual novel backlog capture can replay and record it from the game’s backlog instead. Requires System Audio Recording permission (plus Accessibility permission for backlog capture).",
+                description: "Attach spoken game dialogue to your Anki cards using a shortcut after adding a card. MacPopup records the last few minutes of audio from the captured window’s app (or all apps if none is selected) to extract the line’s voice automatically. If the line is older, Visual novel backlog capture can replay and record it from the game’s backlog instead. Requires System Audio Recording permission (plus Accessibility permission for backlog capture).",
                 fields: [
                     SettingsField(
                         "sentenceAudioField", "Sentence audio field", .ankiField,
@@ -932,7 +932,7 @@ enum SettingsSchema {
                         }
                     ),
                     SettingsField(
-                        "sentenceAudioHistory", "Keep game audio for the last (minutes)", .number(min: 0),
+                        "sentenceAudioHistory", "Record game audio for the last (minutes)", .number(min: 0),
                         hint: "Continuously records recent game audio in memory (about 11 MB per minute) so your shortcut can extract a line’s voice immediately. Set to 0 to disable."
                     ),
                     SettingsField(
@@ -947,14 +947,14 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "sentenceAudioPadding", "Padding around detected speech (ms)", .number(min: 0),
-                        hint: "Extra audio padding kept before and after detected speech so words aren’t clipped.",
+                        hint: "Extra audio padding recorded before and after detected speech so words aren’t clipped.",
                         showIf: Self.detectsVoice
                     ),
                     SettingsField("sentenceAudioMaxLength", "Maximum recording length (seconds)", .number(min: 1), hint: "Maximum duration for a recording; recording stops at this limit even if speech continues."),
                     SettingsField("sentenceAudioPlay", "Preview recording after saving to Anki", .checkbox, hint: "Plays the recording once it’s added to your card, so you can hear what was saved."),
                     SettingsField(
                         "sentenceAudioBacklog", "Visual novel backlog capture", .checkbox,
-                        hint: "When a line’s voice isn’t available in the audio buffer (because it expired, was cut off early, or buffering is off), MacPopup focuses the game, sends the backlog keys below to replay it, records the line, and closes the backlog. Press the shortcut again to stop recording early."
+                        hint: "When a line’s voice isn’t in the recorded audio (because it’s older, was cut off early, or game audio isn’t being recorded), MacPopup focuses the game, sends the backlog keys below to replay it, records the line, and closes the backlog. Press the shortcut again to stop recording early."
                     ),
                     SettingsField("sentenceAudioApp", "App to focus before recording", .select([
                         SettingsOption("captured", "Captured window"),

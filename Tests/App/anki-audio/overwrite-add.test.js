@@ -30,7 +30,7 @@ test('overlay', async () => {
 		/^[\d.]+s, macpopup-sentence-/.test(n)
 		|| (/^message: /.test(n) && !/^message: Waiting for speech to finish/.test(n)) // (shown while it waits, not an outcome)
 		|| (/^history: /.test(n) && !/^history: (line \d|voice |waiting |no voice in )/.test(n))), 20000).catch(() => '');
-	expect(/^[\d.]+s, macpopup-sentence-/.test(outcome), `a clip from the kept audio: "${outcome}"`);
+	expect(/^[\d.]+s, macpopup-sentence-/.test(outcome), `a clip from the recorded audio: "${outcome}"`);
 	await wait(1500);
 	const mock = await mockLog();
 	expect(mock.some((l) => / updateNoteFields .*"SentenceAudio": "\[sound:macpopup-sentence-/.test(l) && l.includes('"id": 333')), 'note 333 got the clip');

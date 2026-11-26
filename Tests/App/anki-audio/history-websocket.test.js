@@ -2,7 +2,7 @@
 // lines at 8, 14, 17 and 24 s (line 1's voice is cut off by line 2), each sent over WebSocket. At 22.5 s, a card from
 // each of lines 0, 1 and 2 in turn presses the sentence audio shortcut (cardAdded + debugSentenceAudio, one at a time),
 // then one from line 3 at 27.3 s, while its voice still plays. Lines 0, 2 and 3 get their line's voice, whole, cut from
-// the kept audio (line 3's once its voice ends); line 1 is refused as cut off by the next line (the visual novel
+// the recorded audio (line 3's once its voice ends); line 1 is refused as cut off by the next line (the visual novel
 // backlog fallback is off). clip-driver.py checks the clips against the voices (corr.swift). Expected as on 2026-11-22
 // (evals game-tests README, "Placing change": lines 0, 2, 3 whole from the history, line 1 refused as cut off).
 // It plays sound: the test window's music and Kyoko's lines, quietly (volume 0.15), for about 35 s.
@@ -51,11 +51,11 @@ test('overlay', async () => {
 			equal(outcome, 'history: The line’s voice was cut off by the next line', `line ${index}: refused`);
 			continue;
 		}
-		expect(/^[\d.]+s, macpopup-sentence-/.test(outcome), `line ${index}: a clip from the kept audio: "${outcome}"`);
+		expect(/^[\d.]+s, macpopup-sentence-/.test(outcome), `line ${index}: a clip from the recorded audio: "${outcome}"`);
 		const updated = (await mockLog()).filter((l) => / updateNoteFields .*\[sound:macpopup-sentence-/.test(l)).length;
 		equal(updated, index === 0 ? 1 : index, `cards given sentence audio after line ${index}`);
 		log(`clip ${clip} voice${index}`);
 	}
 	const notes = await sentenceAudioNotes();
-	expect(!notes.some((n) => /nothing kept|^recording (voicegame|every app)$/.test(n)), 'no recording made: all from the kept audio');
+	expect(!notes.some((n) => /nothing saved|^recording (voicegame|every app)$/.test(n)), 'no recording made: all from the recorded audio');
 });

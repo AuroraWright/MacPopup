@@ -1,6 +1,6 @@
-// Anki Audio's recording ends as "no voice" when the captured app says nothing: with the kept audio off, the shortcut
+// Anki Audio's recording ends as "no voice" when the captured app says nothing: with game audio recording off, the shortcut
 // (card 333) records the captured app (windows/audiowin.swift, cold: it never plays), and after the 10 s voice wait the
-// recording ends as no voice, nothing kept nor given to the card. Expected from research/sentence-audio/novoice.sh
+// recording ends as no voice, nothing saved nor given to the card. Expected from research/sentence-audio/novoice.sh
 // ("the recording should end as no voice after the 10 s wait"; it had Anki off, which now stops before recording, so
 // card 333 is the mock's) and SentenceAudio.swift (AudioRecording: noVoice once voiceWait seconds are recorded, the
 // silence filled in while nothing plays). Nothing is played.
@@ -19,7 +19,7 @@ async function record() {
 	log('trigger');
 	await native('cardAdded', { note: 333 });
 	await native('debugSentenceAudio');
-	const ended = /^(voiceEnded|noVoice|maxLength|shortcut|inputEnded)(, silent)?(, nothing kept)?$/;
+	const ended = /^(voiceEnded|noVoice|maxLength|shortcut|inputEnded)(, silent)?(, nothing saved)?$/;
 	await until('the recording\'s end', async () => (await sentenceAudioNotes()).slice(before).some((n) => ended.test(n)
 		|| (/^message: /.test(n) && !/^message: (Listening|Recording)/.test(n))), 30000).catch(() => {});
 	const ending = Date.now();
@@ -32,7 +32,7 @@ async function record() {
 test('overlay', async () => {
 	const { notes, end, after } = await record();
 	expect(notes.some((n) => /^recording (audiowin|process \d+)$/.test(n)), 'recording the captured app (audiowin) only');
-	expect(/^noVoice(, silent)?, nothing kept$/.test(end), `the recording ended as no voice: "${end}"`);
+	expect(/^noVoice(, silent)?, nothing saved$/.test(end), `the recording ended as no voice: "${end}"`);
 	expect(after > 9500 && after < 14000, `after the 10 s voice wait: ${after} ms after the press`);
 	expect(!(await mockLog()).some((l) => /macpopup-sentence-/.test(l)), 'no sentence audio stored nor given to a card');
 });

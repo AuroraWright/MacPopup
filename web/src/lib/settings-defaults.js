@@ -321,7 +321,7 @@ export const defaultSettings = {
 	// Whether overwriting a card from a popup replaces its sentence audio, with IINA's clip of the line or with Anki
 	// Audio's recording after an Option-click. When off, only an empty sentenceAudioField is filled.
 	sentenceAudioOverwrite: true,
-	// Visual novel backlog capture: a line missing from the kept audio is replayed from the game's backlog (using the
+	// Visual novel backlog capture: a line missing from the recorded audio is replayed from the game's backlog (using the
 	// keys below) and recorded.
 	sentenceAudioBacklog: true,
 	// Keys pressed to open the game's backlog (replaying the line) and to close it, [{key, modifiers}].

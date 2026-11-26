@@ -49,15 +49,15 @@ test('overlay', async () => {
 		if (r.type === 'log' && r.message.startsWith('anki audio:')) return [{ log: r.message }];
 		return [];
 	});
-	const kept = 'Game audio isn’t being kept. Turn on “Keep game audio for the last” in Settings → Anki Audio.';
+	const notRecorded = 'Game audio isn’t being recorded. Turn on “Record game audio for the last” in Settings → Anki Audio.';
 	const find = (match) => steps.findIndex((s) => Object.entries(match).every(([k, v]) => JSON.stringify(s[k]) === JSON.stringify(v)));
 	const order = [
 		{ event: 'popup shown', depth: 0, lookup: 'term', query: '晴れ', entries: 150 },
 		{ event: 'controller: no popup shortcut for these buttons', buttons: ['Button Y'] },
 		{ event: 'popup shortcut', action: 'addNoteSentenceAudio', argument: '0', from: 'controller', popups: 1 },
 		{ event: 'card added', note: 444, format: 'Mock', overwritten: false, depth: 0, query: '晴れ', nested: false, voice: 'asked for' },
-		{ log: `anki audio: history: ${kept}` },
-		{ event: 'message shown', message: kept },
+		{ log: `anki audio: history: ${notRecorded}` },
+		{ event: 'message shown', message: notRecorded },
 		{ settings: { scanDelay: 37 } },
 		{ event: 'popup closed', depth: 0 },
 	];

@@ -67,7 +67,7 @@ test('overlay', async () => {
 	log(`Anki Audio: ${JSON.stringify(notes)}`);
 	equal(notes.filter((n) => /^card 444 added, line \d+: its line.s voice asked for$/.test(n)).length, 2, 'cards added asking for the voice');
 	const clips = notes.filter((n) => /^[\d.]+s, macpopup-sentence-/.test(n));
-	equal(clips.length, 2, 'clips from the kept audio');
+	equal(clips.length, 2, 'clips from the recorded audio');
 	const given = (await mockLog()).filter((l) => / updateNoteFields .*"SentenceAudio": "\[sound:macpopup-sentence-/.test(l))
 		.map((l) => Number(l.split(' ')[1]));
 	expect(given.length === 2 && given.every((t) => t > closing),

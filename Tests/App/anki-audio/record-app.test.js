@@ -1,4 +1,4 @@
-// Anki Audio records the captured app's audio only: with the kept audio off, the shortcut (card 333, the newest) records
+// Anki Audio records the captured app's audio only: with game audio recording off, the shortcut (card 333, the newest) records
 // the visual novel backlog's way while the captured app (windows/audiowin.swift, its audio output open from the start,
 // as a game with music) says a Japanese line at 7.5 s and another app (afplay) an English one at 2.2 s, both quietly
 // (record-driver.py). The recording is of the captured app alone, ends once its voice does, and the card gets a clip
@@ -22,7 +22,7 @@ async function record() {
 	log('trigger');
 	await native('cardAdded', { note: 333 });
 	await native('debugSentenceAudio');
-	const ended = /^(voiceEnded|noVoice|maxLength|shortcut|inputEnded)(, silent)?(, nothing kept)?$/;
+	const ended = /^(voiceEnded|noVoice|maxLength|shortcut|inputEnded)(, silent)?(, nothing saved)?$/;
 	await until('the recording\'s end', async () => (await sentenceAudioNotes()).slice(before).some((n) => ended.test(n)
 		|| (/^message: /.test(n) && !/^message: (Listening|Recording)/.test(n))), 30000).catch(() => {});
 	const ending = Date.now();
@@ -34,8 +34,8 @@ async function record() {
 
 test('overlay', async () => {
 	const { notes, end } = await record();
-	expect(notes.includes('history: Game audio isn’t being kept. Turn on “Keep game audio for the last” in Settings → Anki Audio.'),
-		'the kept audio is off: recorded instead');
+	expect(notes.includes('history: Game audio isn’t being recorded. Turn on “Record game audio for the last” in Settings → Anki Audio.'),
+		'recording game audio is off: recorded instead');
 	expect(notes.some((n) => /^recording (audiowin|process \d+)$/.test(n)), 'recording the captured app (audiowin) only');
 	equal(end, 'voiceEnded', 'the recording ended with the voice');
 	expect(notes.some((n) => /^[\d.]+s, macpopup-sentence-/.test(n)), 'a clip saved');
