@@ -65,6 +65,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
         }
         yomitanAPI = .shared
         yomitanAPI.onChange = { [weak self] in self?.updateStatusIcon() }
+        SavedLines.shared.onReplace = { [weak self] lines in
+            let shown = lines.map { ["text": $0.text, "time": $0.time.timeIntervalSince1970 * 1000] }
+            guard let data = try? JSONSerialization.data(withJSONObject: shown), let json = String(data: data, encoding: .utf8) else { return }
+            self?.overlay.evaluate("window.__macpopupSetLines?.(\(json))")
+        }
 
         setUpStatusItem()
         setUpEditMenu()
@@ -84,6 +89,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
             }
             welcomeWindow?.show(above: overlay.panel.level)
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        SavedLines.shared.save()
     }
 
     /// The app has no menu bar of its own, but text fields in Settings need the Edit menu's key

@@ -11,7 +11,9 @@ struct SettingsActions {
     var importYomitan: () -> Void
     var importTexthooker: () -> Void
     var importBackup: () -> Void
+    var importLines: () -> Void
     var exportBackup: () -> Void
+    var exportLines: () -> Void
     var resetAll: () -> Void
     var loadModels: (ConvertedModelsKind) -> Void
     var removeModels: (ConvertedModelsKind) -> Void
@@ -38,11 +40,16 @@ struct SettingsView: View {
                         Button("texthooker-ui Settings…", action: actions.importTexthooker)
                         Divider()
                         Button("MacPopup Settings…", action: actions.importBackup)
+                        Button("Floating Window Lines…", action: actions.importLines)
                     }
                     .frame(maxWidth: .infinity)
-                    .help("Import settings from Yomitan, texthooker-ui or a MacPopup settings file.")
-                    Button(action: actions.exportBackup) { Text("Export…").frame(maxWidth: .infinity, alignment: .leading) }
-                        .help("Save all settings to a file.")
+                    .help("Import settings from Yomitan, texthooker-ui or a MacPopup settings file, or the Floating Window’s lines.")
+                    Menu("Export") {
+                        Button("MacPopup Settings…", action: actions.exportBackup)
+                        Button("Floating Window Lines…", action: actions.exportLines)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .help("Save all settings, or the Floating Window’s lines, to a file.")
                     Button(role: .destructive, action: actions.resetAll) {
                         Text("Reset All…").frame(maxWidth: .infinity, alignment: .leading)
                     }

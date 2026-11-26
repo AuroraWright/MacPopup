@@ -182,6 +182,17 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
                 letters: (body["letters"] as? [[Double]] ?? []).filter { $0.count == 4 }.map { CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) },
                 breaks: Self.paragraphBreaks(body)
             ) ?? [:]
+        case "lines":
+            // The text box's lines as shown, or (without them) those it starts with (see SavedLines).
+            guard let shown = body["lines"] as? [[String: Any]] else {
+                return SavedLines.shared.linesToRestore.map { ["text": $0.text, "time": $0.time.timeIntervalSince1970 * 1000] }
+            }
+            SavedLines.shared.shown(shown.compactMap { line in
+                (line["text"] as? String).map {
+                    SavedLines.Line(text: $0, time: Date(timeIntervalSince1970: ((line["time"] as? NSNumber)?.doubleValue ?? 0) / 1000))
+                }
+            })
+            return nil
         case "gamePause":
             // A popup opened or closed (see updateGamePause in overlay.js); replies once the game is frozen.
             await GamePause.shared.setPaused(body["pause"] as? Bool ?? false)

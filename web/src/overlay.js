@@ -325,12 +325,13 @@ function pushLine(rawText, { line: shown = null, replaced = false } = {}) {
 		removeLine(previous);
 	}
 
-	const line = { id: `${state.nextId++}`, shown, text, tokens: null, element: null, tokenizing: new AbortController() };
+	const line = { id: `${state.nextId++}`, shown, text, time: Date.now(), tokens: null, element: null, tokenizing: new AbortController() };
 	state.lines.push(line);
 	countLine(text, 1);
 	while (settings.maxLines > 0 && state.lines.length > settings.maxLines) {
 		removeLine(state.lines[0]);
 	}
+	sendLines();
 
 	// Not while the box is hidden by the OCR overlay: it would play when the box is shown again.
 	line.element = createLineElement(line, animatesLines(settings) && !box.hidden);
@@ -369,6 +370,7 @@ function removeLine(line) {
 	countLine(line.text, -1);
 	line.element?.remove();
 	line.tokenizing.abort();
+	sendLines();
 }
 
 function clearLines() {
@@ -380,7 +382,54 @@ function clearLines() {
 	live.lines.clear();
 	live.held.clear();
 	popupManager.closeAll();
+	sendLines();
 }
+
+let sendingLines = false;
+
+/**
+ * Tells the host the lines shown (SavedLines.swift), for Export and "Keep lines after quitting": once for all the
+ * changes made together (e.g. a line added and the oldest removed).
+ */
+function sendLines() {
+	if (sendingLines) return;
+	sendingLines = true;
+	setTimeout(() => {
+		sendingLines = false;
+		nativeCall('lines', { lines: state.lines.map(({ text, time }) => ({ text, time })) }).catch(() => {});
+	});
+}
+
+/**
+ * Puts `saved` lines ({text, time}, oldest first) before the box's lines: those shown before the page (or the app)
+ * started again (see SavedLines.swift), or imported. They're shown as they were, without replacements or duplicate
+ * checks again, and cards from them have no line (whose sentence audio and screenshot are gone).
+ */
+function prependLines(saved) {
+	const lines = saved.filter((line) => typeof line?.text === 'string' && line.text).map(({ text, time }) => (
+		{ id: `${state.nextId++}`, shown: null, text, time: time ?? Date.now(), tokens: null, element: null, tokenizing: new AbortController() }
+	));
+	if (lines.length === 0) return;
+	state.lines.unshift(...lines);
+	for (const line of lines) countLine(line.text, 1);
+	const { maxLines } = getSettings();
+	while (maxLines > 0 && state.lines.length > maxLines) removeLine(state.lines[0]);
+	rerenderLines();
+	scrollToEnd();
+	sendLines();
+	// One at a time, newest first, so that a new line's furigana doesn't wait for all of them.
+	void (async () => {
+		for (const line of [...lines].reverse()) {
+			if (!line.tokenizing.signal.aborted) await tokenizeLine(line);
+		}
+	})();
+}
+
+// From the host: the box's lines replaced by imported ones (Settings → Import), or cleared (Reset All).
+window.__macpopupSetLines = (lines) => {
+	clearLines();
+	prependLines(lines);
+};
 
 async function tokenizeLine(line, retry = true) {
 	const displayText = formatLineText(line.text, getSettings().preserveWhitespace);
@@ -2841,7 +2890,7 @@ function renderPauseButton() {
 }
 
 async function main() {
-	const settings = await loadSettings();
+	const [settings, saved] = await Promise.all([loadSettings(), nativeCall('lines').catch(() => [])]);
 	onSettingsChanged(applySettings);
 	watchYomitanProfile(() => {
 		popupManager.applySettings();
@@ -2878,6 +2927,9 @@ async function main() {
 	}).observe(boxButtons);
 
 	applySettings(settings);
+	prependLines(saved ?? []);
+	// Also when there are none: the host may still have the lines from before a reload.
+	sendLines();
 	nativeCall('ocr', { action: 'ready' }).catch(() => {});
 }
 

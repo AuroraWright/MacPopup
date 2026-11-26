@@ -89,6 +89,8 @@ export const defaultSettings = {
 	// The speech of the captured window's app (or of every app) transcribed into lines, with transcriptionModel (see
 	// AudioTranscriber.swift).
 	floatingWindowAudio: false,
+	// The text box's lines saved for the next launch (see SavedLines.swift).
+	floatingWindowKeepLines: false,
 	clipboardMaxLength: 1000,
 	replacements: [],
 	customCSS: '',

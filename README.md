@@ -85,7 +85,8 @@ You don't have to set MacPopup up from scratch: click **Import** at the bottom o
   rules, scanning settings, audio sources, popup shortcuts, Anki settings and card templates.
 - **texthooker-ui Settings…**: Choose a texthooker-ui export to bring over your text box theme, font size, line settings
   and text replacements.
-- **MacPopup Settings…**: Restore a file saved with **Export…**. This replaces all your current settings.
+- **MacPopup Settings…**: Restore a file saved with **Export → MacPopup Settings…**. This replaces all your current
+  settings.
 
 > [!NOTE]
 > If your Yomitan shares its settings through its API (not in a Yomitan release yet), you don't need to import anything:
@@ -105,6 +106,9 @@ default), as plain text or texthooker-ui JSON (`{"sentence": "..."}`).
 - **Move & Resize**: Drag the box by its top edge, and resize it from its bottom-right corner.
 - **Buttons**: Hover over the box to show buttons above its top-right corner: turn clipboard reading, OCR or audio on
   and off, pause new lines, clear the box, open Settings, or hide the overlay.
+- **Keep Lines**: Turn on **Keep lines after quitting** in *Settings → Floating Window* to see the box's lines again the
+  next time MacPopup opens. Clearing the box also clears the saved lines. To save lines to a file, or bring them back
+  from one, use **Export** and **Import → Floating Window Lines…** at the bottom of the Settings sidebar.
 
 ### Other Sources of Lines
 

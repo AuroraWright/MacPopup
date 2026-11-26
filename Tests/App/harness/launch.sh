@@ -6,8 +6,8 @@
 #   as shipped would ignore them and use the user's settings. If the user's MacPopup (or IINA, in a test that doesn't
 #   start IINA itself) starts during the test, the test is stopped and fails;
 # - has its own settings (the defaults, base-settings.json, then the test's "// settings:" line), pasteboard, debug
-#   log, models, transcripts and browser folders, all in the run folder, and talks to mock.py instead of AnkiConnect and
-#   Yomitan;
+#   log, models, transcripts, browser folders and saved Floating Window lines, all in the run folder, and talks to
+#   mock.py instead of AnkiConnect and Yomitan;
 # - runs test-lib.js and the test in its pages, and is stopped at "TEST done" or after the test's "// timeout:" (s, 60).
 # Header lines in the test file:
 # - "// mock: MOCK_IMAGES=1 …": mock.py's switches;
@@ -167,7 +167,7 @@ if [[ -n "$BESIDE" ]]; then
     group "$BESIDE" > "$RUN/beside.log" 2>&1 & beside=$!
 fi
 env MACPOPUP_SETTINGS_SUITE=$SUITE MACPOPUP_PASTEBOARD=$SUITE MACPOPUP_TEST_SCRIPT="$RUN/script.js" \
-    MACPOPUP_DEBUG_OCR_DIR="$RUN" MACPOPUP_MODELS_DIRECTORY="$RUN/models" MACPOPUP_BROWSER_SUPPORT_DIR="$RUN/browser" \
+    MACPOPUP_DEBUG_OCR_DIR="$RUN" MACPOPUP_MODELS_DIRECTORY="$RUN/models" MACPOPUP_BROWSER_SUPPORT_DIR="$RUN/browser" MACPOPUP_LINES_FILE="$RUN/lines.json" \
     MACPOPUP_TRANSCRIPTS_DIRECTORY="$RUN/Library/Caches/com.aury.macpopup/Transcripts" "${APP_ENV[@]}" \
     "$APP/Contents/MacOS/MacPopup" > "$RUN/app.log" 2>&1 & app=$!
 

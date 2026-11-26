@@ -34,7 +34,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 importYomitan: { [weak self] in self?.importYomitan() },
                 importTexthooker: { [weak self] in self?.importTexthooker() },
                 importBackup: { [weak self] in self?.importBackup() },
+                importLines: { [weak self] in self?.importLines() },
                 exportBackup: { [weak self] in self?.exportBackup() },
+                exportLines: { [weak self] in self?.exportLines() },
                 resetAll: { [weak self] in self?.resetAll() },
                 loadModels: { [weak self] in self?.loadModels($0) },
                 removeModels: { [weak self] in self?.removeModels($0) },
@@ -147,10 +149,53 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    private func importLines() {
+        guard let json = chooseFile(message: "Choose a Floating Window lines file to import.") else { return }
+        let lines: [SavedLines.Line]
+        do {
+            lines = try SavedLines.lines(in: Data(json.utf8))
+        } catch {
+            inform("Import failed", detail: error.localizedDescription, style: .warning)
+            return
+        }
+        if !SavedLines.shared.lines.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "Replace the Floating Window’s lines?"
+            alert.informativeText = "The lines in the text box are replaced with the ones in the file."
+            alert.addButton(withTitle: "Replace")
+            alert.addButton(withTitle: "Cancel")
+            guard runModal(alert) == .alertFirstButtonReturn else { return }
+        }
+        SavedLines.shared.replace(with: lines)
+        // The text box keeps only the newest of them past Maximum lines kept.
+        let most = (SettingsStore.shared.dictionary["maxLines"] as? NSNumber)?.intValue ?? 0
+        let kept = most > 0 ? min(lines.count, most) : lines.count
+        inform("Imported \(kept) \(kept == 1 ? "line" : "lines").",
+               detail: kept < lines.count ? "The file has \(lines.count): the oldest are left out, as Maximum lines kept is \(most)." : "")
+    }
+
+    private func exportLines() {
+        guard !SavedLines.shared.lines.isEmpty else {
+            inform("There are no lines to export", detail: "The Floating Window’s text box is empty.")
+            return
+        }
+        let panel = NSSavePanel()
+        panel.message = "Select a folder to export"
+        panel.allowedContentTypes = [.json]
+        let date = Date.now.formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day())
+        panel.nameFieldStringValue = "macpopup-lines-\(date).json"
+        guard runModal(panel) == .OK, let url = panel.url else { return }
+        do {
+            try SavedLines.shared.export(to: url)
+        } catch {
+            inform("Export failed", detail: error.localizedDescription, style: .warning)
+        }
+    }
+
     private func resetAll() {
         let alert = NSAlert()
         alert.messageText = "Reset all settings to their defaults?"
-        alert.informativeText = "This operation cannot be undone."
+        alert.informativeText = "The Floating Window’s lines are cleared too. This operation cannot be undone."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
@@ -158,6 +203,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         if runModal(alert) == .alertFirstButtonReturn {
             window?.makeFirstResponder(nil)
             model.reset()
+            SavedLines.shared.clear()
         }
     }
 

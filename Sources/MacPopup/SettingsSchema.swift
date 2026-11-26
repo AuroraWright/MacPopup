@@ -316,6 +316,10 @@ enum SettingsSchema {
                     hint: "Transcribes speech from the captured window’s app (or from all apps if no window is captured) and adds each sentence to the text box. Music and sound effects are skipped. Choose the model in Settings → Transcription. Requires System Audio Recording permission."
                 ),
                 SettingsField(
+                    "floatingWindowKeepLines", "Keep lines after quitting", .checkbox,
+                    hint: "Shows the text box’s lines again the next time MacPopup opens. Clearing lines in the text box also clears the saved lines."
+                ),
+                SettingsField(
                     "boxFontFamily", "Font", .font(size: "fontSize", effects: "boxFontEffects"),
                     hint: "Choose the font family, size, and text effects using the macOS Fonts panel. A custom text color chosen here overrides the theme’s text color."
                 ),
