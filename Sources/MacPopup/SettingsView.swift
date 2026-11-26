@@ -28,11 +28,12 @@ struct SettingsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                List(SettingsSchema.sections, selection: $selection) { section in
-                    Label(section.title, systemImage: section.symbol).tag(section.title)
-                }
-                .listStyle(.sidebar)
+            List(SettingsSchema.sections, selection: $selection) { section in
+                Label(section.title, systemImage: section.symbol).tag(section.title)
+            }
+            .listStyle(.sidebar)
+            // On the sidebar's material, as the list scrolls under it.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(alignment: .leading, spacing: 6) {
                     // The same width: the sidebar's, with the titles on the left, where a menu draws its own.
                     Menu("Import") {
