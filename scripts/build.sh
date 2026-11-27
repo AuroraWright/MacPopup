@@ -91,8 +91,14 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 if [[ "$CONFIGURATION" == debug || ${#SWIFT_FLAGS[@]} -gt 0 ]]; then
     /usr/libexec/PlistBuddy -c "Add :MacPopupDevelopment bool true" "$APP/Contents/Info.plist"
 fi
-# Made by scripts/make-icon.swift.
-cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# Made by scripts/make-icon.swift: Icon Composer's .icon, compiled into the asset catalog (macOS 26's Liquid Glass icon,
+# CFBundleIconName) and an .icns actool renders from it for older macOS (CFBundleIconFile).
+ICON_PLIST=$(mktemp -t macpopup-icon)
+if ! ICON_LOG=$(xcrun actool Resources/AppIcon.icon --compile "$APP/Contents/Resources" --platform macosx \
+        --minimum-deployment-target 15.0 --app-icon AppIcon --output-partial-info-plist "$ICON_PLIST" 2>&1); then
+    print -r -- "$ICON_LOG" >&2
+    exit 1
+fi
 # The web assets, built into the app itself: a folder shared by builds running at the same time (e.g. one to notarize
 # and another of build/MacPopup.app) is emptied by one while the other copies it. Linted first (see
 # web/eslint.config.mjs): a mistake stops the build.

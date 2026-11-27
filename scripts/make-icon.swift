@@ -1,9 +1,13 @@
-// Draws the app icon (a pink あ in a speech bubble on a blue tile, after the trans flag's colors) and writes it as an .icns.
-// usage: swift scripts/make-icon.swift Resources/AppIcon.icns
+// Draws the app icon (a pink あ in a speech bubble on a blue tile, after the trans flag's colors).
+// usage: swift scripts/make-icon.swift Resources/AppIcon.icon
 //        swift scripts/make-icon.swift ios/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
-// The README's Resources/AppIcon.png is the .icns's 512 px image (iconutil -c iconset, icon_256x256@2x.png).
-// Drawn on the 1024 grid of macOS icons (an 824 tile with its shadow); 16 and 32 px get a bigger tile, bubble and あ,
-// without the shadow. The iOS one (a .png) is the tile alone, square and opaque, as iOS rounds the corners itself. あ is Noto Sans JP ExtraBold's outline (SIL Open Font License), in font units with y up.
+// The .icon is Icon Composer's (build.sh compiles it with actool: macOS 26's Liquid Glass icon, and an .icns actool
+// renders from it for older macOS): the tile's gradient as its fill, the bubble as a glass layer and あ above it, on a square
+// the tile fills (the system shapes the tile and adds its shadow). The iOS one (a .png) is the tile alone, square and
+// opaque, as iOS rounds the corners itself. The README's Resources/AppIcon.png is the .icon as macOS 26 shows it:
+// ictool Resources/AppIcon.icon --export-image --output-file Resources/AppIcon.png --platform macOS --rendition Default
+// --width 512 --height 512 --scale 1 (ictool is in Xcode's Icon Composer.app, Contents/Executables).
+// あ is Noto Sans JP ExtraBold's outline (SIL Open Font License), in font units with y up.
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -31,68 +35,57 @@ func color(_ hex: Int) -> CGColor {
     CGColor(srgbRed: CGFloat(hex >> 16 & 0xff) / 255, green: CGFloat(hex >> 8 & 0xff) / 255, blue: CGFloat(hex & 0xff) / 255, alpha: 1)
 }
 
-struct Layout {
-    var tile: CGRect, tileRadius: CGFloat, shadow: Bool
-    var bubble: CGRect, tail: [CGPoint], glyphHeight: CGFloat
+// On the 1024 grid of macOS icons, top down: an 824 tile, which the pictures are cropped to.
+let tile = CGRect(x: 100, y: 100, width: 824, height: 824)
+let bubble = CGRect(x: 216, y: 226, width: 592, height: 476)
+let tail = [CGPoint(x: 330, y: 640), CGPoint(x: 282, y: 812), CGPoint(x: 500, y: 690)]
+let glyphHeight: CGFloat = 303
+
+enum Part { case tile, bubble, glyph }
+
+/// The tile, 1024 pixels square, with `parts` drawn: opaque with the tile, else transparent around what's drawn.
+func draw(_ parts: Set<Part>) -> CGImage {
+    let alpha = parts.contains(.tile) ? CGImageAlphaInfo.noneSkipLast : .premultipliedLast
+    let context = CGContext(data: nil, width: 1024, height: 1024, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: alpha.rawValue)!
+    // The grid top down, the tile filling the picture.
+    context.translateBy(x: 0, y: 1024)
+    context.scaleBy(x: 1024 / tile.width, y: -1024 / tile.height)
+    context.translateBy(x: -tile.minX, y: -tile.minY)
+    if parts.contains(.tile) {
+        let gradient = CGGradient(colorsSpace: nil, colors: [color(tileTop), color(tileBottom)] as CFArray, locations: [0, 1])!
+        context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: tile.minY), end: CGPoint(x: 0, y: tile.maxY), options: [])
+    }
+    if parts.contains(.bubble) {
+        drawBubble(in: context)
+    }
+    if parts.contains(.glyph) {
+        drawGlyph(in: context)
+    }
+    return context.makeImage()!
 }
 
-let large = Layout(tile: CGRect(x: 100, y: 100, width: 824, height: 824), tileRadius: 185, shadow: true,
-                   bubble: CGRect(x: 216, y: 226, width: 592, height: 476),
-                   tail: [CGPoint(x: 330, y: 640), CGPoint(x: 282, y: 812), CGPoint(x: 500, y: 690)], glyphHeight: 303)
-let small = Layout(tile: CGRect(x: 56, y: 56, width: 912, height: 912), tileRadius: 205, shadow: false,
-                   bubble: CGRect(x: 160, y: 176, width: 704, height: 560),
-                   tail: [CGPoint(x: 300, y: 680), CGPoint(x: 250, y: 880), CGPoint(x: 520, y: 730)], glyphHeight: 380)
+let tileTop = 0x54b8fe, tileBottom = 0x238fe9
 
-func draw(pixels: Int, iOS: Bool = false) -> CGImage {
-    var layout = pixels <= 32 ? small : large
-    let alpha = iOS ? CGImageAlphaInfo.noneSkipLast : .premultipliedLast
-    let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: alpha.rawValue)!
-    // The 1024 grid, top down.
-    let scale = CGFloat(pixels) / 1024
-    context.translateBy(x: 0, y: CGFloat(pixels))
-    context.scaleBy(x: scale, y: -scale)
-    if iOS {
-        // The tile fills the picture.
-        context.scaleBy(x: 1024 / layout.tile.width, y: 1024 / layout.tile.height)
-        context.translateBy(x: -layout.tile.minX, y: -layout.tile.minY)
-        layout.tileRadius = 0
-        layout.shadow = false
-    }
-
-    let tile = CGPath(roundedRect: layout.tile, cornerWidth: layout.tileRadius, cornerHeight: layout.tileRadius, transform: nil)
-    if layout.shadow {
-        context.saveGState()
-        // CG shadow offsets ignore the flip and the scale: down 10 and blurred 24 on the grid.
-        context.setShadow(offset: CGSize(width: 0, height: -10 * scale), blur: 24 * scale, color: CGColor(gray: 0, alpha: 0.28))
-        context.addPath(tile)
-        context.setFillColor(color(0x238fe9))
-        context.fillPath()
-        context.restoreGState()
-    }
-    context.saveGState()
-    context.addPath(tile)
-    context.clip()
-    let gradient = CGGradient(colorsSpace: nil, colors: [color(0x54b8fe), color(0x238fe9)] as CFArray, locations: [0, 1])!
-    context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: layout.tile.minY), end: CGPoint(x: 0, y: layout.tile.maxY), options: [])
-    context.restoreGState()
-
-    let radius = layout.bubble.height / 2
-    context.addPath(CGPath(roundedRect: layout.bubble, cornerWidth: radius, cornerHeight: radius, transform: nil))
+func drawBubble(in context: CGContext) {
+    let radius = bubble.height / 2
+    context.addPath(CGPath(roundedRect: bubble, cornerWidth: radius, cornerHeight: radius, transform: nil))
     context.setFillColor(CGColor(gray: 1, alpha: 1))
     context.fillPath()
-    context.addLines(between: layout.tail)
+    context.addLines(between: tail)
     context.closePath()
     context.setStrokeColor(CGColor(gray: 1, alpha: 1))
     context.setLineWidth(14)
     context.setLineJoin(.round)
     context.drawPath(using: .fillStroke)
+}
 
+func drawGlyph(in context: CGContext) {
     // あ centered in the bubble.
     let path = glyphPath()
     let box = path.boundingBoxOfPath
-    let size = layout.glyphHeight / box.height
-    context.translateBy(x: layout.bubble.midX, y: layout.bubble.midY)
+    let size = glyphHeight / box.height
+    context.translateBy(x: bubble.midX, y: bubble.midY)
     context.scaleBy(x: size, y: -size)
     context.translateBy(x: -box.midX, y: -box.midY)
     context.addPath(path)
@@ -100,7 +93,6 @@ func draw(pixels: Int, iOS: Bool = false) -> CGImage {
     // Top down; the glyph's y is up.
     let pink = CGGradient(colorsSpace: nil, colors: [color(0xf5a7b9), color(0xf096ad)] as CFArray, locations: [0, 1])!
     context.drawLinearGradient(pink, start: CGPoint(x: 0, y: box.maxY), end: CGPoint(x: 0, y: box.minY), options: [])
-    return context.makeImage()!
 }
 
 func writePNG(_ image: CGImage, to url: URL) {
@@ -110,23 +102,38 @@ func writePNG(_ image: CGImage, to url: URL) {
 }
 
 let output = URL(fileURLWithPath: CommandLine.arguments[1])
-if output.pathExtension == "png" {
-    writePNG(draw(pixels: 1024, iOS: true), to: output)
+if output.pathExtension == "icon" {
+    let assets = output.appendingPathComponent("Assets")
+    try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+    writePNG(draw([.glyph]), to: assets.appendingPathComponent("glyph.png"))
+    writePNG(draw([.bubble]), to: assets.appendingPathComponent("bubble.png"))
+    func srgb(_ hex: Int) -> String {
+        "srgb:" + [hex >> 16 & 0xff, hex >> 8 & 0xff, hex & 0xff].map { String(format: "%.5f", Double($0) / 255) }.joined(separator: ",") + ",1.00000"
+    }
+    // The groups top first: あ in one of its own without glass, which outlined it and, in the bubble's group, dimmed it.
+    let document: [String: Any] = [
+        "fill": [
+            "linear-gradient": [srgb(tileTop), srgb(tileBottom)],
+            "orientation": ["start": ["x": 0.5, "y": 0], "stop": ["x": 0.5, "y": 1]],
+        ],
+        "groups": [
+            ["layers": [["image-name": "glyph.png", "name": "glyph", "glass": false]]],
+            [
+                "layers": [["image-name": "bubble.png", "name": "bubble", "glass": true]],
+                "shadow": ["kind": "neutral", "opacity": 0.5],
+                "translucency": ["enabled": true, "value": 0.5],
+            ],
+        ],
+        "supported-platforms": ["squares": ["macOS"]],
+    ]
+    let json = try JSONSerialization.data(withJSONObject: document, options: [.prettyPrinted, .sortedKeys])
+    try json.write(to: output.appendingPathComponent("icon.json"))
     print("wrote \(output.path)")
     exit(0)
 }
-let iconset = FileManager.default.temporaryDirectory.appendingPathComponent("AppIcon-\(UUID().uuidString).iconset")
-try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: false)
-for points in [16, 32, 128, 256, 512] {
-    for factor in [1, 2] {
-        let name = "icon_\(points)x\(points)\(factor == 2 ? "@2x" : "").png"
-        writePNG(draw(pixels: points * factor), to: iconset.appendingPathComponent(name))
-    }
+guard output.pathExtension == "png" else {
+    print("usage: swift scripts/make-icon.swift <.icon or .png>")
+    exit(1)
 }
-let iconutil = Process()
-iconutil.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
-iconutil.arguments = ["--convert", "icns", "--output", output.path, iconset.path]
-try iconutil.run()
-iconutil.waitUntilExit()
-print(iconutil.terminationStatus == 0 ? "wrote \(output.path), from \(iconset.path)" : "iconutil failed")
-exit(iconutil.terminationStatus)
+writePNG(draw([.tile, .bubble, .glyph]), to: output)
+print("wrote \(output.path)")
