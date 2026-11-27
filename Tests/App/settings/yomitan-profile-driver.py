@@ -16,12 +16,13 @@ DICTIONARY = ['Default dictionary collapse behavior', 'Per-dictionary collapse r
 
 
 def controlled():
-    """The labels of the rows with the note: each row's first text after the control before it."""
+    """The labels of the rows with the note: each note's row is the last of their labels before it (a switch comes
+    between a row's label and its hint and note)."""
     labels, row = [], None
     for c in controls('MacPopup Settings'):
         if c['role'] != 'AXStaticText':
-            row = None
-        elif row is None:
+            continue
+        if c['value'] in DISPLAY + DICTIONARY:
             row = c['value']
         elif c['value'] == NOTE:
             labels.append(row)

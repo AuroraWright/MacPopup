@@ -672,7 +672,7 @@ enum SettingsSchema {
                             SettingsField("popupHorizontalOffset2", "x", .number()),
                             SettingsField("popupVerticalOffset2", "y", .number()),
                         ]),
-                        hint: "Distance from the popup to vertical text (used unless Vertical text positioning is Same as horizontal text)."
+                        hint: "Distance from the popup to vertical text. Unused if Vertical text positioning is Same as horizontal text."
                     ),
                     SettingsField("popupHorizontalTextPosition", "Horizontal text positioning", .select([
                         SettingsOption("below", "Below text"), SettingsOption("above", "Above text"),

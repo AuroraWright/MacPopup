@@ -126,10 +126,30 @@ private struct SettingsFieldNoteKey: EnvironmentKey {
     static let defaultValue: String? = nil
 }
 
+/// FieldLabel without its hint and note, which the row shows below its control.
+private struct SettingsFieldTitleOnlyKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+/// FieldLabel empty, for a control under its title and hint with its label hidden (see FieldRow).
+private struct SettingsFieldLabelHiddenKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     fileprivate var settingsFieldNote: String? {
         get { self[SettingsFieldNoteKey.self] }
         set { self[SettingsFieldNoteKey.self] = newValue }
+    }
+
+    fileprivate var settingsFieldTitleOnly: Bool {
+        get { self[SettingsFieldTitleOnlyKey.self] }
+        set { self[SettingsFieldTitleOnlyKey.self] = newValue }
+    }
+
+    fileprivate var settingsFieldLabelHidden: Bool {
+        get { self[SettingsFieldLabelHiddenKey.self] }
+        set { self[SettingsFieldLabelHiddenKey.self] = newValue }
     }
 }
 
@@ -166,23 +186,47 @@ struct HeaderDescription: NSViewRepresentable {
 private struct FieldLabel: View {
     let field: SettingsField
     @Environment(\.settingsFieldNote) private var note
+    @Environment(\.settingsFieldTitleOnly) private var titleOnly
+    @Environment(\.settingsFieldLabelHidden) private var hidden
 
     var body: some View {
-        let label = VStack(alignment: .leading, spacing: 2) {
-            Text(field.label)
-            if let hint = field.hint {
-                Text(hint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        // Hidden, it would still name its control in Accessibility, as "Font, Choose the font…, Choose…", or in place
+        // of a text's own; the title and hint are their own texts above it.
+        if !hidden {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(field.label)
+                if !titleOnly {
+                    FieldHint(field: field)
+                }
             }
-            if let note {
-                Text(note).font(.caption.italic()).foregroundStyle(.secondary)
-            }
+            // With the title only, the row takes the Option-click (see FieldRow).
+            .optionClick(titleOnly ? nil : field.optionClick)
         }
-        if let optionClick = field.optionClick {
-            label
-                .contentShape(Rectangle())
-                .gesture(TapGesture().modifiers(.option).onEnded { optionClick() })
+    }
+}
+
+extension View {
+    /// `action` on an Option-click anywhere in the view, if given.
+    @ViewBuilder fileprivate func optionClick(_ action: (@MainActor () -> Void)?) -> some View {
+        if let action {
+            contentShape(Rectangle()).gesture(TapGesture().modifiers(.option).onEnded { action() })
         } else {
-            label
+            self
+        }
+    }
+}
+
+/// A field's hint and the note under it, if any.
+private struct FieldHint: View {
+    let field: SettingsField
+    @Environment(\.settingsFieldNote) private var note
+
+    var body: some View {
+        if let hint = field.hint {
+            Text(hint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        if let note {
+            Text(note).font(.caption.italic()).foregroundStyle(.secondary)
         }
     }
 }
@@ -195,6 +239,31 @@ private struct FieldRow: View {
 
     private var value: Any? { model[field.key] }
 
+    /// A row whose hint stays beside its control: a permission's, which shows its label and hint itself above its
+    /// status, or a group's, whose controls are lines of their own.
+    private var keepsHintBeside: Bool {
+        switch field.kind {
+        case .permission, .group: true
+        default: false
+        }
+    }
+
+    /// A switch or number, which stays beside the title; other controls go below the hint.
+    private var staysBesideTitle: Bool {
+        switch field.kind {
+        case .checkbox, .number, .numberSelect: true
+        default: false
+        }
+    }
+
+    /// A hint the row's full width: under the title and its switch or number, or above the control.
+    private var hintFullWidth: Bool {
+        field.hint != nil && field.warning?(model.values) == nil && !keepsHintBeside
+    }
+
+    /// The control on a line of its own below the hint, rather than beside the title.
+    private var belowHint: Bool { hintFullWidth && !staysBesideTitle }
+
     var body: some View {
         if field.isWide {
             VStack(alignment: .leading, spacing: 6) {
@@ -202,6 +271,22 @@ private struct FieldRow: View {
                 if !field.label.isEmpty || field.hint != nil { FieldLabel(field: field) }
                 wideControl
             }
+        } else if hintFullWidth {
+            VStack(alignment: .leading, spacing: 2) {
+                if !belowHint {
+                    control.environment(\.settingsFieldTitleOnly, true)
+                    FieldHint(field: field)
+                } else {
+                    FieldLabel(field: field).environment(\.settingsFieldTitleOnly, true)
+                    FieldHint(field: field)
+                    control
+                        .labelsHidden()
+                        .environment(\.settingsFieldLabelHidden, true)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.top, 6)
+                }
+            }
+            .optionClick(field.optionClick)
         } else if let warning = field.warning?(model.values) {
             VStack(alignment: .trailing, spacing: 4) {
                 control
@@ -227,6 +312,8 @@ private struct FieldRow: View {
                 FieldLabel(field: field)
             }
             .pickerStyle(.segmented)
+            // Its own width below the hint, rather than the row's.
+            .fixedSize(horizontal: belowHint, vertical: false)
         case let .number(min, max, step):
             LabeledContent {
                 NumberField(value: (value as? NSNumber)?.doubleValue ?? 0, min: min, max: max, decimals: step.map { $0 < 1 } ?? false) {
@@ -247,10 +334,17 @@ private struct FieldRow: View {
                 FieldLabel(field: field)
             }
         case let .percentSlider(step):
-            LabeledContent {
-                PercentSlider(value: (value as? NSNumber)?.doubleValue ?? 0, step: step) { model.set(field.key, $0) }
-            } label: {
-                FieldLabel(field: field)
+            let slider = PercentSlider(value: (value as? NSNumber)?.doubleValue ?? 0, step: step) { model.set(field.key, $0) }
+            if belowHint {
+                // Below the hint, with the title above it: in a labeled row with its label hidden, the slider
+                // leaves the label's room on its left inside its 200 pt.
+                slider
+            } else {
+                LabeledContent {
+                    slider
+                } label: {
+                    FieldLabel(field: field)
+                }
             }
         case let .numberSelect(options):
             let current = (value as? NSNumber).map { "\($0)" } ?? ""
@@ -298,22 +392,32 @@ private struct FieldRow: View {
             let name = value as? String ?? ""
             let size = (model[sizeKey] as? NSNumber)?.doubleValue ?? 16
             let effects = model[effectsKey] as? [String: Any] ?? [:]
-            // The font is shown below the buttons, so it doesn't change the room for the label and its hint.
-            VStack(alignment: .trailing, spacing: 6) {
-                LabeledContent {
-                    FontControl(
-                        name: name, size: size, effects: effects,
-                        isDefault: keys.allSatisfy { (model[$0] as? NSObject)?.isEqual(defaults[$0]) ?? (defaults[$0] == nil) }
-                    ) { name, size, effects in
-                        model.merge([field.key: name, sizeKey: storedNumber(size), effectsKey: effects])
-                    } clear: {
-                        model.merge(Dictionary(uniqueKeysWithValues: keys.map { ($0, defaults[$0] ?? NSNull()) }))
-                    }
-                } label: {
-                    FieldLabel(field: field)
+            let picker = LabeledContent {
+                FontControl(
+                    name: name, size: size, effects: effects,
+                    isDefault: keys.allSatisfy { (model[$0] as? NSObject)?.isEqual(defaults[$0]) ?? (defaults[$0] == nil) }
+                ) { name, size, effects in
+                    model.merge([field.key: name, sizeKey: storedNumber(size), effectsKey: effects])
+                } clear: {
+                    model.merge(Dictionary(uniqueKeysWithValues: keys.map { ($0, defaults[$0] ?? NSNull()) }))
                 }
-                FontPreview(name: name, size: size, effects: effects)
-                    .fixedSize()
+            } label: {
+                FieldLabel(field: field)
+            }
+            if belowHint {
+                // Below the hint: the font beside the buttons.
+                HStack(spacing: 12) {
+                    FontPreview(name: name, size: size, effects: effects)
+                        .fixedSize()
+                    picker
+                }
+            } else {
+                // The font is shown below the buttons, so it doesn't change the room for the label and its hint.
+                VStack(alignment: .trailing, spacing: 6) {
+                    picker
+                    FontPreview(name: name, size: size, effects: effects)
+                        .fixedSize()
+                }
             }
         case .keySequence:
             KeySequenceControl(items: (value as? [Any] ?? []).compactMap { $0 as? [String: Any] }) { model.set(field.key, $0) } label: {
@@ -358,12 +462,20 @@ private struct FieldRow: View {
             }
         case let .text(test):
             LabeledContent {
-                HStack {
-                    CommitTextField(value: value as? String ?? "", placeholder: "None") { model.set(field.key, $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                let textField = HStack {
+                    // Below the hint, bordered: without a border it reads as loose text.
+                    CommitTextField(value: value as? String ?? "", placeholder: "None", bordered: belowHint) {
+                        model.set(field.key, $0.trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
                     if let test { TestButton(test: test, model: model) }
                     if test == .yomitan { InstallYomitanAPIButton() }
                 }
-                .frame(maxWidth: 320)
+                if belowHint {
+                    // 45% of the form's width, with its buttons.
+                    textField.containerRelativeFrame(.horizontal) { width, _ in width * 0.45 }
+                } else {
+                    textField.frame(maxWidth: 320)
+                }
             } label: {
                 FieldLabel(field: field)
             }
@@ -377,8 +489,9 @@ private struct FieldRow: View {
                         .help(items.isEmpty ? "" : details?(items) ?? "")
                     Button("Clear") { model.set(field.key, [Any]()) }.disabled(items.isEmpty)
                 }
-                // The same width whatever's imported, so the label's hint doesn't rewrap when it changes.
-                .frame(width: 280)
+                // The same width whatever's imported, so the label's hint doesn't rewrap when it changes. Below the hint,
+                // the row's width.
+                .frame(width: belowHint ? nil : 280)
             } label: {
                 FieldLabel(field: field)
             }
