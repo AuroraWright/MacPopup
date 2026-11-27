@@ -11,11 +11,11 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
     private let openSettings: (_ section: String) -> Void
     private var window: NSWindow?
 
-    /// No settings saved yet, and the window wasn't shown before. MACPOPUP_SHOW_WELCOME=1 shows it anyway (for testing,
-    /// as test runs save their settings first).
+    /// No settings saved yet, and the window wasn't shown before. MACPOPUP_SHOW_WELCOME=1 shows it anyway, in any build
+    /// (to see it again, and for test runs, which save their settings first).
     static var isFirstLaunch: Bool {
         let defaults = SettingsStore.shared.defaults
-        let forced = DevelopmentEnvironment["MACPOPUP_SHOW_WELCOME"] == "1"
+        let forced = ProcessInfo.processInfo.environment["MACPOPUP_SHOW_WELCOME"] == "1"
         return forced || defaults.object(forKey: "settings") == nil && !defaults.bool(forKey: shownKey)
     }
 
@@ -38,7 +38,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
                 close: { [weak self] in self?.window?.close() }
             )
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 540, height: 620),
+                contentRect: NSRect(x: 0, y: 0, width: 540, height: 570),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
@@ -48,7 +48,9 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
             window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
             window.delegate = self
             window.contentViewController = NSHostingController(rootView: view)
-            window.setContentSize(NSSize(width: 540, height: 620))
+            // All of the content, so it doesn't scroll, unless the screen is too short for it.
+            let screen = (NSScreen.main?.visibleFrame).map { window.contentRect(forFrameRect: $0).height } ?? .infinity
+            window.setContentSize(NSSize(width: 540, height: min(570, screen)))
             window.center()
             self.window = window
         }
@@ -137,14 +139,13 @@ private struct YomitanAPIRow: View {
     let openScanningSettings: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Yomitan API")
-                Text("If it isn’t detected, click Install next to Yomitan API URL in Settings → Scanning. Then turn on Advanced in Yomitan’s settings, and turn on Enable Yomitan API (Install takes care of the other steps Yomitan mentions).")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
+        StatusRow {
+            Text("Yomitan API")
+        } hint: {
+            Text("If it isn’t detected, click Install next to Yomitan API URL in Settings → Scanning. Then turn on Advanced in Yomitan’s settings, and turn on Enable Yomitan API (Install takes care of the other steps Yomitan mentions).")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        } status: {
             HStack(spacing: 8) {
-                Spacer()
                 switch state {
                 case .unknown:
                     ProgressView().controlSize(.small)

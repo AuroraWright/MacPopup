@@ -59,8 +59,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             window.delegate = self
             // A split view with macOS's own sidebar: the full height of the window, under its title bar, and on macOS 26
             // a pane of Liquid Glass. Neither resizable nor collapsible, as the sections' layout is made for the width
-            // left, and the window is resizable in height only, from its default height up: the hosting controllers make
-            // the views' size limits the window's (replacing contentMinSize and contentMaxSize).
+            // left, and the window is resizable in height only: the hosting controllers make the views' size limits the
+            // window's (replacing contentMinSize and contentMaxSize).
             let sidebar = NSSplitViewItem(sidebarWithViewController: NSHostingController(rootView: SettingsSidebar(actions: actions)
                 .defaultAppStorage(SettingsStore.shared.defaults)))
             sidebar.minimumThickness = 190
@@ -69,21 +69,39 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             let detail = NSSplitViewItem(viewController: NSHostingController(rootView: SettingsDetail(model: model, recorder: recorder, actions: actions)
                 .defaultAppStorage(SettingsStore.shared.defaults)
                 .frame(width: 629)
-                // Not shorter than it opens: the form's height there is the window's below its title bar.
-                .frame(minHeight: window.contentLayoutRect.height, maxHeight: .infinity)
+                // Short enough for the smallest screens (a 13" MacBook Air at 1024×640 with the Dock): the form
+                // scrolls, and so do the sidebar's sections above its controls.
+                .frame(minHeight: 400, maxHeight: .infinity)
                 // Up to the window's top: the title bar shows nothing over the form.
                 .ignoresSafeArea(edges: .top)))
             let split = NSSplitViewController()
             split.splitViewItems = [sidebar, detail]
             window.contentViewController = split
-            window.setContentSize(NSSize(width: 820, height: 640))
+            // Or the screen's height, when it's shorter.
+            let screen = (NSScreen.main?.visibleFrame).map { window.contentRect(forFrameRect: $0).height } ?? .infinity
+            window.setContentSize(NSSize(width: 820, height: min(640, screen)))
             window.center()
             self.window = window
         }
         window?.level = NSWindow.Level(rawValue: level.rawValue + 1)
+        Self.raiseToolTips
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }
+
+    /// AppKit shows tooltips at a level of their own (103), under the Settings window, which floats above the overlay:
+    /// once AppKit has set a tooltip's level for the window it's for, it's raised above that window when needed.
+    private static let raiseToolTips: Void = {
+        let selector = NSSelectorFromString("_setLevelToShowAboveWindow:")
+        guard let panel = NSClassFromString("NSToolTipPanel"), let method = class_getInstanceMethod(panel, selector) else { return }
+        typealias Original = @convention(c) (NSWindow, Selector, NSWindow?) -> Void
+        let original = unsafeBitCast(method_getImplementation(method), to: Original.self)
+        let raised: @convention(block) (NSWindow, NSWindow?) -> Void = { tip, window in
+            original(tip, selector, window)
+            if let window, window.level >= tip.level { tip.level = NSWindow.Level(rawValue: window.level.rawValue + 1) }
+        }
+        class_replaceMethod(panel, selector, imp_implementationWithBlock(raised), method_getTypeEncoding(method))
+    }()
 
     func windowWillClose(_ notification: Notification) {
         recorder.cancel()
@@ -140,7 +158,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         alert.addButton(withTitle: "Cancel")
         guard runModal(alert) == .alertFirstButtonReturn else { return }
         window?.makeFirstResponder(nil)
-        SettingsStore.shared.update(json: SettingsSupport.encode(settings))
+        SettingsStore.shared.update(json: SettingsSupport.encode(SettingsSchema.clamped(settings)))
         inform("Imported \(settings.count) settings.")
     }
 
@@ -186,8 +204,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
         SavedLines.shared.replace(with: lines)
         // The text box keeps only the newest of them past Maximum lines kept.
-        let most = (SettingsStore.shared.dictionary["maxLines"] as? NSNumber)?.intValue ?? 0
-        let kept = most > 0 ? min(lines.count, most) : lines.count
+        // As keptLines in web/src/overlay.js: 0 is the most, 1000.
+        let stored = (SettingsStore.shared.dictionary["maxLines"] as? NSNumber)?.intValue ?? 0
+        let most = stored > 0 ? min(stored, 1000) : 1000
+        let kept = min(lines.count, most)
         inform("Imported \(kept) \(kept == 1 ? "line" : "lines").",
                detail: kept < lines.count ? "The file has \(lines.count): the oldest are left out, as Maximum lines kept is \(most)." : "")
     }

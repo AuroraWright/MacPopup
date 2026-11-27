@@ -271,13 +271,13 @@ def scroll():
     def in_view(frame):
         return frame is not None and frame[1] + frame[3] > window[1] and frame[1] < window[1] + window[3]
 
-    ax('scroll', 'Line spacing (px)', 1)
+    ax('scroll', 'Line spacing', 1)
     time.sleep(1.2)
     frame = choose_frame()
     check(not in_view(frame), f'the Font row scrolled out of view (Choose… {"at " + str(frame) if frame else "unloaded"}, '
           f'the window {window})')
     check(panel_on_screen(), 'the panel stays open with the row out of view')
-    ax('scroll', 'Line spacing (px)', 0)
+    ax('scroll', 'Line spacing', 0)
     time.sleep(1.2)
     check(in_view(choose_frame()), 'the Font row back in view')
     check(panel_on_screen(), 'the panel still open')

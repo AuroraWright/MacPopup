@@ -159,6 +159,11 @@ function scrollToEnd() {
  * Whether the host's ids for lines are used: for cards, for where the controller starts in the OCR overlay (see
  * firstOcrIndex), or for the text box's lines read with OCR.
  */
+/** The most lines the text box keeps: Maximum lines kept, where 0 (texthooker-ui's "unlimited") is the most, 1000. */
+function keptLines(settings = getSettings()) {
+	return settings.maxLines > 0 ? Math.min(settings.maxLines, 1000) : 1000;
+}
+
 function notesLines(settings = getSettings()) {
 	return !!settings.ankiEnabled || readsOcr(settings);
 }
@@ -328,7 +333,7 @@ function pushLine(rawText, { line: shown = null, replaced = false } = {}) {
 	const line = { id: `${state.nextId++}`, shown, text, time: Date.now(), tokens: null, element: null, tokenizing: new AbortController() };
 	state.lines.push(line);
 	countLine(text, 1);
-	while (settings.maxLines > 0 && state.lines.length > settings.maxLines) {
+	while (state.lines.length > keptLines(settings)) {
 		removeLine(state.lines[0]);
 	}
 	sendLines();
@@ -416,8 +421,8 @@ function prependLines(saved) {
 	if (lines.length === 0) return;
 	state.lines.unshift(...lines);
 	for (const line of lines) countLine(line.text, 1);
-	const { maxLines } = getSettings();
-	while (maxLines > 0 && state.lines.length > maxLines) removeLine(state.lines[0]);
+	const kept = keptLines();
+	while (state.lines.length > kept) removeLine(state.lines[0]);
 	rerenderLines();
 	scrollToEnd();
 	sendLines();

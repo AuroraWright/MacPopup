@@ -1,6 +1,6 @@
-// The overlay connects to the first 5 WebSocket URLs (maxWebsocketUrls) whatever an import or an older version saved:
-// with 7 saved, and an empty one among them that doesn't count, the Floating Window has 5 WebSocket icons, all
-// connected, and only the first 5 servers see a connection.
+// The overlay connects to the first 5 WebSocket URLs (maxWebsocketUrls) whatever an import or an older version saved
+// (which launch also cuts down to them, see SettingsSchema.clampStored): with 7 saved, and empty ones among them that
+// don't count, the Floating Window has 5 WebSocket icons, all connected, and only the first 5 servers see a connection.
 // mock: MOCK_WEBSOCKET_PORTS=59890,59891,59892,59893,59894,59895,59896
 // settings: {"websocketUrls": ["ws://127.0.0.1:59890", "", "ws://127.0.0.1:59891", "ws://127.0.0.1:59892", "  ", "ws://127.0.0.1:59893", "ws://127.0.0.1:59894", "ws://127.0.0.1:59895", "ws://127.0.0.1:59896"]}
 

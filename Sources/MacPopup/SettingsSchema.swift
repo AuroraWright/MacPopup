@@ -65,8 +65,8 @@ struct SettingsField: Identifiable {
         case font(size: String, effects: String)
         /// The connected game controllers, and learning them (gamepadLayouts; see GamepadLearning.swift).
         case gamepads
-        /// Keys pressed in turn, [{key, modifiers}].
-        case keySequence
+        /// Keys pressed in turn, [{key, modifiers}], at most `max` recorded.
+        case keySequence(max: Int)
         /// Settings shown together in one row, a line each with its own short label (e.g. Width and Height). The
         /// row's key isn't a setting. Only menus and numbers can be grouped.
         case group([SettingsField])
@@ -89,6 +89,8 @@ struct SettingsField: Identifiable {
     let key: String
     let label: String
     let kind: Kind
+    /// Shown after a number, shortened (e.g. "ms" or "%").
+    var unit: String?
     var hint: String?
     var showIf: (([String: Any]) -> Bool)?
     /// A problem with the settings, shown in red under the field, if any.
@@ -99,12 +101,13 @@ struct SettingsField: Identifiable {
     var id: String { key }
 
     init(
-        _ key: String, _ label: String, _ kind: Kind, hint: String? = nil, showIf: (([String: Any]) -> Bool)? = nil,
+        _ key: String, _ label: String, _ kind: Kind, unit: String? = nil, hint: String? = nil, showIf: (([String: Any]) -> Bool)? = nil,
         warning: (([String: Any]) -> String?)? = nil, optionClick: (@MainActor () -> Void)? = nil
     ) {
         self.key = key
         self.label = label
         self.kind = kind
+        self.unit = unit
         self.hint = hint
         self.showIf = showIf
         self.warning = warning
@@ -148,6 +151,53 @@ enum SettingsSchema {
         "popupActionBarVisibility", "popupActionBarLocation", "customPopupCss", "customPopupOuterCss",
     ]
     static let yomitanDictionaryKeys: Set = ["definitionsCollapsible", "dictionaryCollapsible", "dictionaryStyles"]
+
+    /// The stored settings brought within Settings' limits (see `clamped`), at launch: an older version, or a backup
+    /// edited by hand, may have saved others.
+    static func clampStored() {
+        let stored = SettingsStore.shared.dictionary
+        let clamped = clamped(stored)
+        guard !NSDictionary(dictionary: clamped).isEqual(to: stored) else { return }
+        SettingsStore.shared.update(json: SettingsSupport.encode(clamped))
+    }
+
+    /// Settings brought within the limits that Settings keeps when editing, for imports: numbers in their range, lists
+    /// no longer than their maximum, and one character per sentence termination character (as Yomitan's schema).
+    static func clamped(_ settings: [String: Any]) -> [String: Any] {
+        var settings = settings
+        func clamp(_ fields: [SettingsField]) {
+            for field in fields {
+                switch field.kind {
+                case .group(let fields):
+                    clamp(fields)
+                case .number(let min, let max, _):
+                    guard let value = (settings[field.key] as? NSNumber)?.doubleValue else { continue }
+                    let clamped = Swift.min(Swift.max(value, min ?? -.infinity), max ?? .infinity)
+                    if clamped != value { settings[field.key] = storedNumber(clamped) }
+                case .lines(let max):
+                    // As the editor keeps them: trimmed, with something on them, the first `max`.
+                    guard let items = settings[field.key] as? [Any] else { continue }
+                    let kept = EditedLines(limit: max).items(items.compactMap { $0 as? String }.joined(separator: "\n"))
+                    if kept != items as? [String] { settings[field.key] = kept }
+                case .keySequence(let max):
+                    if let items = settings[field.key] as? [Any], items.count > max { settings[field.key] = Array(items.prefix(max)) }
+                case .terminationCharacters:
+                    guard let items = settings[field.key] as? [Any] else { continue }
+                    settings[field.key] = items.map { item -> Any in
+                        guard var item = item as? [String: Any] else { return item }
+                        for key in ["character1", "character2"] {
+                            if let text = item[key] as? String, text.count > 1 { item[key] = String(text.prefix(1)) }
+                        }
+                        return item
+                    }
+                default:
+                    break
+                }
+            }
+        }
+        sections.forEach { clamp($0.fields) }
+        return settings
+    }
 
     private static let scanModifierOptions = [
         SettingsOption("none", "No key"),
@@ -303,7 +353,7 @@ enum SettingsSchema {
                     hint: "Adds text copied in other apps as new lines (ignores passwords from password managers)."
                 ),
                 SettingsField(
-                    "clipboardMaxLength", "Maximum clipboard text length", .number(min: 1),
+                    "clipboardMaxLength", "Maximum clipboard text length", .number(min: 1, max: 10000),
                     hint: "Copied text longer than this character limit is truncated.",
                     showIf: { $0["clipboardMonitor"] as? Bool == true }
                 ),
@@ -323,12 +373,12 @@ enum SettingsSchema {
                     "boxFontFamily", "Font", .font(size: "fontSize", effects: "boxFontEffects"),
                     hint: "Choose the font, size, and text effects in the macOS Fonts panel; a custom text color overrides the theme."
                 ),
-                SettingsField("linePadding", "Line spacing (px)", .number(min: 0), hint: "Space above and below each line (beside it in vertical text)."),
+                SettingsField("linePadding", "Line spacing", .number(min: 0, max: 100), unit: "px", hint: "Space above and below each line (beside it in vertical text)."),
                 SettingsField(
-                    "preventLastDuplicate", "Skip duplicates within last N lines", .number(min: 0),
+                    "preventLastDuplicate", "Skip duplicates within last N lines", .number(min: 0, max: 1000),
                     hint: "Ignores a new line if it matches any of the last N lines shown (0 = off)."
                 ),
-                SettingsField("maxLines", "Maximum lines kept (0 = unlimited)", .number(min: 0), hint: "Removes the oldest lines once the text box exceeds this limit."),
+                SettingsField("maxLines", "Maximum lines kept", .number(min: 0, max: 1000), hint: "Removes the oldest lines once the text box exceeds this limit (0 = 1000)."),
                 SettingsField(
                     "preventGlobalDuplicate", "Skip all duplicate lines", .checkbox,
                     hint: "Ignores any line that has already appeared in the text box."
@@ -349,7 +399,7 @@ enum SettingsSchema {
                 SettingsField("enableLineAnimation", "Animate new lines", .checkbox, hint: "New lines slide in instead of appearing all at once (skipped during live word-by-word transcription)."),
                 SettingsField("showFurigana", "Show furigana above words", .checkbox, hint: "Displays readings above kanji using your Settings → General Furigana style (requires the Yomitan API)."),
                 SettingsField("termSpacing", "Add spaces between parsed words", .checkbox, hint: "Adds spacing between parsed words (requires the Yomitan API)."),
-                SettingsField("customCSS", "Custom CSS (text box)", .textarea, hint: "Custom CSS for the text box, applied on top of the theme (for example, #lines { line-height: 1.8; })."),
+                SettingsField("customCSS", "Custom CSS", .textarea, hint: "Custom CSS for the text box, applied on top of the theme (for example, #lines { line-height: 1.8; })."),
             ]),
             SettingsSection(
                 title: "OCR Overlay", symbol: "square.on.square.dashed",
@@ -360,7 +410,7 @@ enum SettingsSchema {
                         hint: "Reduces CPU usage by checking for changes only briefly after mouse, keyboard, or configured controller input. (“Read text from OCR” always monitors continuously.)"
                     ),
                     SettingsField(
-                        "ocrMouseWatchTime", "Keep checking after activity for (ms)", .number(min: 0),
+                        "ocrMouseWatchTime", "Keep checking after activity for", .number(min: 0, max: 30000), unit: "ms",
                         hint: "How long to keep checking after input activity or new dialogue (keep well above “Check for screen changes every” in Settings → OCR; raise for slow text transitions).",
                         showIf: { $0["ocrMouseWatch"] as? Bool ?? true }
                     ),
@@ -424,34 +474,34 @@ enum SettingsSchema {
                         hint: "Scans when a WebSocket line arrives and replaces matching OCR text with the exact WebSocket text (also prevents duplicates in “Read text from OCR”).",
                     ),
                     SettingsField(
-                        "ocrMatchThreshold", "Minimum WebSocket match (%)", .number(min: 1, max: 100),
+                        "ocrMatchThreshold", "Minimum WebSocket match", .number(min: 1, max: 100), unit: "%",
                         hint: "Required similarity for OCR text to be replaced by a WebSocket line. Lower values fix heavier misreads but may match unrelated text.",
                         showIf: { $0["ocrUseWebsocket"] as? Bool ?? true }
                     ),
                     SettingsField(
-                        "ocrEarlierLines", "Previous WebSocket lines to match", .number(min: 0),
+                        "ocrEarlierLines", "Previous WebSocket lines to match", .number(min: 0, max: 100),
                         hint: "For multi-line screens, also match up to this many earlier WebSocket lines (0 matches only the newest line).",
                         showIf: { $0["ocrUseWebsocket"] as? Bool ?? true }
                     ),
                     SettingsField(
-                        "ocrNewLineWait", "Max wait for screen update (ms)", .number(min: 0),
+                        "ocrNewLineWait", "Max wait for screen update", .number(min: 0, max: 10000), unit: "ms",
                         hint: "Maximum wait for the window to visibly update after a WebSocket line arrives. Increase if the previous line gets re-read; decrease if lines already on screen appear late.",
                         showIf: { $0["ocrUseWebsocket"] as? Bool ?? true }
                     ),
                     SettingsField(
-                        "ocrChangeThreshold", "Minimum screen change (%)", .number(min: 0, step: 0.1),
+                        "ocrChangeThreshold", "Minimum screen change", .number(min: 0, max: 20, step: 0.1), unit: "%",
                         hint: "Percentage of drawn content (excluding plain backgrounds) that must change to trigger a scan, helping short lines register while ignoring cursors or subtle animations."
                     ),
                     SettingsField(
-                        "ocrPollInterval", "Check for screen changes every (ms)", .number(min: 50),
+                        "ocrPollInterval", "Check for screen changes every", .number(min: 50, max: 5000), unit: "ms",
                         hint: "How often the window is checked for new text. Shorter intervals detect text faster but use more CPU."
                     ),
                     SettingsField(
-                        "ocrSettleTime", "Text must stay unchanged for (ms)", .number(min: 0),
+                        "ocrSettleTime", "Text must stay unchanged for", .number(min: 0, max: 5000), unit: "ms",
                         hint: "Time recognized text must stay unchanged before updating, avoiding half-typed lines (WebSocket matches and secondary capture areas don’t wait)."
                     ),
                     SettingsField(
-                        "ocrMaxWait", "Show reading anyway after (ms)", .number(min: 100),
+                        "ocrMaxWait", "Show reading anyway after", .number(min: 100, max: 30000), unit: "ms",
                         hint: "If text keeps changing (such as slow typewriter text), waits at most this time to show a reading and then keeps updating as more text appears."
                     ),
                 ]
@@ -536,7 +586,7 @@ enum SettingsSchema {
                         showIf: { $0["transcriptionSentenceEnds"] as? Bool == true }
                     ),
                     SettingsField(
-                        "transcriptionPause", "Line ends after a pause of (ms, 0 = off)", .number(min: 0),
+                        "transcriptionPause", "Line ends after a pause of", .number(min: 0, max: 5000), unit: "ms",
                         hint: "Silence required before finalizing a line (0 splits about every 10 seconds). Shorter values appear sooner but may split mid-sentence; try 200 ms with continuous speech or “Detect sentence ends”."
                     ),
                 ]
@@ -567,13 +617,13 @@ enum SettingsSchema {
                     hint: "Starts or stops controller scanning using the D-pad or a thumbstick (on controllers set up in Settings → Controllers; steps by Scan resolution). Hides controller input from your game while scanning, though this combination still passes through—choose unused buttons (such as L3 + R3)."
                 ),
                 SettingsField(
-                    "gamepadPopupDelay", "Controller popup delay (in milliseconds)", .number(min: 0),
+                    "gamepadPopupDelay", "Controller popup delay", .number(min: 0, max: 5000), unit: "ms",
                     hint: "How long to wait after stopping controller navigation before opening the popup."
                 ),
                 SettingsField("popupScanModifier", "Scan modifier key (popup, for nested lookups)", .select(scanModifierOptions), hint: "Hold this key to look up words inside an open popup (No key looks up on hover)."),
                 SettingsField("popupScanInputs", "Advanced scanning inputs (popup)", .scanInputs, showIf: { $0["popupScanModifier"] as? String == "custom" }),
                 SettingsField(
-                    "popupNestingMaxDepth", "Maximum number of child popups", .number(min: 0),
+                    "popupNestingMaxDepth", "Maximum number of child popups", .number(min: 0, max: 20),
                     hint: "Maximum number of nested child popups (0 disables nested popups)."
                 ),
                 SettingsField(
@@ -589,7 +639,7 @@ enum SettingsSchema {
                     hint: "When off, your mouse’s side buttons navigate backward and forward through a popup’s lookup history."
                 ),
                 SettingsField(
-                    "scanLength", "Text scan length", .number(min: 1),
+                    "scanLength", "Text scan length", .number(min: 1, max: 100),
                     hint: "Maximum characters read when scanning for terms."
                 ),
                 SettingsField(
@@ -598,7 +648,7 @@ enum SettingsSchema {
                     hint: "Starts lookups at the character under the pointer, or at the beginning of the word. (Japanese, Chinese, Cantonese, and Korean always start at the character.)"
                 ),
                 SettingsField(
-                    "scanDelay", "Scan delay (in milliseconds)", .number(min: 0),
+                    "scanDelay", "Scan delay", .number(min: 0, max: 2000), unit: "ms",
                     hint: "Delay before scanning occurs when no modifier key is required."
                 ),
                 SettingsField(
@@ -614,14 +664,14 @@ enum SettingsSchema {
                     "autoHideResults", "Auto-hide search popup", .checkbox,
                     hint: "Hides an existing popup when scanning again, even if no definitions are found."
                 ),
-                SettingsField("hideDelay", "Auto-hide search popup delay (in milliseconds)", .number(min: 0), hint: "How long to wait before “Auto-hide search popup” hides the popup."),
+                SettingsField("hideDelay", "Auto-hide search popup delay", .number(min: 0, max: 5000), unit: "ms", hint: "How long to wait before “Auto-hide search popup” hides the popup."),
                 SettingsField(
                     "hidePopupOnCursorExit", "Hide popup on cursor exit", .checkbox,
                     hint: "Hides the popup when the pointer leaves it."
                 ),
-                SettingsField("hidePopupOnCursorExitDelay", "Hide popup on cursor exit delay (in milliseconds)", .number(min: 0), hint: "Delay after the pointer leaves the popup before hiding it."),
+                SettingsField("hidePopupOnCursorExitDelay", "Hide popup on cursor exit delay", .number(min: 0, max: 5000), unit: "ms", hint: "Delay after the pointer leaves the popup before hiding it."),
                 SettingsField(
-                    "sentenceScanExtent", "Sentence scanning extent", .number(min: 1),
+                    "sentenceScanExtent", "Sentence scanning extent", .number(min: 1, max: 1000),
                     hint: "Maximum characters scanned in both directions to form a sentence."
                 ),
                 SettingsField("sentenceTerminationCharacterMode", "Sentence termination characters", .select([
@@ -652,25 +702,25 @@ enum SettingsSchema {
                     ),
                     SettingsField(
                         "popupSize", "Size", .group([
-                            SettingsField("popupWidth", "Width", .number(min: 1)),
-                            SettingsField("popupHeight", "Height", .number(min: 1)),
+                            SettingsField("popupWidth", "Width", .number(min: 100, max: 2000), unit: "px"),
+                            SettingsField("popupHeight", "Height", .number(min: 100, max: 2000), unit: "px"),
                         ]),
-                        hint: "Popup width and height, in pixels."
+                        hint: "Popup width and height."
                     ),
                     SettingsField("popupScalingFactor", "Scale", .numberSelect(
                         [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5].map { SettingsOption("\($0 as NSNumber)", "\(Int(($0 * 100).rounded()))%") }
                     ), hint: "Popup scaling factor."),
                     SettingsField(
                         "popupHorizontalTextOffset", "Horizontal text offset", .group([
-                            SettingsField("popupHorizontalOffset", "x", .number()),
-                            SettingsField("popupVerticalOffset", "y", .number()),
+                            SettingsField("popupHorizontalOffset", "x", .number(min: -200, max: 200), unit: "px"),
+                            SettingsField("popupVerticalOffset", "y", .number(min: -200, max: 200), unit: "px"),
                         ]),
                         hint: "Distance from the popup to horizontal text."
                     ),
                     SettingsField(
                         "popupVerticalTextOffset", "Vertical text offset", .group([
-                            SettingsField("popupHorizontalOffset2", "x", .number()),
-                            SettingsField("popupVerticalOffset2", "y", .number()),
+                            SettingsField("popupHorizontalOffset2", "x", .number(min: -200, max: 200), unit: "px"),
+                            SettingsField("popupVerticalOffset2", "y", .number(min: -200, max: 200), unit: "px"),
                         ]),
                         hint: "Distance from the popup to vertical text. Unused if Vertical text positioning is Same as horizontal text."
                     ),
@@ -699,8 +749,8 @@ enum SettingsSchema {
                         hint: "System or CSS fonts for popups, comma-separated (e.g. \"Noto Sans JP\", \"Meiryo\", sans-serif)."
                     ),
                     SettingsField(
-                        "popupFontSize", "Font size", .number(min: 1),
-                        hint: "Popup font size, in pixels."
+                        "popupFontSize", "Font size", .number(min: 8, max: 48), unit: "px",
+                        hint: "Popup font size."
                     ),
                     SettingsField(
                         "lineHeight", "Line height", .text(),
@@ -785,7 +835,7 @@ enum SettingsSchema {
                         "audioAutoPlay", "Auto-play search result audio", .checkbox,
                         hint: "Automatically plays audio for the first result."
                     ),
-                    SettingsField("audioVolume", "Audio volume", .number(min: 0, max: 100), hint: "Audio playback volume, in percent."),
+                    SettingsField("audioVolume", "Audio volume", .number(min: 0, max: 100), unit: "%", hint: "Audio playback volume."),
                     SettingsField(
                         "audioFallbackSound", "Audio fallback sound", .select([
                             SettingsOption("none", "None"), SettingsOption("click", "Click"), SettingsOption("bloop", "Bloop"),
@@ -875,7 +925,7 @@ enum SettingsSchema {
                         hint: "Syncs Anki after adding a card (may cause issues with AnkiConnect Android or slow or metered connections)."
                     ),
                     SettingsField(
-                        "ankiDownloadTimeout", "Idle download timeout (in milliseconds)", .number(min: 0),
+                        "ankiDownloadTimeout", "Idle download timeout", .number(min: 0, max: 60000), unit: "ms",
                         hint: "Maximum idle time before cancelling an audio download from the speaker right-click menu (0 = no limit, up to 1 minute)."
                     ),
                     SettingsField(
@@ -892,18 +942,18 @@ enum SettingsSchema {
                         "screenshotFormat", "Screenshot format", .select([SettingsOption("png", "PNG"), SettingsOption("jpeg", "JPEG")]),
                         hint: "Format for card screenshots."
                     ),
-                    SettingsField("screenshotQuality", "Screenshot format (quality %)", .number(min: 0, max: 100), hint: "For JPEG: lower makes smaller, blurrier files (PNG is always full quality)."),
+                    SettingsField("screenshotQuality", "Screenshot quality", .number(min: 0, max: 100), unit: "%", hint: "For JPEG: lower makes smaller, blurrier files (PNG is always full quality)."),
                     SettingsField(
                         "screenshotResolution", "Screenshot resolution",
                         .select([SettingsOption("1x", "Standard (1x)"), SettingsOption("full", "Full Retina resolution")]),
                         hint: "Standard (1x) keeps files small; Full Retina captures at twice the width and height."
                     ),
                     SettingsField(
-                        "screenshotHistory", "Screenshots to keep (lines)", .number(min: 0),
+                        "screenshotHistory", "Screenshots to keep", .number(min: 0, max: 100), unit: "lines",
                         hint: "Captures window screenshots as each line appears so cards show that scene even if the game advances (0 = captures when adding the card). Stored in memory (a few MB for 20 JPEGs, more for PNG or Retina)."
                     ),
                     SettingsField(
-                        "screenshotDelay", "Wait before taking a screenshot (ms)", .number(min: 0),
+                        "screenshotDelay", "Wait before taking a screenshot", .number(min: 0, max: 5000), unit: "ms",
                         hint: "Brief wait so the game finishes drawing text before capturing (OCR lines capture immediately; captures right away if the next line appears sooner).",
                         showIf: { (($0["screenshotHistory"] as? NSNumber)?.intValue ?? 20) > 0 }
                     ),
@@ -932,25 +982,25 @@ enum SettingsSchema {
                         }
                     ),
                     SettingsField(
-                        "sentenceAudioHistory", "Record game audio for the last (minutes)", .number(min: 0),
+                        "sentenceAudioHistory", "Record game audio for the last", .number(min: 0, max: 30), unit: "min",
                         hint: "Continuously records recent game audio in memory (about 11 MB per minute) for immediate extraction (0 = off)."
                     ),
                     SettingsField(
-                        "sentenceAudioVoiceWait", "Cancel if no speech is heard within (seconds)", .number(min: 1),
+                        "sentenceAudioVoiceWait", "Cancel if no speech is heard within", .number(min: 1, max: 60), unit: "s",
                         hint: "Cancels without saving if no speech is detected within this time after a line appears or the backlog opens.",
                         showIf: Self.detectsVoice
                     ),
                     SettingsField(
-                        "sentenceAudioPause", "Stop recording after silence of (ms)", .number(min: 100),
+                        "sentenceAudioPause", "Stop recording after silence of", .number(min: 100, max: 10000), unit: "ms",
                         hint: "Silence duration required to stop recording (increase if dialogue pauses cut clips short).",
                         showIf: Self.detectsVoice
                     ),
                     SettingsField(
-                        "sentenceAudioPadding", "Padding around detected speech (ms)", .number(min: 0),
+                        "sentenceAudioPadding", "Padding around detected speech", .number(min: 0, max: 2000), unit: "ms",
                         hint: "Extra audio kept before and after speech so words aren’t clipped.",
                         showIf: Self.detectsVoice
                     ),
-                    SettingsField("sentenceAudioMaxLength", "Maximum recording length (seconds)", .number(min: 1), hint: "Maximum duration before recording stops, even if speech continues."),
+                    SettingsField("sentenceAudioMaxLength", "Maximum recording length", .number(min: 1, max: 120), unit: "s", hint: "Maximum duration before recording stops, even if speech continues."),
                     SettingsField("sentenceAudioPlay", "Preview recording after saving to Anki", .checkbox, hint: "Plays the saved recording right after adding it to your card."),
                     SettingsField(
                         "sentenceAudioBacklog", "Visual novel backlog capture", .checkbox,
@@ -966,29 +1016,29 @@ enum SettingsSchema {
                         showIf: { Self.capturesBacklog($0) && $0["sentenceAudioApp"] as? String == "named" }
                     ),
                     SettingsField(
-                        "sentenceAudioOpenKeys", "Keys to open backlog and replay voice", .keySequence,
+                        "sentenceAudioOpenKeys", "Keys to open backlog and replay voice", .keySequence(max: 5),
                         hint: "Keystrokes sent in order before recording starts (e.g. to open the text log and replay voice).",
                         showIf: Self.capturesBacklog
                     ),
                     SettingsField(
-                        "sentenceAudioCloseKeys", "Keys to close backlog", .keySequence,
+                        "sentenceAudioCloseKeys", "Keys to close backlog", .keySequence(max: 5),
                         hint: "Keystrokes sent in order after recording stops to return to the game.",
                         showIf: Self.capturesBacklog
                     ),
                     SettingsField(
-                        "sentenceAudioKeyDelay", "Delay after switching apps (ms)", .number(min: 0),
+                        "sentenceAudioKeyDelay", "Delay after switching apps", .number(min: 0, max: 5000), unit: "ms",
                         hint: "Wait after focusing the game window before sending keystrokes.",
                         showIf: Self.capturesBacklog
                     ),
-                    SettingsField("sentenceAudioKeyInterval", "Delay between keystrokes (ms)", .number(min: 0), hint: "Wait between backlog keystrokes so the game can react to each one.", showIf: Self.capturesBacklog),
-                    SettingsField("sentenceAudioKeyHold", "Key press duration (ms)", .number(min: 0), hint: "How long each key is held (raise if the game misses key presses).", showIf: Self.capturesBacklog),
+                    SettingsField("sentenceAudioKeyInterval", "Delay between keystrokes", .number(min: 0, max: 5000), unit: "ms", hint: "Wait between backlog keystrokes so the game can react to each one.", showIf: Self.capturesBacklog),
+                    SettingsField("sentenceAudioKeyHold", "Key press duration", .number(min: 0, max: 1000), unit: "ms", hint: "How long each key is held (raise if the game misses key presses).", showIf: Self.capturesBacklog),
                     SettingsField(
                         "sentenceAudioDetectVoice", "Automatically detect start and end of speech", .checkbox,
                         hint: "Uses speech detection to skip music and sound effects and stop when speech ends (when off, press the shortcut again to stop).",
                         showIf: Self.capturesBacklog
                     ),
                     SettingsField(
-                        "sentenceAudioRecordDelay", "Delay before recording starts (ms)", .number(min: 0),
+                        "sentenceAudioRecordDelay", "Delay before recording starts", .number(min: 0, max: 5000), unit: "ms",
                         hint: "Wait after replay keys before recording starts (useful for skipping menu sounds).",
                         showIf: { Self.capturesBacklog($0) && !($0["sentenceAudioDetectVoice"] as? Bool ?? true) }
                     ),
@@ -1011,7 +1061,7 @@ enum SettingsSchema {
                         hint: "Extracts the subtitle line’s audio clip into your Sentence audio field."
                     ),
                     SettingsField(
-                        "iinaSentenceAudioPadding", "Padding around the line (ms)", .number(min: 0),
+                        "iinaSentenceAudioPadding", "Padding around the line", .number(min: 0, max: 2000), unit: "ms",
                         hint: "Extra audio kept before and after each subtitle so slightly early or late speech isn’t clipped.",
                         showIf: { $0["iinaSentenceAudioEnabled"] as? Bool ?? true }
                     ),

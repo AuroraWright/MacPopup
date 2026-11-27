@@ -26,6 +26,7 @@ struct SettingsActions {
 struct SettingsSidebar: View {
     let actions: SettingsActions
     @AppStorage("settingsSection") private var selection = SettingsSchema.sections[0].title
+    @AppStorage("settingsShowHelp") private var showHelp = true
 
     var body: some View {
         List(SettingsSchema.sections, selection: $selection) { section in
@@ -37,6 +38,11 @@ struct SettingsSidebar: View {
         // On the sidebar's material, as the list scrolls under it.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
+                Toggle("Show help", isOn: $showHelp)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .help("Show each setting’s description below it. Hidden, it shows when you point at the setting’s name.")
+                    .padding(.bottom, 4)
                 // The same width: the sidebar's, with the titles on the left, where a menu draws its own.
                 Menu("Import") {
                     Button("Yomitan Settings…", action: actions.importYomitan)
@@ -90,27 +96,55 @@ private struct SectionForm: View {
     @ObservedObject var recorder: ScanInputRecorder
     let actions: SettingsActions
     @ObservedObject private var yomitan = YomitanAPIStatus.shared
+    @AppStorage("settingsShowHelp") private var showHelp = true
+    @State private var frames = FormFrames()
 
     var body: some View {
-        Form {
-            Section {
-                ForEach(section.fields.filter { $0.showIf?(model.values) ?? true }) { field in
-                    let fromYomitan = isFromYomitan(field)
-                    FieldRow(field: field, model: model, recorder: recorder, actions: actions)
-                        .disabled(fromYomitan)
-                        .environment(\.settingsFieldNote, fromYomitan ? "Controlled by your Yomitan settings." : nil)
-                }
-            } header: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(section.title).font(.title2.bold()).foregroundStyle(.primary)
-                    if let description = section.description {
-                        HeaderDescription(text: description)
+        ScrollViewReader { scroller in
+            Form {
+                Section {
+                    ForEach(section.fields.filter { $0.showIf?(model.values) ?? true }) { field in
+                        let fromYomitan = isFromYomitan(field)
+                        FieldRow(field: field, model: model, recorder: recorder, actions: actions)
+                            .disabled(fromYomitan)
+                            .environment(\.settingsFieldNote, fromYomitan ? "Controlled by your Yomitan settings." : nil)
+                            .id(field.id)
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames.rows[field.id] = $0 }
+                            .onDisappear { frames.rows[field.id] = nil }
                     }
+                } header: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(section.title).font(.title2.bold()).foregroundStyle(.primary)
+                        if let description = section.description {
+                            HeaderDescription(text: description)
+                        }
+                    }
+                    .padding(.bottom, 4)
                 }
-                .padding(.bottom, 4)
+            }
+            .formStyle(.grouped)
+            .environment(\.settingsShowsHints, showHelp)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames.form = $0 }
+            // Hints shown or hidden change the rows' heights: the row at the top stays where it was, rather than the
+            // form keeping its scroll offset, which would show other rows.
+            .onChange(of: showHelp) {
+                let form = frames.form
+                guard let (id, row) = frames.rows.filter({ $0.value.minY >= form.minY }).min(by: { $0.value.minY < $1.value.minY })
+                else { return }
+                let distance = row.minY - form.minY
+                // scrollTo puts the point at `anchor` in the row at the same point in the form.
+                func anchor(_ height: CGFloat) -> UnitPoint {
+                    let room = form.height - height
+                    return UnitPoint(x: 0, y: room > 0 ? min(distance / room, 1) : 0)
+                }
+                // In the same update as the new heights, so no frame shows the other rows: with the row's height as it
+                // was, then as it is once laid out, which moves it at most by the change in its height times `anchor`.
+                scroller.scrollTo(id, anchor: anchor(row.height))
+                DispatchQueue.main.async {
+                    if let height = frames.rows[id]?.height, height != row.height { scroller.scrollTo(id, anchor: anchor(height)) }
+                }
             }
         }
-        .formStyle(.grouped)
     }
 
     /// A setting the Yomitan profile gives (see SettingsSchema.yomitanDisplayKeys).
@@ -121,9 +155,20 @@ private struct SectionForm: View {
     }
 }
 
+/// Where a section's form and its rows on screen are. Not state the view observes, so scrolling doesn't redraw it.
+private final class FormFrames {
+    var form = CGRect.zero
+    var rows: [String: CGRect] = [:]
+}
+
 /// A line under a field's hint, if any.
 private struct SettingsFieldNoteKey: EnvironmentKey {
     static let defaultValue: String? = nil
+}
+
+/// Whether fields show their hints (Show help, in the sidebar); hidden, a row shows its hint when pointed at.
+private struct SettingsShowsHintsKey: EnvironmentKey {
+    static let defaultValue = true
 }
 
 /// FieldLabel without its hint and note, which the row shows below its control.
@@ -140,6 +185,11 @@ extension EnvironmentValues {
     fileprivate var settingsFieldNote: String? {
         get { self[SettingsFieldNoteKey.self] }
         set { self[SettingsFieldNoteKey.self] = newValue }
+    }
+
+    fileprivate var settingsShowsHints: Bool {
+        get { self[SettingsShowsHintsKey.self] }
+        set { self[SettingsShowsHintsKey.self] = newValue }
     }
 
     fileprivate var settingsFieldTitleOnly: Bool {
@@ -188,13 +238,16 @@ private struct FieldLabel: View {
     @Environment(\.settingsFieldNote) private var note
     @Environment(\.settingsFieldTitleOnly) private var titleOnly
     @Environment(\.settingsFieldLabelHidden) private var hidden
+    @Environment(\.settingsShowsHints) private var showsHints
 
     var body: some View {
         // Hidden, it would still name its control in Accessibility, as "Font, Choose the font…, Choose…", or in place
         // of a text's own; the title and hint are their own texts above it.
         if !hidden {
             VStack(alignment: .leading, spacing: 2) {
-                Text(field.label)
+                // With Show help off, the hint shows when pointing at the title (on the title only, so that the
+                // controls keep their own help, such as a Remove button's).
+                Text(field.label).help(showsHints ? "" : field.hint ?? "")
                 if !titleOnly {
                     FieldHint(field: field)
                 }
@@ -220,9 +273,10 @@ extension View {
 private struct FieldHint: View {
     let field: SettingsField
     @Environment(\.settingsFieldNote) private var note
+    @Environment(\.settingsShowsHints) private var showsHints
 
     var body: some View {
-        if let hint = field.hint {
+        if let hint = field.hint, showsHints {
             Text(hint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         if let note {
@@ -236,6 +290,7 @@ private struct FieldRow: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var recorder: ScanInputRecorder
     let actions: SettingsActions
+    @Environment(\.settingsShowsHints) private var showsHints
 
     private var value: Any? { model[field.key] }
 
@@ -248,17 +303,18 @@ private struct FieldRow: View {
         }
     }
 
-    /// A switch or number, which stays beside the title; other controls go below the hint.
+    /// A control beside the title, with the hint below them both, except an imported summary or keys, which can take
+    /// lines: they go below the hint, so the hint starts right under the title.
     private var staysBesideTitle: Bool {
         switch field.kind {
-        case .checkbox, .number, .numberSelect: true
-        default: false
+        case .imported, .keySequence: false
+        default: true
         }
     }
 
-    /// A hint the row's full width: under the title and its switch or number, or above the control.
+    /// A hint the row's full width: under the title and its control, or above the control.
     private var hintFullWidth: Bool {
-        field.hint != nil && field.warning?(model.values) == nil && !keepsHintBeside
+        field.hint != nil && showsHints && field.warning?(model.values) == nil && !keepsHintBeside
     }
 
     /// The control on a line of its own below the hint, rather than beside the title.
@@ -312,12 +368,13 @@ private struct FieldRow: View {
                 FieldLabel(field: field)
             }
             .pickerStyle(.segmented)
-            // Its own width below the hint, rather than the row's.
-            .fixedSize(horizontal: belowHint, vertical: false)
         case let .number(min, max, step):
             LabeledContent {
-                NumberField(value: (value as? NSNumber)?.doubleValue ?? 0, min: min, max: max, decimals: step.map { $0 < 1 } ?? false) {
-                    model.set(field.key, $0)
+                HStack(spacing: 4) {
+                    NumberField(value: (value as? NSNumber)?.doubleValue ?? 0, min: min, max: max, decimals: step.map { $0 < 1 } ?? false) {
+                        model.set(field.key, $0)
+                    }
+                    if let unit = field.unit { Text(unit) }
                 }
             } label: {
                 FieldLabel(field: field)
@@ -334,17 +391,10 @@ private struct FieldRow: View {
                 FieldLabel(field: field)
             }
         case let .percentSlider(step):
-            let slider = PercentSlider(value: (value as? NSNumber)?.doubleValue ?? 0, step: step) { model.set(field.key, $0) }
-            if belowHint {
-                // Below the hint, with the title above it: in a labeled row with its label hidden, the slider
-                // leaves the label's room on its left inside its 200 pt.
-                slider
-            } else {
-                LabeledContent {
-                    slider
-                } label: {
-                    FieldLabel(field: field)
-                }
+            LabeledContent {
+                PercentSlider(value: (value as? NSNumber)?.doubleValue ?? 0, step: step) { model.set(field.key, $0) }
+            } label: {
+                FieldLabel(field: field)
             }
         case let .numberSelect(options):
             let current = (value as? NSNumber).map { "\($0)" } ?? ""
@@ -379,7 +429,7 @@ private struct FieldRow: View {
             }
         case let .shortcutAndButtons(buttonsKey):
             LabeledContent {
-                VStack(alignment: .trailing, spacing: 6) {
+                HStack(spacing: 12) {
                     ShortcutControl(value: value as? [String: Any]) { model.set(field.key, $0 ?? NSNull()) }
                     GamepadComboControl(buttons: model[buttonsKey] as? [String] ?? []) { model.set(buttonsKey, $0) }
                 }
@@ -392,35 +442,25 @@ private struct FieldRow: View {
             let name = value as? String ?? ""
             let size = (model[sizeKey] as? NSNumber)?.doubleValue ?? 16
             let effects = model[effectsKey] as? [String: Any] ?? [:]
-            let picker = LabeledContent {
-                FontControl(
-                    name: name, size: size, effects: effects,
-                    isDefault: keys.allSatisfy { (model[$0] as? NSObject)?.isEqual(defaults[$0]) ?? (defaults[$0] == nil) }
-                ) { name, size, effects in
-                    model.merge([field.key: name, sizeKey: storedNumber(size), effectsKey: effects])
-                } clear: {
-                    model.merge(Dictionary(uniqueKeysWithValues: keys.map { ($0, defaults[$0] ?? NSNull()) }))
+            LabeledContent {
+                // The font beside the buttons.
+                HStack(spacing: 12) {
+                    FontPreview(name: name, size: size, effects: effects)
+                        .fixedSize()
+                    FontControl(
+                        name: name, size: size, effects: effects,
+                        isDefault: keys.allSatisfy { (model[$0] as? NSObject)?.isEqual(defaults[$0]) ?? (defaults[$0] == nil) }
+                    ) { name, size, effects in
+                        model.merge([field.key: name, sizeKey: storedNumber(size), effectsKey: effects])
+                    } clear: {
+                        model.merge(Dictionary(uniqueKeysWithValues: keys.map { ($0, defaults[$0] ?? NSNull()) }))
+                    }
                 }
             } label: {
                 FieldLabel(field: field)
             }
-            if belowHint {
-                // Below the hint: the font beside the buttons.
-                HStack(spacing: 12) {
-                    FontPreview(name: name, size: size, effects: effects)
-                        .fixedSize()
-                    picker
-                }
-            } else {
-                // The font is shown below the buttons, so it doesn't change the room for the label and its hint.
-                VStack(alignment: .trailing, spacing: 6) {
-                    picker
-                    FontPreview(name: name, size: size, effects: effects)
-                        .fixedSize()
-                }
-            }
-        case .keySequence:
-            KeySequenceControl(items: (value as? [Any] ?? []).compactMap { $0 as? [String: Any] }) { model.set(field.key, $0) } label: {
+        case let .keySequence(max):
+            KeySequenceControl(items: (value as? [Any] ?? []).compactMap { $0 as? [String: Any] }, max: max) { model.set(field.key, $0) } label: {
                 FieldLabel(field: field)
             }
         case let .permission(permission):
@@ -462,20 +502,12 @@ private struct FieldRow: View {
             }
         case let .text(test):
             LabeledContent {
-                let textField = HStack {
-                    // Below the hint, bordered: without a border it reads as loose text.
-                    CommitTextField(value: value as? String ?? "", placeholder: "None", bordered: belowHint) {
-                        model.set(field.key, $0.trimmingCharacters(in: .whitespacesAndNewlines))
-                    }
+                HStack {
+                    CommitTextField(value: value as? String ?? "", placeholder: "None") { model.set(field.key, $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
                     if let test { TestButton(test: test, model: model) }
                     if test == .yomitan { InstallYomitanAPIButton() }
                 }
-                if belowHint {
-                    // 45% of the form's width, with its buttons.
-                    textField.containerRelativeFrame(.horizontal) { width, _ in width * 0.45 }
-                } else {
-                    textField.frame(maxWidth: 320)
-                }
+                .frame(maxWidth: 320)
             } label: {
                 FieldLabel(field: field)
             }
@@ -632,23 +664,63 @@ private struct DisplayPicker<Label: View>: View {
 struct PermissionRow: View {
     let field: SettingsField
     let permission: Permission
+    @State private var status: Permission.Status?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            FieldLabel(field: field)
-            HStack {
-                Spacer()
-                PermissionControl(permission: permission)
+        StatusRow {
+            FieldLabel(field: field).environment(\.settingsFieldTitleOnly, true)
+        } hint: {
+            FieldHint(field: field)
+        } status: {
+            PermissionControl(permission: permission, status: status) { status = permission.status }
+        }
+        .task {
+            while !Task.isCancelled {
+                status = permission.status
+                try? await Task.sleep(for: .seconds(1))
             }
         }
     }
 }
 
-/// Whether a permission is granted (checked again every second, as it's changed in System Settings),
+/// A title with a status (and its buttons) beside it and the hint below them, as other settings' rows; the status goes
+/// below the hint when it doesn't fit beside the title.
+struct StatusRow<Title: View, Hint: View, Status: View>: View {
+    @ViewBuilder let title: Title
+    @ViewBuilder let hint: Hint
+    @ViewBuilder let status: Status
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline) {
+                    title
+                    Spacer(minLength: 12)
+                    status.fixedSize()
+                }
+                // Not counted in the width this needs: the hint wraps to the row's.
+                VStack(alignment: .leading, spacing: 2) { hint }
+                    .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                title
+                hint
+                HStack {
+                    Spacer()
+                    status
+                }
+                .padding(.top, 4)
+            }
+        }
+    }
+}
+
+/// Whether a permission is granted (checked again every second by PermissionRow, as it's changed in System Settings),
 /// and buttons to ask for it.
 private struct PermissionControl: View {
     let permission: Permission
-    @State private var status: Permission.Status?
+    let status: Permission.Status?
+    let requested: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -660,19 +732,13 @@ private struct PermissionControl: View {
                     Button("Request Access") {
                         Task {
                             await permission.request()
-                            self.status = permission.status
+                            requested()
                         }
                     }
                     if status == .notGranted {
                         Button("Open System Settings") { permission.openSystemSettings() }
                     }
                 }
-            }
-        }
-        .task {
-            while !Task.isCancelled {
-                status = permission.status
-                try? await Task.sleep(for: .seconds(1))
             }
         }
     }
@@ -793,14 +859,39 @@ private func recordHelp(_ combination: KeyCombination?) -> String {
 }
 
 /// Records one keyboard shortcut.
+/// A button that clears the keyboard shortcut or controller buttons after it. Hidden when there's nothing to clear,
+/// it still takes up space if `keepsSpace`, so the controls in a list's rows line up.
+struct ClearCircleButton: View {
+    let help: String
+    let hidden: Bool
+    var keepsSpace = false
+    let action: () -> Void
+
+    var body: some View {
+        if !hidden || keepsSpace {
+            Button(action: action) { Image(systemName: "xmark.circle.fill") }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help(help)
+                .opacity(hidden ? 0 : 1)
+                .disabled(hidden)
+                .accessibilityHidden(hidden)
+        }
+    }
+}
+
 private struct ShortcutControl: View {
     let value: [String: Any]?
     let commit: ([String: Any]?) -> Void
     @StateObject private var recorder = ShortcutRecorder()
 
     var body: some View {
-        HStack {
+        HStack(spacing: 2) {
             let isActive = recorder.activeID != nil
+            ClearCircleButton(help: "Clear the keyboard shortcut", hidden: value == nil) {
+                recorder.cancel()
+                commit(nil)
+            }
             Button {
                 if isActive {
                     recorder.cancel()
@@ -811,15 +902,6 @@ private struct ShortcutControl: View {
                 RecordingLabel(isActive ? "Press keys…" : KeyCombination(setting: value)?.displayName ?? "Record Shortcut")
             }
             .help(isActive ? "Click to cancel" : recordHelp(KeyCombination(setting: value)))
-            // While recording, it stops without changing the shortcut.
-            Button("Clear") {
-                if isActive {
-                    recorder.cancel()
-                } else {
-                    commit(nil)
-                }
-            }
-            .disabled(value == nil && !isActive)
         }
         .onDisappear { recorder.cancel() }
     }
@@ -852,6 +934,8 @@ private struct FontPreview: NSViewRepresentable {
     let name: String
     let size: Double
     let effects: [String: Any]
+    /// The widest it gets: a longer font name is shortened, keeping the size after it.
+    private static let maxWidth: CGFloat = 260
 
     func makeNSView(context: Context) -> NSTextField {
         NSTextField(labelWithString: "")
@@ -861,10 +945,19 @@ private struct FontPreview: NSViewRepresentable {
         let font = name.isEmpty ? nil : FontPanelTarget.font(name, size: NSFont.systemFontSize)
         var attributes = FontEffects.attributes(effects)
         attributes[NSAttributedString.Key.font.rawValue] = font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
-        let text = "\(name.isEmpty ? "System font" : font?.displayName ?? name), \(size.formatted()) px"
-        field.attributedStringValue = NSAttributedString(
-            string: text, attributes: Dictionary(uniqueKeysWithValues: attributes.map { (NSAttributedString.Key($0.key), $0.value) })
-        )
+        let keyed = Dictionary(uniqueKeysWithValues: attributes.map { (NSAttributedString.Key($0.key), $0.value) })
+        let fullName = name.isEmpty ? "System font" : font?.displayName ?? name
+        let sizeText = ", \(size.formatted()) px"
+        var shown = NSAttributedString(string: fullName + sizeText, attributes: keyed)
+        var shortened = fullName
+        while shown.size().width > Self.maxWidth, !shortened.isEmpty {
+            shortened.removeLast()
+            shown = NSAttributedString(
+                string: shortened.trimmingCharacters(in: .whitespaces) + "…" + sizeText, attributes: keyed
+            )
+        }
+        field.attributedStringValue = shown
+        field.toolTip = shortened == fullName ? nil : fullName + sizeText
         field.backgroundColor = FontEffects.color(effects["backgroundColor"])
         field.drawsBackground = field.backgroundColor != nil
     }
@@ -1025,17 +1118,85 @@ final class FontPanelTarget: NSResponder, NSFontChanging {
 
 /// Keys pressed in turn: each can be removed, and more recorded. They're listed at the bottom right of the row, so
 /// they don't take room from the label and its hint.
+/// Its views in lines aligned to the right, starting a line when one is full rather than overflowing.
+private struct TrailingFlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let lines = lines(subviews, width: proposal.width ?? .infinity)
+        let height = lines.map(\.height).reduce(0, +) + spacing * CGFloat(Swift.max(lines.count - 1, 0))
+        return CGSize(width: lines.map(\.width).max() ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for line in lines(subviews, width: bounds.width) {
+            var x = bounds.maxX - line.width
+            for index in line.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y + (line.height - size.height) / 2), proposal: .unspecified)
+                x += size.width + spacing
+            }
+            y += line.height + spacing
+        }
+    }
+
+    private struct Line {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func lines(_ subviews: Subviews, width: CGFloat) -> [Line] {
+        var lines = [Line()]
+        for (index, subview) in subviews.enumerated() {
+            let size = subview.sizeThatFits(.unspecified)
+            if !lines[lines.count - 1].indices.isEmpty && lines[lines.count - 1].width + spacing + size.width > width {
+                lines.append(Line())
+            }
+            var line = lines[lines.count - 1]
+            line.width += (line.indices.isEmpty ? 0 : spacing) + size.width
+            line.height = Swift.max(line.height, size.height)
+            line.indices.append(index)
+            lines[lines.count - 1] = line
+        }
+        return lines
+    }
+}
+
 private struct KeySequenceControl<Label: View>: View {
     let items: [[String: Any]]
+    let max: Int
     let commit: ([[String: Any]]) -> Void
     @ViewBuilder let label: Label
     @StateObject private var recorder = ShortcutRecorder()
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            LabeledContent {
+        LabeledContent {
+            // The keys in order, then the button to add one, on as many lines as they take.
+            TrailingFlowLayout(spacing: 6) {
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    HStack(spacing: 2) {
+                        Text(KeyCombination(setting: item)?.displayName ?? "?").monospacedDigit()
+                        Button {
+                            // A recording would add its key to the list as it was before.
+                            recorder.cancel()
+                            var updated = items
+                            updated.remove(at: index)
+                            commit(updated)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .help("Remove")
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.15)))
+                }
                 let isActive = recorder.activeID != nil
-                let title = items.isEmpty ? "Record Key" : "Add Key"
+                let isFull = items.count >= max
                 Button {
                     if isActive {
                         recorder.cancel()
@@ -1043,36 +1204,13 @@ private struct KeySequenceControl<Label: View>: View {
                         recorder.start(id: 0) { commit(items + [["key": $0.key, "modifiers": $0.modifiers]]) }
                     }
                 } label: {
-                    RecordingLabel(isActive ? "Press keys…" : title)
+                    RecordingLabel(isActive ? "Press keys…" : items.isEmpty ? "Record Key" : "Add Key")
                 }
-                .help(isActive ? "Click to cancel" : "Click, then press a key (with any modifier keys)")
-            } label: {
-                label
+                .help(isActive ? "Click to cancel" : isFull ? "At most \(max) keys" : "Click, then press a key (with any modifier keys)")
+                .disabled(isFull && !isActive)
             }
-            if !items.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                        HStack(spacing: 2) {
-                            Text(KeyCombination(setting: item)?.displayName ?? "?").monospacedDigit()
-                            Button {
-                                // A recording would add its key to the list as it was before.
-                                recorder.cancel()
-                                var updated = items
-                                updated.remove(at: index)
-                                commit(updated)
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                            }
-                            .buttonStyle(.borderless)
-                            .foregroundStyle(.secondary)
-                            .help("Remove")
-                        }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.15)))
-                    }
-                }
-            }
+        } label: {
+            label
         }
         .onDisappear { recorder.cancel() }
     }
@@ -1127,6 +1265,7 @@ private struct GroupedControl: View {
                 FittingNumberField(value: (value as? NSNumber)?.doubleValue ?? 0, min: min, max: max, decimals: step.map { $0 < 1 } ?? false) {
                     model.set(field.key, $0)
                 }
+                if let unit = field.unit { Text(unit).padding(.leading, -4) }
             }
         case let .select(options):
             let current = value as? String ?? ""
@@ -1177,7 +1316,7 @@ private struct SteadyMenu<Menu: View>: View {
 }
 
 /// A number as it's saved: an integer when it's a whole one.
-private func storedNumber(_ number: Double) -> Any {
+func storedNumber(_ number: Double) -> Any {
     number.rounded() == number && abs(number) < 1e15 ? Int(number) as Any : number as Any
 }
 
@@ -1880,7 +2019,7 @@ private struct ReplacementsControl: View {
                 }
             }
             HStack {
-                Button("Add Replacement") {
+                Button("Add") {
                     rows.append()
                     model.set(key, items + [["pattern": "", "replaces": "", "flags": ["g"], "enabled": true]])
                 }
@@ -2003,7 +2142,7 @@ private struct AudioSourcesControl: View {
                     if let updated = rows.apply(change, to: id, in: items) { model.set(key, updated) }
                 }
             }
-            Button("Add Audio Source") {
+            Button("Add") {
                 rows.append()
                 model.set(key, items + [["type": unusedType(), "url": "", "voice": "", "apiKey": ""]])
             }
@@ -2337,7 +2476,8 @@ private struct TerminationCharactersControl: View {
     /// One character: typing replaces it (Yomitan's field takes one character).
     private func characterField(_ index: Int, _ field: String) -> some View {
         TextField("", text: Binding(
-            get: { items.indices.contains(index) ? items[index][field] as? String ?? "" : "" },
+            // Only the first, if an import brought more.
+            get: { items.indices.contains(index) ? (items[index][field] as? String)?.first.map(String.init) ?? "" : "" },
             set: { update(index, [field: $0.last.map(String.init) ?? ""]) }
         ))
         // The borderless field at its own size, centered in a drawn border: a bordered field grows
@@ -2408,7 +2548,7 @@ private struct HotkeysControl: View {
                 }
             }
             HStack {
-                Button("Add Shortcut") {
+                Button("Add") {
                     rows.append()
                     model.set(key, items + [["action": "close", "argument": "", "key": "", "modifiers": [String](), "enabled": true]])
                 }
@@ -2494,7 +2634,7 @@ private struct HotkeyRow: View {
                 // action's dropdown gets truncated instead (see shrinking).
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 2) {
-                        clearButton("Clear the keyboard shortcut", hidden: combination == nil) {
+                        ClearCircleButton(help: "Clear the keyboard shortcut", hidden: combination == nil, keepsSpace: true) {
                             if recorder.activeID == id { recorder.cancel() }
                             change(.set(["key": "", "modifiers": [String]()]))
                         }
@@ -2523,24 +2663,13 @@ private struct HotkeyRow: View {
     private var buttonsControl: some View {
         let buttons = item["buttons"] as? [String] ?? []
         return HStack(spacing: 2) {
-            clearButton("Clear the controller buttons", hidden: buttons.isEmpty) {
+            ClearCircleButton(help: "Clear the controller buttons", hidden: buttons.isEmpty, keepsSpace: true) {
                 change(.set(["buttons": [String]()]))
             }
             GamepadComboButton(buttons: buttons) { change(.set(["buttons": $0])) }
         }
     }
 
-    /// A button that clears the keyboard shortcut or controller buttons next to it. It still takes up space when
-    /// there's nothing to clear, so the controls in every row line up.
-    private func clearButton(_ help: String, hidden: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: "xmark.circle.fill") }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .help(help)
-            .opacity(hidden ? 0 : 1)
-            .disabled(hidden)
-            .accessibilityHidden(hidden)
-    }
 
     private var recordButton: some View {
         let isActive = recorder.activeID == id

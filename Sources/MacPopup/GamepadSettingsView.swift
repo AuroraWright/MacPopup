@@ -208,15 +208,15 @@ struct GamepadComboButton: View {
     }
 }
 
-/// A controller combination setting, with a button to clear it.
+/// A controller combination setting, with a button before it to clear it.
 struct GamepadComboControl: View {
     let buttons: [String]
     let commit: ([String]) -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: 2) {
+            ClearCircleButton(help: "Clear the controller buttons", hidden: buttons.isEmpty) { commit([]) }
             GamepadComboButton(buttons: buttons, commit: commit)
-            Button("Clear") { commit([]) }.disabled(buttons.isEmpty)
         }
     }
 }

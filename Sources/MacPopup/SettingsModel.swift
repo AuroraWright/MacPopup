@@ -33,9 +33,9 @@ final class SettingsModel: ObservableObject {
         merge(changes)
     }
 
-    /// Saves several settings at once, e.g. imported ones.
+    /// Saves several settings at once, e.g. imported ones (brought within Settings' limits).
     func merge(_ changes: [String: Any]) {
-        save(values.merging(changes) { _, new in new })
+        save(values.merging(SettingsSchema.clamped(changes)) { _, new in new })
     }
 
     func reset() {

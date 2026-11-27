@@ -26,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BridgeHost, NSMenuDele
     private var welcomeWindow: WelcomeWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Before anything reads them.
+        SettingsSchema.clampStored()
         schemeHandler = WebAssetsSchemeHandler(root: WebViewFactory.webRoot)
         bridge.host = self
 

@@ -45,8 +45,8 @@ def check_profile():
     rows = until(lambda: len(controlled()) == len(DISPLAY + DICTIONARY) and controlled(), timeout=10)
     equal(rows or controlled(), in_order(DISPLAY + DICTIONARY), 'rows controlled by Yomitan with its display settings used')
     equal(enabled('AXPopUpButton', 'Scale'), False, 'the Scale menu is disabled')
-    # The section's first switch: Use Yomitan's display settings.
-    ax('press', 'AXCheckBox', '', 1)
+    # The section's first switch: Use Yomitan's display settings (after the sidebar's Show help).
+    ax('press', 'AXCheckBox', '', 2)
     time.sleep(1)
     equal(settings().get('useYomitanDisplay'), False, 'useYomitanDisplay saved')
     equal(controlled(), in_order(DICTIONARY), 'rows controlled by Yomitan without its display settings: the dictionary ones')
