@@ -23,8 +23,9 @@ final class SavedLines {
     }
 
     private static let format = "macpopup-lines"
-    /// The most lines saved for the next launch (the newest), since "Maximum lines kept" can be unlimited.
-    private static let maxSaved = 1000
+    /// The most lines the text box keeps ("Maximum lines kept", where 0 is the most; MAX_KEPT_LINES in
+    /// web/src/overlay.js), and saves for the next launch (the newest).
+    static let maxKept = 1000
 
     /// Application Support/MacPopup/lines.json; MACPOPUP_LINES_FILE for test runs.
     private static let url = DevelopmentEnvironment["MACPOPUP_LINES_FILE"].map { URL(fileURLWithPath: $0) }
@@ -78,7 +79,7 @@ final class SavedLines {
         }
         do {
             try FileManager.default.createDirectory(at: Self.url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try encode(lines.suffix(Self.maxSaved)).write(to: Self.url, options: .atomic)
+            try encode(lines.suffix(Self.maxKept)).write(to: Self.url, options: .atomic)
         } catch {
             DebugLog.note("Couldn’t save the Floating Window’s lines: \(error.localizedDescription)")
         }

@@ -158,7 +158,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         alert.addButton(withTitle: "Cancel")
         guard runModal(alert) == .alertFirstButtonReturn else { return }
         window?.makeFirstResponder(nil)
-        SettingsStore.shared.update(json: SettingsSupport.encode(SettingsSchema.clamped(settings)))
+        SettingsStore.shared.update(json: SettingsSupport.encode(settings))
         inform("Imported \(settings.count) settings.")
     }
 
@@ -204,12 +204,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
         SavedLines.shared.replace(with: lines)
         // The text box keeps only the newest of them past Maximum lines kept.
-        // As keptLines in web/src/overlay.js: 0 is the most, 1000.
         let stored = (SettingsStore.shared.dictionary["maxLines"] as? NSNumber)?.intValue ?? 0
-        let most = stored > 0 ? min(stored, 1000) : 1000
+        let most = stored > 0 ? min(stored, SavedLines.maxKept) : SavedLines.maxKept
         let kept = min(lines.count, most)
+        let why = stored > 0 ? "as Maximum lines kept is \(most)" : "as the text box keeps at most \(most)"
         inform("Imported \(kept) \(kept == 1 ? "line" : "lines").",
-               detail: kept < lines.count ? "The file has \(lines.count): the oldest are left out, as Maximum lines kept is \(most)." : "")
+               detail: kept < lines.count ? "The file has \(lines.count): the oldest are left out, \(why)." : "")
     }
 
     private func exportLines() {

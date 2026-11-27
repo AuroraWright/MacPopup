@@ -858,7 +858,6 @@ private func recordHelp(_ combination: KeyCombination?) -> String {
     combination.map { "\($0.displayName). Click to record a different key combination" } ?? "Click, then press a key combination"
 }
 
-/// Records one keyboard shortcut.
 /// A button that clears the keyboard shortcut or controller buttons after it. Hidden when there's nothing to clear,
 /// it still takes up space if `keepsSpace`, so the controls in a list's rows line up.
 struct ClearCircleButton: View {
@@ -880,6 +879,7 @@ struct ClearCircleButton: View {
     }
 }
 
+/// Records one keyboard shortcut.
 private struct ShortcutControl: View {
     let value: [String: Any]?
     let commit: ([String: Any]?) -> Void
@@ -888,9 +888,14 @@ private struct ShortcutControl: View {
     var body: some View {
         HStack(spacing: 2) {
             let isActive = recorder.activeID != nil
-            ClearCircleButton(help: "Clear the keyboard shortcut", hidden: value == nil) {
-                recorder.cancel()
-                commit(nil)
+            // While recording, it stops without changing the shortcut.
+            ClearCircleButton(help: isActive ? "Stop recording without changing the shortcut" : "Clear the keyboard shortcut",
+                              hidden: value == nil) {
+                if isActive {
+                    recorder.cancel()
+                } else {
+                    commit(nil)
+                }
             }
             Button {
                 if isActive {
@@ -948,16 +953,23 @@ private struct FontPreview: NSViewRepresentable {
         let keyed = Dictionary(uniqueKeysWithValues: attributes.map { (NSAttributedString.Key($0.key), $0.value) })
         let fullName = name.isEmpty ? "System font" : font?.displayName ?? name
         let sizeText = ", \(size.formatted()) px"
-        var shown = NSAttributedString(string: fullName + sizeText, attributes: keyed)
-        var shortened = fullName
-        while shown.size().width > Self.maxWidth, !shortened.isEmpty {
-            shortened.removeLast()
-            shown = NSAttributedString(
-                string: shortened.trimmingCharacters(in: .whitespaces) + "…" + sizeText, attributes: keyed
-            )
+        func text(_ name: String) -> NSAttributedString { NSAttributedString(string: name + sizeText, attributes: keyed) }
+        var shown = text(fullName)
+        if shown.size().width > Self.maxWidth {
+            // The longest start of the name that fits with "…", found by halves (it's wider with more of the name).
+            let characters = Array(fullName)
+            func start(_ count: Int) -> NSAttributedString {
+                text(String(characters[..<count]).trimmingCharacters(in: .whitespaces) + "…")
+            }
+            var fits = 0, tooWide = characters.count
+            while tooWide - fits > 1 {
+                let middle = (fits + tooWide) / 2
+                if start(middle).size().width <= Self.maxWidth { fits = middle } else { tooWide = middle }
+            }
+            shown = start(fits)
         }
         field.attributedStringValue = shown
-        field.toolTip = shortened == fullName ? nil : fullName + sizeText
+        field.toolTip = shown.string == fullName + sizeText ? nil : fullName + sizeText
         field.backgroundColor = FontEffects.color(effects["backgroundColor"])
         field.drawsBackground = field.backgroundColor != nil
     }
@@ -1116,8 +1128,6 @@ final class FontPanelTarget: NSResponder, NSFontChanging {
     }
 }
 
-/// Keys pressed in turn: each can be removed, and more recorded. They're listed at the bottom right of the row, so
-/// they don't take room from the label and its hint.
 /// Its views in lines aligned to the right, starting a line when one is full rather than overflowing.
 private struct TrailingFlowLayout: Layout {
     var spacing: CGFloat = 8
@@ -1164,6 +1174,8 @@ private struct TrailingFlowLayout: Layout {
     }
 }
 
+/// Keys pressed in turn, at most `max`: each can be removed, and more recorded. Below the row's hint, they're in lines
+/// at its right, so long key names start a line rather than overflow.
 private struct KeySequenceControl<Label: View>: View {
     let items: [[String: Any]]
     let max: Int

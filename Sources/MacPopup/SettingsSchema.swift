@@ -152,16 +152,15 @@ enum SettingsSchema {
     ]
     static let yomitanDictionaryKeys: Set = ["definitionsCollapsible", "dictionaryCollapsible", "dictionaryStyles"]
 
-    /// The stored settings brought within Settings' limits (see `clamped`), at launch: an older version, or a backup
-    /// edited by hand, may have saved others.
+    /// The stored settings brought within Settings' limits at launch (saving clamps them, see SettingsStore.update): an
+    /// older version, or a backup edited by hand, may have saved others.
     static func clampStored() {
         let stored = SettingsStore.shared.dictionary
-        let clamped = clamped(stored)
-        guard !NSDictionary(dictionary: clamped).isEqual(to: stored) else { return }
-        SettingsStore.shared.update(json: SettingsSupport.encode(clamped))
+        guard !NSDictionary(dictionary: clamped(stored)).isEqual(to: stored) else { return }
+        SettingsStore.shared.update(json: SettingsStore.shared.json)
     }
 
-    /// Settings brought within the limits that Settings keeps when editing, for imports: numbers in their range, lists
+    /// Settings brought within the limits that Settings keeps when editing, whoever saves them: numbers in their range, lists
     /// no longer than their maximum, and one character per sentence termination character (as Yomitan's schema).
     static func clamped(_ settings: [String: Any]) -> [String: Any] {
         var settings = settings
@@ -371,14 +370,14 @@ enum SettingsSchema {
                 ),
                 SettingsField(
                     "boxFontFamily", "Font", .font(size: "fontSize", effects: "boxFontEffects"),
-                    hint: "Choose the font, size, and text effects in the macOS Fonts panel; a custom text color overrides the theme."
+                    hint: "Choose the text font, color, size and effects from the macOS Fonts panel. Anything selected here will override the theme."
                 ),
                 SettingsField("linePadding", "Line spacing", .number(min: 0, max: 100), unit: "px", hint: "Space above and below each line (beside it in vertical text)."),
                 SettingsField(
-                    "preventLastDuplicate", "Skip duplicates within last N lines", .number(min: 0, max: 1000),
+                    "preventLastDuplicate", "Skip duplicates within last N lines", .number(min: 0, max: Double(SavedLines.maxKept)),
                     hint: "Ignores a new line if it matches any of the last N lines shown (0 = off)."
                 ),
-                SettingsField("maxLines", "Maximum lines kept", .number(min: 0, max: 1000), hint: "Removes the oldest lines once the text box exceeds this limit (0 = 1000)."),
+                SettingsField("maxLines", "Maximum lines kept", .number(min: 0, max: Double(SavedLines.maxKept)), hint: "Removes the oldest lines once the text box exceeds this limit (0 = 1000)."),
                 SettingsField(
                     "preventGlobalDuplicate", "Skip all duplicate lines", .checkbox,
                     hint: "Ignores any line that has already appeared in the text box."
@@ -614,7 +613,7 @@ enum SettingsSchema {
                 SettingsField("scanInputs", "Advanced scanning inputs", .scanInputs, showIf: { $0["scanModifier"] as? String == "custom" }),
                 SettingsField(
                     "gamepadScanButtons", "Controller scan key (text box/OCR text)", .gamepadCombo,
-                    hint: "Starts or stops controller scanning using the D-pad or a thumbstick (on controllers set up in Settings → Controllers; steps by Scan resolution). Hides controller input from your game while scanning, though this combination still passes through—choose unused buttons (such as L3 + R3)."
+                    hint: "Starts or stops scanning text with a controller set up in Settings → Controllers, moving by character or word (see Scan resolution) with the D-pad or a thumbstick. Hides controller input from your game while scanning, though this combination still passes through—choose unused buttons (such as L3 + R3)."
                 ),
                 SettingsField(
                     "gamepadPopupDelay", "Controller popup delay", .number(min: 0, max: 5000), unit: "ms",

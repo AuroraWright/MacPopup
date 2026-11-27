@@ -20,17 +20,21 @@ final class SettingsStore {
         dictionary = Self.parse(json)
     }
 
-    func update(json newJSON: String) {
-        json = newJSON
-        dictionary = Self.parse(newJSON)
-        defaults.set(newJSON, forKey: defaultsKey)
+    /// Saves the settings, brought within Settings' limits (SettingsSchema.clamped) whoever saves them: the pages,
+    /// Settings, imports or the app itself.
+    @MainActor func update(json newJSON: String) {
+        let parsed = Self.parse(newJSON)
+        let clamped = SettingsSchema.clamped(parsed)
+        json = NSDictionary(dictionary: clamped).isEqual(to: parsed) ? newJSON : SettingsSupport.encode(clamped)
+        dictionary = clamped
+        defaults.set(json, forKey: defaultsKey)
         for observer in observers {
-            observer(newJSON)
+            observer(json)
         }
     }
 
     /// Saves `changes` over the stored settings.
-    func update(_ changes: [String: Any]) {
+    @MainActor func update(_ changes: [String: Any]) {
         let settings = dictionary.merging(changes) { $1 }
         guard let data = try? JSONSerialization.data(withJSONObject: settings),
               let json = String(data: data, encoding: .utf8) else { return }

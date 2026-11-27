@@ -40,7 +40,7 @@ PAIRS = [
      {'language': 'en', 'ocrWindow': {'ownerName': 'MacPopupTestNoSuchApp', 'title': 'A much longer window title than the other'}}),
     ('Yomitan Popup', 'popup',
      {'popupTheme': 'light', 'popupOuterTheme': 'light', 'popupScalingFactor': 1, 'popupWidth': 400, 'popupHeight': 250},
-     {'popupTheme': 'site', 'popupOuterTheme': 'none', 'popupScalingFactor': 0.25, 'popupWidth': 12000, 'popupHeight': 9}),
+     {'popupTheme': 'site', 'popupOuterTheme': 'none', 'popupScalingFactor': 0.25, 'popupWidth': 2000, 'popupHeight': 100}),
 ]
 
 

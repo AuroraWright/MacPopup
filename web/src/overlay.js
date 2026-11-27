@@ -155,15 +155,22 @@ function scrollToEnd() {
  * @typedef {{id: ?number, player: ?object}} ShownLine
  */
 
+/** The most lines the text box keeps: Maximum lines kept, where 0 is the most (SavedLines.maxKept in the app). */
+const MAX_KEPT_LINES = 1000;
+
+/**
+ * Drops the oldest lines past Maximum lines kept. With 0 (texthooker-ui's "unlimited") it keeps MAX_KEPT_LINES, but
+ * "Skip all duplicate lines" still remembers the ones dropped, as it would with them all kept.
+ */
+function trimLines(settings = getSettings()) {
+	const most = settings.maxLines > 0 ? Math.min(settings.maxLines, MAX_KEPT_LINES) : MAX_KEPT_LINES;
+	while (state.lines.length > most) removeLine(state.lines[0], settings.maxLines > 0);
+}
+
 /**
  * Whether the host's ids for lines are used: for cards, for where the controller starts in the OCR overlay (see
  * firstOcrIndex), or for the text box's lines read with OCR.
  */
-/** The most lines the text box keeps: Maximum lines kept, where 0 (texthooker-ui's "unlimited") is the most, 1000. */
-function keptLines(settings = getSettings()) {
-	return settings.maxLines > 0 ? Math.min(settings.maxLines, 1000) : 1000;
-}
-
 function notesLines(settings = getSettings()) {
 	return !!settings.ankiEnabled || readsOcr(settings);
 }
@@ -333,9 +340,7 @@ function pushLine(rawText, { line: shown = null, replaced = false } = {}) {
 	const line = { id: `${state.nextId++}`, shown, text, time: Date.now(), tokens: null, element: null, tokenizing: new AbortController() };
 	state.lines.push(line);
 	countLine(text, 1);
-	while (state.lines.length > keptLines(settings)) {
-		removeLine(state.lines[0]);
-	}
+	trimLines(settings);
 	sendLines();
 
 	// Not while the box is hidden by the OCR overlay: it would play when the box is shown again.
@@ -368,11 +373,12 @@ function hearsLive(settings) {
 	return !['whisper', 'animeWhisper'].includes(settings.transcriptionModel ?? 'soda');
 }
 
-function removeLine(line) {
+/** Removes a line from the text box, and from what "Skip all duplicate lines" remembers unless `forget` is false. */
+function removeLine(line, forget = true) {
 	const index = state.lines.indexOf(line);
 	if (index < 0) return;
 	state.lines.splice(index, 1);
-	countLine(line.text, -1);
+	if (forget) countLine(line.text, -1);
 	line.element?.remove();
 	line.tokenizing.abort();
 	linesInView.delete(line);
@@ -421,8 +427,7 @@ function prependLines(saved) {
 	if (lines.length === 0) return;
 	state.lines.unshift(...lines);
 	for (const line of lines) countLine(line.text, 1);
-	const kept = keptLines();
-	while (state.lines.length > kept) removeLine(state.lines[0]);
+	trimLines();
 	rerenderLines();
 	scrollToEnd();
 	sendLines();
