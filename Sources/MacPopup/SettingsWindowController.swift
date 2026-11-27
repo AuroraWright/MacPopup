@@ -25,7 +25,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// Opens the window, on a section (its title) when given.
     func show(above level: NSWindow.Level, section: String? = nil) {
         if let section {
-            // SettingsView's selection, which follows it while the window is open too.
+            // The sidebar's selection (see SettingsSidebar), which follows it while the window is open too.
             SettingsStore.shared.defaults.set(section, forKey: "settingsSection")
         }
         if window == nil {
@@ -44,20 +44,38 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             )
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 820, height: 640),
-                styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                // Full size: the sidebar goes up under the title bar.
+                styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
+            // Not shown: the sections' own titles name them (still the window's name in Mission Control and the Window menu).
             window.title = "MacPopup Settings"
+            window.titleVisibility = .hidden
+            // Nor a bar behind it when the form scrolls under it.
+            window.titlebarAppearsTransparent = true
             window.isReleasedWhenClosed = false
             window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
             window.delegate = self
-            // Resizable in height only, as the sections' layout is made for this width: the hosting controller makes
-            // the view's size limits the window's (replacing contentMinSize and contentMaxSize).
-            window.contentViewController = NSHostingController(rootView: SettingsView(model: model, recorder: recorder, actions: actions)
+            // A split view with macOS's own sidebar: the full height of the window, under its title bar, and on macOS 26
+            // a pane of Liquid Glass. Neither resizable nor collapsible, as the sections' layout is made for the width
+            // left, and the window is resizable in height only, from its default height up: the hosting controllers make
+            // the views' size limits the window's (replacing contentMinSize and contentMaxSize).
+            let sidebar = NSSplitViewItem(sidebarWithViewController: NSHostingController(rootView: SettingsSidebar(actions: actions)
+                .defaultAppStorage(SettingsStore.shared.defaults)))
+            sidebar.minimumThickness = 190
+            sidebar.maximumThickness = 190
+            sidebar.canCollapse = false
+            let detail = NSSplitViewItem(viewController: NSHostingController(rootView: SettingsDetail(model: model, recorder: recorder, actions: actions)
                 .defaultAppStorage(SettingsStore.shared.defaults)
-                .frame(width: 820)
-                .frame(minHeight: 400, maxHeight: .infinity))
+                .frame(width: 629)
+                // Not shorter than it opens: the form's height there is the window's below its title bar.
+                .frame(minHeight: window.contentLayoutRect.height, maxHeight: .infinity)
+                // Up to the window's top: the title bar shows nothing over the form.
+                .ignoresSafeArea(edges: .top)))
+            let split = NSSplitViewController()
+            split.splitViewItems = [sidebar, detail]
+            window.contentViewController = split
             window.setContentSize(NSSize(width: 820, height: 640))
             window.center()
             self.window = window

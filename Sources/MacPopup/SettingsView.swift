@@ -20,46 +20,58 @@ struct SettingsActions {
     var clearTranscripts: () -> Void
 }
 
-struct SettingsView: View {
+/// Settings' sidebar: the sections, and Import, Export and Reset All at its foot. In the window's split view (see
+/// SettingsWindowController) beside SettingsDetail, which shows the section chosen (settingsSection, shared through
+/// their app storage).
+struct SettingsSidebar: View {
+    let actions: SettingsActions
+    @AppStorage("settingsSection") private var selection = SettingsSchema.sections[0].title
+
+    var body: some View {
+        List(SettingsSchema.sections, selection: $selection) { section in
+            Label(section.title, systemImage: section.symbol).tag(section.title)
+        }
+        .listStyle(.sidebar)
+        // Its first row further below the window's buttons, which are over the sidebar.
+        .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: 16) }
+        // On the sidebar's material, as the list scrolls under it.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                // The same width: the sidebar's, with the titles on the left, where a menu draws its own.
+                Menu("Import") {
+                    Button("Yomitan Settings…", action: actions.importYomitan)
+                    Button("texthooker-ui Settings…", action: actions.importTexthooker)
+                    Divider()
+                    Button("MacPopup Settings…", action: actions.importBackup)
+                    Button("Floating Window Lines…", action: actions.importLines)
+                }
+                .frame(maxWidth: .infinity)
+                .help("Import settings from Yomitan, texthooker-ui or a MacPopup settings file, or the Floating Window’s lines.")
+                Menu("Export") {
+                    Button("MacPopup Settings…", action: actions.exportBackup)
+                    Button("Floating Window Lines…", action: actions.exportLines)
+                }
+                .frame(maxWidth: .infinity)
+                .help("Save all settings, or the Floating Window’s lines, to a file.")
+                Button(role: .destructive, action: actions.resetAll) {
+                    Text("Reset All…").frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// The section chosen in SettingsSidebar.
+struct SettingsDetail: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var recorder: ScanInputRecorder
     let actions: SettingsActions
     @AppStorage("settingsSection") private var selection = SettingsSchema.sections[0].title
 
     var body: some View {
-        HStack(spacing: 0) {
-            List(SettingsSchema.sections, selection: $selection) { section in
-                Label(section.title, systemImage: section.symbol).tag(section.title)
-            }
-            .listStyle(.sidebar)
-            // On the sidebar's material, as the list scrolls under it.
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
-                    // The same width: the sidebar's, with the titles on the left, where a menu draws its own.
-                    Menu("Import") {
-                        Button("Yomitan Settings…", action: actions.importYomitan)
-                        Button("texthooker-ui Settings…", action: actions.importTexthooker)
-                        Divider()
-                        Button("MacPopup Settings…", action: actions.importBackup)
-                        Button("Floating Window Lines…", action: actions.importLines)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .help("Import settings from Yomitan, texthooker-ui or a MacPopup settings file, or the Floating Window’s lines.")
-                    Menu("Export") {
-                        Button("MacPopup Settings…", action: actions.exportBackup)
-                        Button("Floating Window Lines…", action: actions.exportLines)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .help("Save all settings, or the Floating Window’s lines, to a file.")
-                    Button(role: .destructive, action: actions.resetAll) {
-                        Text("Reset All…").frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(width: 200)
-            Divider()
+        Group {
             if let section = SettingsSchema.sections.first(where: { $0.title == selection }) ?? SettingsSchema.sections.first {
                 SectionForm(section: section, model: model, recorder: recorder, actions: actions)
                     .id(section.title)

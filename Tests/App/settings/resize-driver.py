@@ -45,4 +45,9 @@ if open_settings('WebSockets', 'WebSocket URLs (one per line)'):
             equal(now and now[2], w, f'after dragging the bottom edge down {room} pt: its width')
             check(now is not None and abs(now[3] - (h + room)) <= 2,
                   f'after dragging the bottom edge down {room} pt: its height {now and now[3]} (expected {h + room} ± 2)')
+            # Back up, and 150 pt past where it started: no shorter than it opened.
+            if now:
+                up = drag(f'bottom edge up {room + 150}', (x + w // 2, y + now[3] - 1), (x + w // 2, y + now[3] - 1 - room - 150))
+                check(up is not None and abs(up[3] - h) <= 2,
+                      f'after dragging the bottom edge up {room + 150} pt: its height {up and up[3]} (expected {h} ± 2, as it opened)')
     check(running(), 'MacPopup still running')
