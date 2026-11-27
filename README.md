@@ -83,10 +83,10 @@ Instead of setting MacPopup up from scratch, click **Import** at the bottom of t
 - **MacPopup Settings…**: A file saved with **Export → MacPopup Settings…**. It replaces all your current settings.
 
 > [!NOTE]
-> If your Yomitan shares its settings through its API (not in a Yomitan release yet), there's nothing to import: popups
-> follow your Yomitan's look, dictionaries and collapse rules, and stay in sync with it. To use MacPopup's own look
-> instead, turn off **Use Yomitan's display settings** in *Settings → Yomitan Popup*. With an older Yomitan, MacPopup
-> uses what you imported.
+> With Yomitan 26.11.25.0 or newer, which shares its settings through its API, there's nothing to import: popups follow
+> your Yomitan's look, dictionaries and collapse rules, and stay in sync with it. To use MacPopup's own look instead,
+> turn off **Use Yomitan's display settings** in *Settings → Yomitan Popup*. With an older Yomitan, MacPopup uses what
+> you imported.
 
 ---
 
