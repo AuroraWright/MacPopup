@@ -234,13 +234,13 @@ struct SettingsView: View {
                 Section {
                     Toggle("Crop before reading", isOn: $cropsPictures)
                 } footer: {
-                    Text("Images chosen in the app (excluding Shortcuts, Control Center, and the Share Sheet) open in a crop view first so you can select a specific area.")
+                    Text("Opens a crop view for images chosen in the app (excluding Shortcuts, Control Center, and the Share Sheet).")
                 }
                 Section {
                     Button("Delete All Readings…", role: .destructive) { confirmsDeletingAll = true }
                         .disabled(model.readings.isEmpty)
                 } footer: {
-                    Text("Swipe left on any reading in the list to delete it individually.")
+                    Text("Swipe left on any reading in the list to delete it.")
                 }
             }
             .navigationTitle("Settings")
@@ -260,7 +260,7 @@ struct SettingsView: View {
     }
 
     private var engineHint: String {
-        var hint = "Live Text is built into iOS. meikiocr (by rtr46) is fast and specialized for Japanese game text. PP-OCRv6 Manga (by Kellenok) is specialized for Japanese and Chinese manga. mida + VOCR6 (rtr46’s line finder with vita-vn-ocr’s reader) is fast and reads Japanese game text, horizontal and vertical. Screen AI and OneOCR appear once their models are loaded below. Google Lens and Bing read online: the picture is sent to Google or Microsoft (not in continuous reading)."
+        var hint = "Live Text (iOS): built in. meikiocr (rtr46): fast, for Japanese game text. PP-OCRv6 Manga (Kellenok): for Japanese and Chinese manga. mida + VOCR6 (rtr46 + vita-vn-ocr): fast, horizontal and vertical Japanese game text. Screen AI and OneOCR appear once loaded below. Google Lens and Bing read online by sending the image to Google or Microsoft (not used in continuous reading)."
         if !OCRLanguage.isRead(language, by: engine) {
             let name = model.languages.first { $0.iso == language }?.name ?? language
             hint += "\n\n\(name) isn’t supported by this engine: "

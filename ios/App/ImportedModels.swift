@@ -24,7 +24,7 @@ struct ImportedModelsSection: View {
         } header: {
             Text("Imported Engines")
         } footer: {
-            Text("Screen AI (Chrome’s OCR) and OneOCR (Windows Snipping Tool’s OCR) recognize most languages automatically. Because their models can’t be bundled with MacPopup, package them on a Mac using scripts/convert-screenai.py or scripts/convert-oneocr.py, transfer the .zip archive via Files (iCloud Drive or AirDrop), and load it here.")
+            Text("Screen AI (Chrome) and OneOCR (Windows Snipping Tool) recognize most languages automatically. Package them on a Mac using scripts/convert-screenai.py or scripts/convert-oneocr.py, transfer the .zip via Files (iCloud Drive or AirDrop), and load it here.")
         }
     }
 }

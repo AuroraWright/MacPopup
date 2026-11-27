@@ -589,7 +589,7 @@ struct ContinuousView: View {
                 Button("Open the Live Page") { model.open(PageServer.live) }
             } footer: {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("While the broadcast runs, MacPopup reads the screen each time new text appears and settles, and adds it to the live page in Safari, where your dictionary extension looks it up. It uses more battery.")
+                    Text("While broadcasting, MacPopup reads settled screen text and adds it to Safari’s live page for dictionary lookups. Uses more battery.")
                     if engine.isEmpty && model.engine.isCloud {
                         Text("Continuous reading uses meikiocr instead, so the screen isn’t sent to \(model.engine.name) each time it changes.")
                     }
@@ -605,8 +605,8 @@ struct ContinuousView: View {
                 Text("Picture in Picture")
             } footer: {
                 Text(newLinesOnly
-                    ? "Displays a floating window over other apps with newly appearing lines—repeated UI text such as names and menus is shown only once. Move the window outside your capture areas so it isn’t scanned."
-                    : "Displays a floating window over other apps with the latest recognized text. Move the window outside your capture areas so it isn’t scanned.")
+                    ? "Floating window showing new lines over other apps (repeated UI text like names and menus appears once). Keep it outside your capture areas."
+                    : "Floating window showing the latest recognized text over other apps. Keep it outside your capture areas.")
             }
             Section {
                 ForEach(Array(continuous.areas.enumerated()), id: \.element.id) { index, area in
@@ -619,8 +619,8 @@ struct ContinuousView: View {
                 Text("Areas")
             } footer: {
                 Text(continuous.recentFrames.isEmpty
-                    ? "Without capture areas, the entire screen is scanned. To define an area, start reading, switch briefly to your game, then return here."
-                    : "Only the areas are watched and read (those drawn with the screen turned the same way). Without areas, the whole screen is read.")
+                    ? "Scans the whole screen unless areas are added. To add one, start reading, switch briefly to your game, then return here."
+                    : "Watches only areas matching the current orientation (scans the whole screen if none are set).")
             }
             Section {
                 Picker("Engine", selection: $engine) {
@@ -647,7 +647,7 @@ struct ContinuousView: View {
             } header: {
                 Text("Reading")
             } footer: {
-                Text("Shorter intervals and lower change thresholds detect new text faster at the cost of battery life. Minimum Change sets how much an area must change to trigger recognition. Text is saved once it stays unchanged for the settle delay (or once the screen stops changing); text over animated backgrounds is saved after the max wait time.")
+                Text("Shorter intervals and lower Minimum Change thresholds detect new text faster but use more battery. Text is saved after staying unchanged for the settle delay (or once the screen stops changing), or after the max wait time over animated backgrounds.")
             }
             Section("Latest") {
                 Text(continuous.latest?.text ?? "Nothing read yet.")
