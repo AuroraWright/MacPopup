@@ -1951,8 +1951,8 @@ private struct AudioSourceRow: View {
                         bordered: true
                     ) { change(.set("url", $0.trimmingCharacters(in: .whitespacesAndNewlines))) }
                     Text(type == "custom"
-                        ? "Placeholders {term}, {reading}, and {language} are replaced with the looked-up word, its reading, and its language code (e.g. ja)."
-                        : "Supports {term}, {reading}, and {language} placeholders. Expects a JSON list of audio files in Yomitan’s custom audio format (e.g. from a local audio server).")
+                        ? "Supports {term}, {reading}, and {language} (a language code, e.g. ja) placeholders."
+                        : "Supports {term}, {reading}, and {language}; expects Yomitan’s custom audio list JSON format (e.g. from a local server).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 case "text-to-speech", "text-to-speech-reading":
@@ -1962,14 +1962,14 @@ private struct AudioSourceRow: View {
                         ForEach(voices, id: \.value) { Text($0.label).tag($0.value) }
                     }
                     .fixedSize()
-                    Text("Text-to-speech can be played in popups, but cannot be saved to Anki cards.")
+                    Text("Plays in popups only; cannot be saved to Anki cards.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 case "forvo":
                     CommitTextField(value: item["apiKey"] as? String ?? "", placeholder: "API key", monospaced: true, bordered: true) {
                         change(.set("apiKey", $0.trimmingCharacters(in: .whitespacesAndNewlines)))
                     }
-                    Text("Plays pronunciations from Forvo for the language set in Settings → General, prioritizing native-country speakers and highest-rated recordings. If no recordings exist for the term, falls back to its reading. Requires a Forvo API key (api.forvo.com).")
+                    Text("Plays Forvo pronunciations for your Settings → General language, prioritizing native speakers and top-rated recordings (falls back to reading). Requires a Forvo API key (api.forvo.com).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 default:
